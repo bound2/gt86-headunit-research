@@ -73,3 +73,9 @@ contain only implemented auth/identification IDs. Tests compare the common field
 bytes separately, not a purported full upstream-vector match. Printable-ASCII
 limits, opt-in metadata, auth-before-identification ordering, ACK barriers,
 rejection-mask bounds and deadlines are local policies, not Apple requirements.
+
+`iap2_transport.c` and its fake-backend tests use the same GPL-3.0-or-later
+license. The byte-stream pump's pending-tail storage, completion validation,
+generation/cancellation contract and polling/deadline policy are independent
+local implementation choices. No QNX USB headers, driver code or credentials
+are copied into this implementation, and no native transport is supplied.

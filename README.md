@@ -91,11 +91,12 @@ creating its default `luac.out` output file.
 The selected approach is software only on the factory head unit. The new
 `carplay_protocol` C99 library implements iAP2 link framing/checksums, streaming
 frame reassembly, control-message encoding/decoding, and accessory authentication
-sequencing through a caller-supplied certificate/challenge provider. It performs
-no I/O and contains no authentication keys or fallback signer.
+sequencing through a caller-supplied certificate/challenge provider. The new
+transport pump invokes explicit backend callbacks; no built-in device I/O,
+authentication keys or fallback signer is supplied.
 
 `scripts/Build.ps1` builds this library and runs `iap2_tests`, `iap2_link_tests`,
-`iap2_control_tests` and `iap2_identification_tests` alongside the four existing
+`iap2_control_tests`, `iap2_identification_tests` and `iap2_transport_tests` alongside the four existing
 suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
@@ -131,7 +132,7 @@ The control-session adapter below now connects this engine to authentication;
 actual device transport and a real provider remain separate work. See
 [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
 
-Eight CTest suites pass, including 16 link test groups and a simulated two-endpoint
+Nine CTest suites pass, including 16 link test groups and a simulated two-endpoint
 exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
 checks use the installed LLVM and Visual Studio toolchain:
 
@@ -139,9 +140,9 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the four protocol test executables with AddressSanitizer and
+This builds/runs the five protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all five C99
+or car access is required. The ARM portability check now covers all six C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -190,6 +191,23 @@ with the pinned vectors, enforce metadata/size limits, and check sequencing.
 The extended endpoint simulation verifies a fragmented identification response
 despite packet loss, followed by a synthetic application roundtrip. See
 [CarPlay progress, Steps 28-30](reports/carplay-progress.md#step-28---add-an-atomic-application-reply-path).
+
+### Bounded byte-stream transport pump
+
+`iap2_transport.h` connects a caller-supplied nonblocking backend to the control
+endpoint. It retains one complete pending frame, accounts for partial writes
+and receive tails, and bounds work/backpressure/deadlines. Connection generations
+reject stale results after reconnect; cancellation clears transport and endpoint
+state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
+
+Fifteen test groups exercise a fake backend, including a complete synthetic
+authentication exchange over fragmented reads/writes. All nine CTest suites and
+five sanitized protocol suites pass. Details, callback lifetime requirements
+and the next CarPlay session task are in the new
+[step-by-step transport adapter report](reports/transport-adapter.md) and
+[CarPlay progress, Steps 34-36](reports/carplay-progress.md#step-34---implement-the-bounded-byte-stream-pump).
+Actual QNX USB transport, installed-version compatibility and real credentials
+remain unresolved; this is not a usable car-side receiver yet.
 
 ## Read-only firmware analysis
 

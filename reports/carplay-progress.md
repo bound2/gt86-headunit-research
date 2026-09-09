@@ -17,10 +17,12 @@ link profile adds negotiation, ACKs, retransmission and bounded queues with
 to authentication, including split/coalesced messages and larger replies. It
 now also supports atomic application replies and opt-in minimal accessory
 identification, with 20 control and seven dedicated identification test groups.
-All eight CTest suites pass, and all four protocol suites pass under host
-address/undefined-behavior sanitizers. The five C99
+The new bounded byte-stream transport pump retains partial writes, accounts for
+receive tails and closes failed/stale connections, with 15 dedicated test groups.
+All nine CTest suites pass, and all five protocol suites pass under host
+address/undefined-behavior sanitizers. The six C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-30. No real authentication provider or device transport is connected.
+Steps 22-36. No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
 All 13 earlier host-side
@@ -1365,7 +1367,7 @@ See the new report for reproduction commands and primary USB/QNX references.
 
 Status: design contract documented in
 [USB transport, Step 6](usb-transport.md#step-6---define-the-next-bounded-adapter);
-implementation is the next bounded task.
+implementation follows in Steps 34-36.
 
 The pump must retain a complete pending frame, track partial progress without
 interleaving, bound polling/deadlines, respect receive consumed counts, and clear
@@ -1374,11 +1376,65 @@ ownership, validated descriptors, correct DMA-buffer lifetimes and completion
 validation. HID framing is a separate profile, not automatically the required
 iAP2 transport. Stock-service resets or shutdowns are not an access strategy.
 
-Next implement the portable pump against a fake nonblocking byte-stream backend
+The plan at this checkpoint was to implement the portable pump against a fake nonblocking byte-stream backend
 and test partial/zero transfers, backpressure, stalls, disconnects and deadlines.
 Keep it independent of any guessed QNX device path or unverified role switch.
 Actual transport/profile selection, installed-version matching, authentication
 compatibility and execution/recovery access remain separate gates.
+
+## Step 34 - Implement the bounded byte-stream pump
+
+Status: previous USB investigation committed as `cec54b6`.
+Added allocation-free C99 `iap2_transport.h`/`.c` without changing the existing
+protocol APIs. Full step-by-step implementation notes are in the new
+[transport-adapter.md](transport-adapter.md).
+
+The pump owns one 1024-byte TX buffer and one 1024-byte RX buffer, performs at
+most one backend read/write each per poll, retains partial tails and honors
+receive consumed counts. It services input while output is blocked and exposes
+application messages through the existing control endpoint. Backends supply
+nonblocking synchronous callbacks; there is no USB implementation or HID profile.
+
+Results carry counts and connection generations. Out-of-range counts, invalid
+status combinations and stale results close the connection. Close cancels once,
+clears transport tails and resets endpoint state. Reconnect requires a fresh
+endpoint initialization and higher generation; identification is disabled again
+unless explicitly enabled. Backend buffer lifetimes, truthful completion
+reporting and synchronous quiescence remain caller responsibilities.
+
+## Step 35 - Bound stalled output and verify lifecycle behavior
+
+Status: 15 new transport test groups pass, including a complete synthetic
+authentication exchange and application roundtrip through three-byte reads
+and five-byte writes.
+
+Default no-progress backoff is 5 ms; the pending-output budget is 250 ms total,
+not renewed by partial progress. A pending tail closes earlier if it would
+block an existing link retransmission deadline. Control/handshake deadlines are
+checked before I/O. These conservative local rules prevent indefinite retention
+and frame interleaving; they are not measured head-unit or Apple-required timing.
+
+Tests cover invalid configuration/counts, zero progress, partial output,
+disconnect/fatal stalls, stale generations, exact timeout boundaries, coalesced
+and fragmented input, bad/unsupported frames with retained tails, RX-full
+consumed-count handling, receive under blocked output, remote reset, negotiated
+retry timing and retry exhaustion. No old tail is transmitted after reconnect.
+The backend is a fake byte stream, not an actual QNX async USB completion layer.
+
+## Step 36 - Verify portability and define the next session task
+
+Status: all nine CTest suites, five host-sanitized protocol suites, six-unit ARM
+portability check and 19 Python tool tests pass. The pump occupies 2,184 bytes
+on the host, in addition to the 19,952-byte endpoint and caller buffers. ARM
+output is still a relocatable object without runtime imports, not a QNX program.
+
+Next trace CarPlay session establishment and transport handoff in the pinned
+reference. Map required application/control messages and capabilities against
+the existing endpoint before implementing the next verified subset. The stock
+HID transport is not automatically a valid iAP2/CarPlay profile. Native USB
+ownership, real authentication compatibility and execution/recovery access are
+still unresolved. Do not advertise guessed transport components or CarPlay
+capabilities, or launch an installer to substitute for those missing facts.
 
 ## Next checks
 
@@ -1390,7 +1446,9 @@ compatibility and execution/recovery access remain separate gates.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement/test the bounded host transport pump specified in Step 33.
+3. Trace CarPlay session establishment/transport handoff and identify the next
+   verified application/control subset (Step 36). The bounded host transport
+   pump now passes simulated transfers and authentication (Steps 34-35).
    The pinned corpus's stock USB/HID path and service coordination are traced
    (Steps 31-32), but physical ownership and a usable iAP2 profile are unknown.
    Application replies and minimal opt-in identification pass simulated

@@ -201,9 +201,10 @@ progress. [QNX usbd_urb_status](https://www.qnx.com/developers/docs/6.5.0SP1/ddk
 
 ## Step 6 - Define the next bounded adapter
 
-This is a design contract for the **next implementation**, not code that opens
-the stock driver. The existing C99 `iap2_control`/`iap2_link` APIs stay unchanged
-in this checkpoint. An independently verified transport profile remains a
+This was the design contract for the next implementation. The portable portion
+is now implemented and tested in [transport-adapter.md](transport-adapter.md);
+it still does not open the stock driver. The existing C99
+`iap2_control`/`iap2_link` APIs remain unchanged. An independently verified transport profile remains a
 prerequisite; HID framing must not simply be assumed suitable for iAP2.
 
 1. Separate the portable byte-stream pump from a native backend. The pump owns
@@ -235,10 +236,11 @@ prerequisite; HID framing must not simply be assumed suitable for iAP2.
    in an explicitly selected, proven profile below the byte-stream pump.
    No default bus, device, interface, endpoint, role switch or reset is allowed.
 
-The next host-only tests should exercise this pump with partial/zero writes,
+The planned host-only tests exercise the pump with partial/zero writes,
 backpressure, invalid completion counts, stalls, deadlines, split/coalesced
 reads, unplug/replug and stale completions. These are additional to the stock
-behavior probes above; they are not implemented adapter tests yet.
+behavior probes above. Their implemented coverage and limits are recorded in
+the [adapter verification](transport-adapter.md#step-6---verify-the-implementation).
 
 ## Step 7 - Reproduce and keep the limits visible
 
