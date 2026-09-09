@@ -14,8 +14,9 @@ enrolled synthetic controller can reach encrypted request/response handling.
 
 This is receiver implementation, not an installable head-unit update. Tests use
 public deterministic keys and a synthetic in-memory provider that models a
-successful durable commit. No actual durable trust store or approval UI was
-created, and no real phone or existing trust record was accessed.
+successful durable commit. Step 57 did not create an actual durable trust store
+or approval UI. [Step 58](pair-store.md) adds a real Windows store and file-based
+integration; no real phone or existing trust record was accessed in either step.
 
 New files:
 
@@ -134,20 +135,24 @@ HKDF labels and the `PS-Msg06` reply follow the pinned setup source.
 The resulting candidate is held with a generation/token. No M6 response is
 available through the API at this point. Explicit denial closes without a
 storage call. Approval calls the supplied commit provider exactly once. Its
-contract is atomic durable insertion, or confirmation that the exact same
+contract is acknowledged durable insertion, or confirmation that the exact same
 ID/key is already durably stored. It must refuse replacement of a different key
-under the same ID. Any failure must leave storage unchanged and closes without
-M6 success; no fallback, silent overwrite or retry is implemented.
+under the same ID. Step 58 corrects the earlier blanket no-change-on-failure
+requirement: validation/conflict failures leave storage unchanged, but physical
+I/O can be indeterminate. All failures close without M6 success; no fallback,
+silent overwrite, rollback or retry is implemented. See [pair-store.md](pair-store.md).
 
 The provider owns filesystem format, locking, permissions, flush/durability and
-bounded synchronous execution. The tests model this contract with a map; they
-do not demonstrate disk durability. A real backend remains required. A trusted
+synchronous execution policy. The original tests model this contract with a map;
+Step 58 adds a real Windows backend and file/enrollment integration. OS disk I/O
+has no hard latency bound and must be isolated from real-time work. A trusted
 callback's false success would violate the integration contract and cannot be
 detected by the cryptographic state machine.
 
 Commit precedes the final reply. If the connection subsequently fails, an
 authorized committed entry is not automatically deleted. The `committed`
-audit flag survives close, but does not assert that the peer received M6.
+audit flag survives close, but does not assert that the peer received M6. False
+after an indeterminate provider error does not prove that no bytes reached disk.
 Repeated enrollment must be independently authorized and may confirm only the
 same mapping. Complete setup does not expose control keys or mark a stream
 secure; pair verification remains mandatory.
@@ -237,10 +242,10 @@ head-unit memory/timing suitability or a linked/executed QNX enrollment process.
 
 ## Step 7 - Continue toward usable CarPlay
 
-Next implement an explicit durable receiver-identity/controller store with
-strict load/insert/flush/recovery behavior and tests for corrupted files,
-conflicting mappings and partial writes. It must not silently regenerate identity
-or trust an unknown record. Then connect enrollment approval and first-request
+Step 58 now implements a portable snapshot and actual explicit Windows identity/
+controller store, with strict journal/flush behavior and corruption/conflict/
+interruption tests. See [the persistence follow-up](pair-store.md); target QNX
+storage, revocation/recovery policy and provisioning remain separate. Next connect enrollment approval and first-request
 mode selection to pre-session capability/auth routes, typed session handlers
 and real endpoint listeners. MFi auth-setup, native USB networking, video/audio/
 input and target execution/recovery still require implementation or verification.

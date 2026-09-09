@@ -403,11 +403,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayCry
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayCrypto.ps1
 ```
 
-The combined build passes 26 suites; new crypto tests use RFC vectors and a
+The combined build passes 29 suites; new crypto tests use RFC vectors and a
 PyCA-reproduced transcript. The crypto sanitizer includes Monocypher itself.
 Its separate ARM object check reports required runtime helpers and does not
-extend the core's import-free claim. Actual trust persistence/approval UI,
-network/media and QNX execution remain incomplete. See
+extend the core's import-free claim. Target trust persistence, approval UI,
+network/media and QNX execution remain incomplete; the Windows store below is
+now implemented. See
 [the identity/pair-verification report](reports/pair-verification.md).
 
 `control_cipher.h` and `projection_control.h` now add authenticated encrypted
@@ -425,12 +426,25 @@ Mbed TLS big-number backend; signed/encrypted identity exchange uses Monocypher.
 Explicit enrollment permission and candidate approval precede a required
 durable-commit callback. Only after M6 drains can ownership transfer to fresh
 pair verification. Nine groups and 51 independent public fixture values pass;
-the trust provider is synthetic, not a real persistent store or approval UI.
+its original memory-provider tests are now joined by real Windows persistence
+integration below. A genuine approval UI remains to be implemented.
 See [the step-by-step pairing report](reports/pair-setup.md).
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayTlsSanitizers.ps1 -IncludeEnrollment
 ```
+
+`pair_store.h` adds explicit receiver identity and a bounded canonical trust
+snapshot; `pair_store_file.h` provides an actual Windows file backend. Private
+paths/ACLs, exclusive ownership, strict journal validation and append/flush
+precede acknowledged enrollment success. Conflicting keys cannot be replaced;
+uncertain I/O disables trust use until explicit reopen/validation, with no silent
+retry, repair or identity regeneration. Tests enroll public fixture identities,
+reopen the file and perform real pair verification/encrypted control. Production
+and fault-instrumented backends are tested separately. The format is plaintext,
+ACL-protected, not encrypted or rollback-resistant; no QNX backend, revocation
+UI or target power-loss guarantee is supplied. See
+[the step-by-step storage report](reports/pair-store.md).
 
 ## Read-only firmware analysis
 

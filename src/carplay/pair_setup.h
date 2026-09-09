@@ -22,11 +22,15 @@ typedef struct pair_setup_candidate {
     uint8_t identifier[PAIR_ID_MAX],public_key[32];size_t identifier_size;
 } pair_setup_candidate;
 /* Trusted synchronous store provider, invoked ONCE only after verified M5 and
- * explicit candidate approval. OK must mean an atomic durable insert, or the
- * exact same ID/key already durably present. Never overwrite a different key
- * for an existing ID. Any failure must leave storage unchanged; no retry here.
- * Provider owns locking, permissions, durability and bounded execution. Must
- * not reenter, block indefinitely or retain pointers. No default file/store.
+ * explicit candidate approval. OK must mean an acknowledged durable insert,
+ * or the exact same ID/key already durably present. Never overwrite a different
+ * key for an existing ID. Validation/conflict failures leave storage unchanged;
+ * physical I/O failure can instead be INDETERMINATE (e.g. PAIR_STORE_UNCERTAIN).
+ * Such a provider must stop serving trust until explicitly reopened/validated.
+ * All failures suppress M6; no retry, rollback or deletion here. last_error
+ * preserves the provider result. Provider owns locking, permissions, durability
+ * and execution policy; synchronous OS I/O has no hard latency bound, so callers
+ * must isolate it from real-time work. No reentry or pointer retention.
  */
 typedef int (*pair_setup_commit_fn)(void *,uint64_t generation,uint64_t authorization,
                                     const uint8_t *identifier,size_t,const uint8_t public_key[32]);
@@ -40,7 +44,8 @@ typedef struct pair_setup {
     uint8_t session_key[64],output[PAIR_SETUP_MAX_BODY];size_t output_size;
     uint64_t generation,authorization,token,now,started_at,held_at;
     enum pair_setup_state state;enum pair_setup_reason reason;int last_error;
-    uint8_t committed; /* Audit metadata survives close; does not mean peer received M6. */
+    uint8_t committed; /* Acknowledged commit only; false does NOT prove no disk write.
+                        * Survives close; true does not mean peer received M6. */
 } pair_setup;
 /* Fresh immutable borrowed identity, explicit RNG/store; init once, noncopyable
  * read-only internals, no reentry/concurrency, all storage/arguments disjoint.

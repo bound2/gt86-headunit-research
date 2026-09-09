@@ -38,9 +38,10 @@ foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link', 'iap2_control
 }
 if ($IncludeEnrollment) {
     $headunitMono = Join-Path $headunitRoot 'build/monocypher-4.0.3'
+    $headunitFlags += '-DPAIR_STORE_TESTING=1'
     $headunitIncludes += @('-I', (Join-Path $headunitMono 'src'), '-I', (Join-Path $headunitMono 'src/optional'))
     $headunitSources += @((Join-Path $headunitMono 'src/monocypher.c'), (Join-Path $headunitMono 'src/optional/monocypher-ed25519.c'))
-    foreach ($headunitName in @('pair_crypto','pair_verify','control_cipher','projection_control','pair_srp','pair_setup','pair_setup_channel')) {
+    foreach ($headunitName in @('pair_crypto','pair_verify','control_cipher','projection_control','pair_srp','pair_setup','pair_setup_channel','pair_store','pair_store_file')) {
         $headunitSources += Join-Path $headunitRoot "src/carplay/$headunitName.c"
     }
 }
@@ -58,16 +59,18 @@ try {
     Remove-Item Env:PATH
     $env:Path = (Join-Path $headunitResource 'lib/windows') + ';' + $headunitSavedTlsPath
     $headunitTests = @('lockdown_tls_tests', 'carkit_tests', 'carkit_iap2_tests')
-    if ($IncludeEnrollment) { $headunitTests += 'pair_setup_tests' }
+    if ($IncludeEnrollment) { $headunitTests += @('pair_setup_tests','pair_store_file_tests') }
     foreach ($headunitTest in $headunitTests) {
         $headunitExe = Join-Path $headunitOutput "$headunitTest.exe"
-        & $headunitCpp -std=c++20 @headunitFlags @headunitIncludes (Join-Path $headunitRoot "tests/$headunitTest.cpp") @headunitObjects -Xlinker bcrypt.lib -o $headunitExe
+        & $headunitCpp -std=c++20 @headunitFlags @headunitIncludes (Join-Path $headunitRoot "tests/$headunitTest.cpp") @headunitObjects -Xlinker bcrypt.lib -Xlinker advapi32.lib -o $headunitExe
         if ($LASTEXITCODE -ne 0) { throw "Sanitized build failed: $headunitTest" }
         $headunitFixture = 'tests/fixtures/lockdown'
-        if ($headunitTest -eq 'pair_setup_tests') { $headunitFixture = 'tests/fixtures/pair-setup-vectors.txt' }
-        & $headunitExe (Join-Path $headunitRoot $headunitFixture)
+        if ($headunitTest -in @('pair_setup_tests','pair_store_file_tests')) { $headunitFixture = 'tests/fixtures/pair-setup-vectors.txt' }
+        $headunitTestArguments = @((Join-Path $headunitRoot $headunitFixture))
+        if ($headunitTest -eq 'pair_store_file_tests') { $headunitTestArguments += $headunitOutput }
+        & $headunitExe @headunitTestArguments
         if ($LASTEXITCODE -ne 0) { throw "Sanitized tests failed: $headunitTest" }
     }
 } finally { $env:Path = $headunitSavedTlsPath }
 Write-Output 'PASS: TLS adapter, protocol dependencies and Mbed TLS built with AddressSanitizer/UndefinedBehaviorSanitizer.'
-if ($IncludeEnrollment) { Write-Output 'PASS: SRP/pair-setup and Monocypher also instrumented; synthetic trust provider only, no target execution or persistence claim.' }
+if ($IncludeEnrollment) { Write-Output 'PASS: SRP/pair-setup, Monocypher and real Windows store also instrumented; public synthetic records only, no target execution or power-loss claim.' }

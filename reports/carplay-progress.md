@@ -57,23 +57,27 @@ independent PyCA vectors. Authenticated control records and an owning
 pair-verification-to-encrypted-RTSP handoff now add ten groups, including retained
 tails, plaintext-M4 drain gating, replay/tampering and counter exhaustion.
 Real first-time SRP/setup, explicit enrollment/candidate approval, trust-commit
-handling and an owning RTSP-to-pair-verify transfer now add nine groups. Actual
-durable trust storage/approval UI, network/media and hardware integration remain
-missing. Python regression checks total 25, plus independent checkers for 21
+handling and an owning RTSP-to-pair-verify transfer now add nine groups. A portable
+identity/trust snapshot and real private Windows file store now persist approved
+enrollment through reopen/process restart, with corruption/uncertain-write tests
+and encrypted-control integration. Target QNX storage, approval/revocation UI,
+network/media and hardware integration remain missing. Python regression checks
+total 25, plus independent checkers for 21
 pair-verification, 12 control-frame and 51 setup fixture values.
 Native USB and actual phone pairing remain absent.
-All nineteen ordinary, twenty-two TLS-only and twenty-six combined crypto/TLS
-CTest suites pass. All fifteen protocol suites, four pairing/control suites,
-the enrollment suite and three TLS/carkit/integration suites pass under host
+All nineteen ordinary, twenty-two TLS-only and twenty-nine combined crypto/TLS
+CTest suites pass. All fifteen protocol suites, five pairing/control/store suites,
+the enrollment and real-file suites and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-57 and [the pair-setup report](pair-setup.md). Hosted TLS
+Steps 22-58 and [the persistent-store report](pair-store.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
-separate pairing crypto object compiles/links for ARM but needs four runtime
+separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
-not included in either ARM claim.
+not included in either ARM claim. The Windows-only filesystem backend is also
+excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -2206,6 +2210,81 @@ identity, native USB-network access, installed-version execution/recovery and
 the Apple authentication-chip interface remain unresolved. No real trust
 record, phone, head unit, firmware image or update USB was read or modified.
 
+## Step 58 - Persist receiver identity and approved controller trust
+
+Added [pair-store.md](pair-store.md) with the exact binary format, filesystem
+authority/lifetime contract, failure outcomes, tests and target limits. New
+`pair_store` implements an explicit portable C99 identity/trust snapshot;
+`pair_store_file` implements actual Windows files using private explicit paths,
+current-process-user protected ACLs, exclusive ownership and append/flush before
+acknowledged commit. It never reads a default credential path or regenerates a
+missing identity. Tests use only public fixture keys in new ignored build paths.
+
+The journal holds at most seventeen 1,888-byte full snapshots: initial receiver
+identity, then up to sixteen approved controller insertions. Open validates every
+checksum, canonical field and history transition. Existing mappings cannot be
+replaced; identical mappings are idempotent, even at capacity. Corrupt/partial
+tails, reordered images, changed prefixes and inconsistent seed/public keys
+fail closed without automatic truncation, deletion, retry or repair.
+
+This step corrects Step 57's overly strong requirement that every storage failure
+leave storage unchanged. Physical write/flush failure can be indeterminate.
+`PAIR_STORE_UNCERTAIN` suppresses M6, leaves the new cached entry unpublished and
+poisons the store against further trust use. Explicit close/reopen can reconcile
+only a fully valid journal followed by a successful flush. A partial tail remains
+rejected; a complete authorized but unacknowledged record can be recovered.
+The setup `committed` flag records acknowledgement, not proof of absent disk
+writes when false or proof of peer receipt when true. Failed initial creation
+may leave a new empty/partial/complete file but never overwrites an existing one.
+
+Generation-bound views and one-attempt enrollment bindings reject stale lifetimes,
+authorization mismatches and key conflicts. Receiver identity stays immutable
+while borrowed. Frontends must quiesce borrowers before closing/wiping storage,
+and isolate synchronous OS I/O from real-time work. No approval UI, thread worker
+or actual listener was added. The store is not an MFi authentication provider.
+
+Portable tests cover every-byte corruption and every shorter image length,
+recomputed-hash noncanonical fields, explicit RNG/identity failures, duplicates,
+conflicts, capacity and prefix preservation. Real Windows tests cover private
+ACLs, missing/existing-file refusal, unsafe paths, hard links, ancestor/file rename
+locks, process-wide exclusion and process restart. An actual directory junction
+exercises reparse refusal; the separate symlink case is explicitly skipped because
+this host lacks its creation privilege, with no privilege change attempted.
+
+Separate test-only hooks interrupt real creation/append I/O before writing, after
+23 bytes, before flush and after successful flush but before acknowledgement.
+Owned RTSP enrollment tests prove denial/no write and uncertain/no M6, then verify
+complete recovered or committed enrollment via real pair verification and a
+bidirectional encrypted RTSP exchange after reopening. The ordinary/security/
+enrollment paths also run against the production library with no fault-hook API.
+
+All 29 combined CTest, 19 ordinary, 22 TLS-only and 25 Python regressions pass.
+Five pairing/control/store suites and the real-file/setup/three TLS-carkit suites
+pass ASan/UBSan with their actual dependencies instrumented. New C99 code passes
+strict Clang warnings; production symbol inspection finds no test-hook exports.
+A sanitizer assertion issue was fixed in the test oracle: unspecified aggregate
+padding is now initialized before byte-transactionality comparisons. No storage
+or crypto sanitizer check was disabled. Successful suites cleaned their exact
+new synthetic test paths. Four failed-run directories remain ignored beneath
+`build/enrollment-sanitized/` after the environment rejected their cleanup;
+they contain only public test records, not user credentials.
+
+The optional ARM relocatable check now includes ten portable translation units
+with the same four allowed runtime helpers; the twenty-unit import-free core is
+unchanged. The Windows backend and hosted SRP/MPI/TLS are not QNX ports. Plaintext
+seeds rely on file permissions, not encryption; exact-boundary rollback cannot
+be detected without an external trusted counter. Revocation, rotation, migration,
+backup/recovery policy and actual power-loss durability remain unimplemented or
+untested and are explicitly documented, not silently approximated.
+
+Next connect enrollment policy/first-request mode selection to pre-session
+capability/auth routes and then typed network/media session handling. Target
+storage/provisioning/revocation work remains necessary. Actual Go-module identity,
+native USB-network ownership, authentication-chip access and installed-version
+execution/recovery remain unresolved. No real trust record, phone, head unit,
+firmware image or update USB was read or modified; no installable CarPlay update
+has been produced.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2216,12 +2295,13 @@ record, phone, head unit, firmware image or update USB was read or modified.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement an explicit durable identity/controller store with atomic commit,
-   strict load/corruption handling and no silent identity replacement. Then
-   connect enrollment UI/initial-mode selection, pre-session capability/auth
+3. Connect enrollment policy/initial-mode selection, pre-session capability/auth
    routes, typed session handlers and network/media with real listeners.
+   Step 58 implements a portable identity/controller snapshot and actual private
+   Windows store with strict journal/flush/uncertainty handling. Target QNX storage,
+   real provisioning/approval and explicit revocation/recovery remain necessary.
    First-time SRP/setup and owned enrollment-to-pair-verify transfer are now
-   implemented in Step 57; the actual durable trust/approval frontend remains.
+   implemented in Step 57; no actual phone is enrolled by the synthetic tests.
    Authenticated control-frame
    streaming/counters and the owned pairing-to-RTSP handoff are implemented in
    Step 56, with explicit plaintext-M4 downstream-drain gating.

@@ -10,7 +10,7 @@ $headunitCpp = Join-Path $LlvmDirectory 'clang++.exe'
 $headunitIncludes = @('-I', (Join-Path $headunitRoot 'src/carplay'), '-I', (Join-Path $headunitSource 'src'), '-I', (Join-Path $headunitSource 'src/optional'))
 $headunitFlags = @('-g', '-O1', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-Wall', '-Wextra', '-Werror')
 $headunitSources = @('src/monocypher.c','src/optional/monocypher-ed25519.c') | ForEach-Object { Join-Path $headunitSource $_ }
-foreach ($headunitName in @('pair_tlv','pair_crypto','pair_verify','rtsp_wire','rtsp_channel','control_cipher','projection_control')) {
+foreach ($headunitName in @('pair_tlv','pair_crypto','pair_verify','rtsp_wire','rtsp_channel','control_cipher','projection_control','pair_store')) {
     $headunitSources += Join-Path $headunitRoot "src/carplay/$headunitName.c"
 }
 $headunitObjects = @()
@@ -26,7 +26,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'LLVM resource lookup failed' }
     Remove-Item Env:PATH
     $env:Path = (Join-Path $headunitResource 'lib/windows') + ';' + $headunitSavedPairPath
-    foreach ($headunitTest in @('pair_tlv_tests','pair_crypto_tests','control_cipher_tests','projection_control_tests')) {
+    foreach ($headunitTest in @('pair_tlv_tests','pair_crypto_tests','control_cipher_tests','projection_control_tests','pair_store_tests')) {
         $headunitExe = Join-Path $headunitOutput "$headunitTest.exe"
         & $headunitCpp -std=c++20 @headunitFlags @headunitIncludes (Join-Path $headunitRoot "tests/$headunitTest.cpp") @headunitObjects -o $headunitExe
         if ($LASTEXITCODE -ne 0) { throw "Sanitized pairing test link failed: $headunitTest" }
@@ -58,5 +58,5 @@ foreach ($headunitImport in $headunitImports) {
     if ($headunitSymbol -notin $headunitAllowed) { throw "Unexpected ARM pairing import: $headunitSymbol" }
     Write-Output "Required ARM runtime symbol: $headunitSymbol"
 }
-Write-Output 'PASS: four pairing/control suites and dependency passed ASan/UBSan; all nine units compile/link as ARM relocatable objects.'
+Write-Output 'PASS: five pairing/control/store suites and dependency passed ASan/UBSan; all ten units compile/link as ARM relocatable objects.'
 Write-Output 'Any printed imports need a target runtime; this does not prove a QNX executable or target side-channel safety.'
