@@ -79,3 +79,21 @@ license. The byte-stream pump's pending-tail storage, completion validation,
 generation/cancellation contract and polling/deadline policy are independent
 local implementation choices. No QNX USB headers, driver code or credentials
 are copied into this implementation, and no native transport is supplied.
+
+`iap2_carplay.c` uses the pinned `iap2-csm/src/messages/car_play.rs` schemas and
+`iap2-csm/src/lib.rs` parameter/list encoding. Its tests reuse four exact fixtures
+from the existing 33-vector file; no new upstream fixture file is copied. The
+wired address-list field is decoded into separate borrowed string views even
+though its strings share one parameter. Printable-ASCII limits, rejecting
+unknown/duplicate fields, exact terminator checks and transactional outputs are
+stricter local policies, not a reproduction of all upstream decoder behavior.
+
+The explicit wired-start reply helper is informed by the pinned
+`native/livi-helperd/crates/livi-runtime/src/bringup.rs` builder. Requiring an
+accepted identification/authentication exchange, a valid explicitly available
+wired offer and complete caller-provided receiver metadata are local gates.
+No runtime networking, pairing, keys or USB code is ported. In particular, the
+upstream runtime identifies before authenticating, unlike our existing local
+profile. This is a documented compatibility gap, not an upstream requirement
+already met. See [the session-start report](../reports/carplay-session-start.md)
+for exact source links and the remaining capability-advertisement gap.

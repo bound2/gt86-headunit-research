@@ -90,14 +90,15 @@ creating its default `luac.out` output file.
 
 The selected approach is software only on the factory head unit. The new
 `carplay_protocol` C99 library implements iAP2 link framing/checksums, streaming
-frame reassembly, control-message encoding/decoding, and accessory authentication
-sequencing through a caller-supplied certificate/challenge provider. The new
+frame reassembly, control-message encoding/decoding, a bounded CarPlay startup
+message subset, and accessory authentication sequencing through a caller-supplied
+certificate/challenge provider. The new
 transport pump invokes explicit backend callbacks; no built-in device I/O,
 authentication keys or fallback signer is supplied.
 
 `scripts/Build.ps1` builds this library and runs `iap2_tests`, `iap2_link_tests`,
-`iap2_control_tests`, `iap2_identification_tests` and `iap2_transport_tests` alongside the four existing
-suites. The tests use 33 committed
+`iap2_control_tests`, `iap2_identification_tests`, `iap2_transport_tests` and
+`iap2_carplay_tests` alongside the four existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
 authentication failures. Provenance and GPL-3.0-or-later licensing are recorded
@@ -132,7 +133,7 @@ The control-session adapter below now connects this engine to authentication;
 actual device transport and a real provider remain separate work. See
 [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
 
-Nine CTest suites pass, including 16 link test groups and a simulated two-endpoint
+Ten CTest suites pass, including 16 link test groups and a simulated two-endpoint
 exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
 checks use the installed LLVM and Visual Studio toolchain:
 
@@ -140,9 +141,9 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the five protocol test executables with AddressSanitizer and
+This builds/runs the six protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all six C99
+or car access is required. The ARM portability check now covers all seven C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -164,7 +165,7 @@ atomically. Reserved authentication/identification replies cannot be injected
 through this API. See
 [CarPlay progress, Steps 25-27](reports/carplay-progress.md#step-25---connect-control-messages-to-the-authentication-sequencer).
 
-Twenty control test groups cover buffer limits, backpressure, teardown, deadlines
+Twenty-three control test groups cover buffer limits, backpressure, teardown, deadlines
 and exchanges between two library endpoints with byte-fragmented transport
 and deliberate packet loss. Provider results are synthetic patterns, not real
 credentials. These are local stream/serialization choices, not an Apple
@@ -178,7 +179,9 @@ Start/Information/Accepted-or-Rejected sequencer. Enable it through
 caller-supplied identity, language and power metadata. Identification is disabled
 after every new endpoint initialization; no real identity is guessed. The
 enabled local profile requires authentication first and bounds the entire
-identification exchange with a configurable deadline.
+identification exchange with a configurable deadline. The pinned LIVI runtime
+instead identifies before authenticating; supporting that explicit alternative
+is the next interoperability task, not behavior implemented by this profile.
 
 The encoder deliberately omits USB/Bluetooth/vehicle components, application
 protocols and CarPlay flags. Its fixed message lists contain only implemented
@@ -201,13 +204,35 @@ reject stale results after reconnect; cancellation clears transport and endpoint
 state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
 
 Fifteen test groups exercise a fake backend, including a complete synthetic
-authentication exchange over fragmented reads/writes. All nine CTest suites and
-five sanitized protocol suites pass. Details, callback lifetime requirements
-and the next CarPlay session task are in the new
+authentication exchange over fragmented reads/writes. All ten CTest suites and
+six sanitized protocol suites pass. Details and callback lifetime requirements
+are in the
 [step-by-step transport adapter report](reports/transport-adapter.md) and
 [CarPlay progress, Steps 34-36](reports/carplay-progress.md#step-34---implement-the-bounded-byte-stream-pump).
 Actual QNX USB transport, installed-version compatibility and real credentials
 remain unresolved; this is not a usable car-side receiver yet.
+
+### CarPlay startup message subset
+
+`iap2_carplay.h` adds strict, allocation-free codecs for transport identifiers,
+wireless availability, CarPlay availability and wired StartSession. Four pinned
+fixtures round-trip exactly; a wireless StartSession is explicitly unsupported.
+Nine codec test groups cover nested fields, packed address lists, malformed
+input, borrowed views and transactional output bounds.
+
+An explicit application helper can queue a wired-start reply only after both
+authentication and identification acceptance and a valid wired-available offer.
+It requires caller-supplied receiver addresses, port and identity/key metadata.
+Three integration groups verify gating, fragmentation, ownership and lifecycle.
+Nothing automatically advertises CarPlay, opens a socket, pairs a phone or starts
+media. The minimal identification message lists still omit these new messages
+and transport capabilities; a real phone exchange is not established.
+
+The pinned wired reference uses USBmux, trust pairing, the carkit service and a
+separate USB network path, not the traced stock iPod HID path. Its startup order
+also differs from our current experimental endpoint. See the new
+[step-by-step session-start report](reports/carplay-session-start.md) and
+[CarPlay progress, Steps 37-39](reports/carplay-progress.md#step-37---publish-the-checkpoint-and-trace-wired-session-startup).
 
 ## Read-only firmware analysis
 
@@ -361,5 +386,7 @@ tar.exe -xf downloads/6.17.0L/swdlInstall.iso -C extracted/install etc usr/share
 
 Only operate on the pinned, checksum-verified corpus when using these extraction
 commands. The scripts and analyzer are research tooling, not a general archive
-security audit or a firmware flasher. Raw firmware and extracted vendor files
-are ignored by Git; no remote is configured.
+security audit or a firmware flasher. Raw firmware, extracted vendor files and
+build outputs are ignored by Git. `origin` points to
+[bound2/gt86-headunit-research](https://github.com/bound2/gt86-headunit-research),
+and `master` tracks `origin/master`.

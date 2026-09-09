@@ -170,9 +170,11 @@ neither a real authentication-chip test nor an iPhone interoperability result.
 
 ## Step 7 - Continue toward an actual CarPlay session
 
-Next inspect CarPlay session establishment and transport handoff in the pinned
-upstream reference, map its prerequisites onto the implemented endpoint, and
-identify the next verified application/control messages to implement. Keep
+The subsequent [session-start investigation](carplay-session-start.md) traces
+CarPlay establishment and transport handoff in the pinned reference and adds
+bounded startup codecs with an explicit wired-start reply. It also finds an
+identification/authentication ordering mismatch; implementing an explicit
+identification-first profile is the next local interoperability task. Keep
 unknown USB roles, network interfaces and CarPlay capabilities explicit; do not
 turn them into guessed defaults or copy the stock HID path uncritically.
 

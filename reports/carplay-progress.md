@@ -16,13 +16,19 @@ link profile adds negotiation, ACKs, retransmission and bounded queues with
 16 link test groups. A bounded control-session adapter now connects link payloads
 to authentication, including split/coalesced messages and larger replies. It
 now also supports atomic application replies and opt-in minimal accessory
-identification, with 20 control and seven dedicated identification test groups.
+identification, with 23 control and seven dedicated identification test groups.
 The new bounded byte-stream transport pump retains partial writes, accounts for
 receive tails and closes failed/stale connections, with 15 dedicated test groups.
-All nine CTest suites pass, and all five protocol suites pass under host
-address/undefined-behavior sanitizers. The six C99
+CarPlay startup codecs now round-trip four pinned fixtures, with nine dedicated
+groups and an explicit, gated wired-start reply helper. No capability is
+automatically advertised and no network/media session is opened. The pinned
+runtime identifies before authenticating; our current experimental profile
+still requires the reverse order, an explicit compatibility gap.
+All ten CTest suites pass, and all six protocol suites pass under host
+address/undefined-behavior sanitizers. The seven C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-36. No real authentication provider or device transport is connected.
+Steps 22-39 and [the session-start report](carplay-session-start.md).
+No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
 All 13 earlier host-side
@@ -1436,6 +1442,73 @@ ownership, real authentication compatibility and execution/recovery access are
 still unresolved. Do not advertise guessed transport components or CarPlay
 capabilities, or launch an installer to substitute for those missing facts.
 
+## Step 37 - Publish the checkpoint and trace wired session startup
+
+Status: transport work committed as `cecd732` and pushed to the requested
+[GitHub repository](https://github.com/bound2/gt86-headunit-research).
+`origin` is configured and `master` tracks `origin/master`; a remote-ref check
+confirmed the full checkpoint hash. The continuation below remains local work
+after that published checkpoint. No raw firmware or generated builds were added.
+
+The new [carplay-session-start.md](carplay-session-start.md) records the pinned
+LIVI trace step by step. Although the checkout is sparse, runtime sources are
+available in its Git tree and were read with `git show`. The wired reference
+selects a phone USB configuration, uses USBmux and trust pairing to open the
+carkit service, and establishes a separate USB network path. This differs from
+the traced stock iPod HID path; it is not an available QNX backend here.
+
+The reference performs identification before authentication, then handles
+CarPlayAvailability (`0x4300`) by building StartSession (`0x4301`) from actual
+receiver network/interface and identity/key configuration. Our experimental
+endpoint still requires authentication first. The reference also advertises
+transport components and CarPlay message/capability metadata that our minimal
+identification intentionally omits. Neither gap is silently treated as solved.
+
+## Step 38 - Add bounded CarPlay startup codecs and a gated reply
+
+Status: new C99 `iap2_carplay.h`/`.c` encodes/decodes transport identifiers
+(`0x4e0e`), wireless availability (`0x4e0d`), CarPlay availability (`0x4300`)
+and wired StartSession (`0x4301`). Wireless/mixed StartSession is unsupported.
+Four existing pinned fixtures round-trip exactly. Wired addresses are separate
+NUL-terminated strings packed into one parameter, not repeated parameters.
+
+The subset bounds messages to 1024 bytes, addresses to four 63-byte strings and
+other text to 127 printable ASCII bytes. It rejects malformed/duplicate/unknown
+fields, preserves destination/output on failure, and returns borrowed decoder
+views. The largest wired profile is 674 bytes. These are strict local policies,
+not established Apple limits or a complete port of the upstream runtime.
+
+`iap2_carplay_reply_wired_start` requires a held valid wired-available offer,
+accepted authentication and enabled/accepted identification, actual caller-
+provided receiver addresses, port 1..65535 and identity/key/source strings. It
+delegates to the owned, atomic application-reply path. Invalid input or capacity
+failure leaves the request held; terminal closure retains existing cleanup rules.
+No automatic advertisement/dispatch, networking, key generation, USB change or
+session-active state is added. Queued bytes do not prove phone acceptance.
+
+## Step 39 - Verify the subset and identify the next compatibility task
+
+Status: all ten CTest suites, six sanitized protocol executables, seven-unit
+ARM portability check and 19 Python tests pass. Nine new codec groups cover
+the pinned messages, packed strings, optional fields, full-width wire port,
+malformed/truncated input, limits and transactional outputs. Three integration
+groups bring the control suite to 23: explicit gating, fragmented owned replies,
+invalid offers/profiles/clocks, reply capacity, timeout closure and reconnect
+reset are tested with synthetic metadata and credentials.
+
+The host endpoint remains 19,952 bytes and the pump 2,184 bytes plus caller
+buffers; codecs use bounded local storage. ARM output remains a relocatable
+Cortex-A8 object without runtime imports, not a QNX executable or installable
+receiver. Reproduction commands and source pins are in the new report.
+
+Next implement an explicit identification-first profile matching the reference,
+without silently changing existing behavior. Test phase ordering, provider
+gating, deadlines, backpressure and reset with a synthetic peer. Then address
+truthful supported-message/transport declarations: the current identification
+lists still do not advertise the new CarPlay messages. Real USB ownership,
+authentication, pairing/network/media, installed-version matching and safe
+execution/recovery access remain separate unresolved requirements.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1446,9 +1519,11 @@ capabilities, or launch an installer to substitute for those missing facts.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Trace CarPlay session establishment/transport handoff and identify the next
-   verified application/control subset (Step 36). The bounded host transport
-   pump now passes simulated transfers and authentication (Steps 34-35).
+3. Implement and test an explicit identification-first profile following the
+   pinned runtime; Steps 37-39 now trace session startup and implement a bounded
+   message subset. The default profile's reverse ordering and missing CarPlay
+   message/transport declarations remain compatibility gaps. The bounded host
+   transport pump passes simulated transfers and authentication (Steps 34-35).
    The pinned corpus's stock USB/HID path and service coordination are traced
    (Steps 31-32), but physical ownership and a usable iAP2 profile are unknown.
    Application replies and minimal opt-in identification pass simulated

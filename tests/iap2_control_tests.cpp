@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Synthetic transport/provider integration, NOT an iPhone/auth-chip test.
 #include "iap2_control.h"
+#include "iap2_carplay.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -619,6 +620,97 @@ static void two_endpoint_exchange(bool identify = false) {
     }
     throw std::runtime_error("two-endpoint exchange did not finish");
 }
+static iap2_carplay_wired_start carplay_profile() {
+    const auto span = [](const char *s) { return iap2_carplay_text{s, std::strlen(s)}; };
+    iap2_carplay_wired_start value{};
+    value.address_count = 1; value.addresses[0] = span("fe80::1"); value.has_port = 1; value.port = 5000;
+    value.device_identifier = span("PC-TEST-ONLY"); value.source_version = span("test-1");
+    value.public_key = span("0000000000000000000000000000000000000000000000000000000000000000");
+    return value; // Synthetic metadata, NOT a listening receiver or usable key pair.
+}
+static Bytes carplay_offer(unsigned mode = 0) {
+    iap2_carplay_availability value{};
+    value.wired.present = value.wired.has_available = value.wired.available = 1;
+    if (mode == 1) value.wired.available = 0;
+    if (mode == 2) value.wired.has_available = value.wired.available = 0;
+    if (mode == 3) { value.wired = {}; value.wireless.present = value.wireless.has_available = value.wireless.available = 1; }
+    if (mode == 4) return csm(0x6800);
+    if (mode == 5) { const Bytes malformed_group{0, 5, 0, 0, 2}; return csm(0x4300, &malformed_group); }
+    Bytes out(1024); size_t n;
+    check(iap2_carplay_availability_encode(&value, out.data(), out.size(), &n) == 0, "offer encode");
+    out.resize(n); return out;
+}
+static void prepare_carplay_endpoint(Endpoint& e, uint16_t packet = 1024) {
+    const auto info = enable_identification(e); e.handshake(0, packet); e.authenticate();
+    e.payload(csm(0x1d00)); check(e.drain_reply() == info, "prepare identification information");
+    e.payload(csm(0x1d02)); check(e.poll() == IAP2_MORE && e.engine.identification.state == IAP2_IDENTIFICATION_ACCEPTED,
+                                "prepare explicit identification acceptance");
+}
+static void carplay_start_reply() {
+    Endpoint e; prepare_carplay_endpoint(e, 29); auto profile = carplay_profile();
+    std::string identifier = "SYNTHETIC-RECEIVER"; profile.device_identifier = {identifier.data(), identifier.size()};
+    Bytes expected(1024); size_t n;
+    check(iap2_carplay_wired_start_encode(&profile, expected.data(), expected.size(), &n) == 0, "expected start encode"); expected.resize(n);
+    const auto offer = carplay_offer(); e.payload(offer, 0, 1);
+    check(e.poll() == IAP2_CONTROL_MESSAGE && e.held() == offer && !e.engine.reply_size, "offer held, no automatic CarPlay start");
+    check(iap2_carplay_reply_wired_start(&e.engine, &profile, 0) == IAP2_OK && e.engine.application_reply && !e.engine.ready,
+          "explicit start copied and offer released");
+    std::fill(identifier.begin(), identifier.end(), 'x'); profile.port = 6000;
+    check(e.drain_reply() == expected, "owned start reply survives source changes, small MTU and queue pressure");
+    check(iap2_carplay_reply_wired_start(&e.engine, &profile, 0) == IAP2_MORE, "no unsolicited second start");
+    e.canaries();
+}
+static void carplay_start_gates() {
+    const auto profile = carplay_profile(); const auto offer = carplay_offer();
+    for (unsigned phase = 0; phase < 3; ++phase) {
+        Endpoint e; if (phase == 2) enable_identification(e); e.handshake(); if (phase) e.authenticate();
+        e.payload(offer); check(e.poll() == IAP2_CONTROL_MESSAGE, "unready offer held");
+        check(iap2_carplay_reply_wired_start(&e.engine, &profile, 0) == (phase ? IAP2_LINK_BUSY : IAP2_AUTH_FAILED) &&
+              e.held() == offer && !e.engine.reply_size, "auth/identification gates retain request");
+    }
+    Endpoint e; prepare_carplay_endpoint(e);
+    for (unsigned mode = 1; mode <= 5; ++mode) {
+        const auto request = carplay_offer(mode); e.payload(request); check(e.poll() == IAP2_CONTROL_MESSAGE, "offer variant held");
+        check(iap2_carplay_reply_wired_start(&e.engine, &profile, 0) == (mode == 5 ? IAP2_INVALID : IAP2_UNSUPPORTED) &&
+              e.held() == request && !e.engine.reply_size, "no unavailable/wireless/wrong/malformed offer reply");
+        check(iap2_control_release_message(&e.engine) == IAP2_OK, "release rejected offer explicitly");
+    }
+    e.payload(offer); e.poll();
+    for (unsigned choice = 0; choice < 8; ++choice) {
+        auto invalid = profile;
+        if (choice == 0) invalid.address_count = 0;
+        if (choice == 1) invalid.has_port = 0;
+        if (choice == 2) invalid.port = 0;
+        if (choice == 3) invalid.port = 65536;
+        if (choice == 4) invalid.device_identifier = {};
+        if (choice == 5) invalid.public_key = {};
+        if (choice == 6) invalid.source_version = {};
+        if (choice == 7) invalid.address_count = 5;
+        check(iap2_carplay_reply_wired_start(&e.engine, &invalid, 0) == IAP2_ARGUMENT && e.held() == offer && !e.engine.reply_size,
+              "invalid operational metadata retains offer");
+    }
+    check(iap2_carplay_reply_wired_start(&e.engine, nullptr, 0) == IAP2_ARGUMENT, "null start profile");
+    e.poll(10);
+    check(iap2_carplay_reply_wired_start(&e.engine, &profile, 9) == IAP2_ARGUMENT && e.held() == offer, "start helper honors shared clock");
+}
+static void carplay_start_capacity_and_lifecycle() {
+    Endpoint small(512); small.provider.certificate_size = 128; small.provider.signature_size = 32; prepare_carplay_endpoint(small);
+    auto profile = carplay_profile(); const auto offer = carplay_offer();
+    const std::string address(63, 'a'), identity(127, 'x'); profile.address_count = 4;
+    for (auto& a : profile.addresses) a = {address.data(), address.size()};
+    profile.device_identifier = profile.public_key = profile.source_version = {identity.data(), identity.size()};
+    small.payload(offer); small.poll();
+    check(iap2_carplay_reply_wired_start(&small.engine, &profile, 0) == IAP2_NO_SPACE && small.held() == offer &&
+          !small.engine.application_reply, "insufficient reply capacity is transactional");
+    profile = carplay_profile();
+    check(iap2_carplay_reply_wired_start(&small.engine, &profile, 0) == 0, "smaller explicit profile fits");
+    check(small.poll(5000) == IAP2_LINK_CLOSED && !small.engine.reply_size, "unacknowledged start is bounded by reply deadline");
+    check(iap2_carplay_reply_wired_start(&small.engine, &profile, 5000) == IAP2_LINK_CLOSED, "closed start cannot recur");
+    small.init(); small.handshake(); small.authenticate(); small.payload(offer); small.poll();
+    check(iap2_carplay_reply_wired_start(&small.engine, &profile, 0) == IAP2_LINK_BUSY &&
+          small.engine.identification.state == IAP2_IDENTIFICATION_DISABLED, "new endpoint requires fresh identification opt-in");
+    small.canaries();
+}
 int main() {
     try {
         configuration(); header_splits(); large_receive(); coalesced_and_hold(); malformed_and_capacity();
@@ -626,7 +718,8 @@ int main() {
         disconnect_and_reinit(); remote_close_and_retry_timeout(); adapter_timers(); work_budget_and_queue_pressure(); two_endpoint_exchange();
         application_replies(); application_reply_deadlines(); identification_integration(); identification_failures();
         identification_lifecycle(); two_endpoint_exchange(true);
-        std::cout << "PASS: 20 control adapter test groups (synthetic providers/transport only).\n";
+        carplay_start_reply(); carplay_start_gates(); carplay_start_capacity_and_lifecycle();
+        std::cout << "PASS: 23 control adapter test groups (synthetic providers/transport only).\n";
         std::cout << "Host control-state storage: " << sizeof(iap2_control) << " bytes, plus caller buffers.\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
