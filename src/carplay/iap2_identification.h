@@ -56,8 +56,9 @@ void iap2_identification_reset(iap2_identification *);
  * Unknown IDs are UNSUPPORTED without mutation. Strict empty Start/Accepted,
  * unique empty rejection flags; no retry/reconfiguration after rejection.
  * NO_SPACE on Start leaves state intact for retry. Other handled failures
- * reject the sequence. Caller must gate on auth, wait for reply ACK before
- * processing the next message, supply a deadline and reset on disconnect.
+ * reject the sequence. Caller must enforce its selected startup order, wait
+ * for reply ACK before processing the next message, supply a deadline and
+ * reset on disconnect. The control endpoint supports either explicit order.
  */
 int iap2_identification_handle(iap2_identification *, const uint8_t *, size_t,
                               uint8_t *, size_t, size_t *written);

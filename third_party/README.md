@@ -97,3 +97,11 @@ upstream runtime identifies before authenticating, unlike our existing local
 profile. This is a documented compatibility gap, not an upstream requirement
 already met. See [the session-start report](../reports/carplay-session-start.md)
 for exact source links and the remaining capability-advertisement gap.
+
+The control endpoint now supports the pinned runtime's identification-first
+order through explicit configuration; the original authentication-first mode
+remains the default. Phase budgets, provider gating, ACK barriers, fail-closed
+rejection and the absence of automatic fallback are local policies. New tests
+use synthetic peers with both orders and deliberately lost packets; no new
+upstream source or credentials are copied. See
+[startup-order.md](../reports/startup-order.md).

@@ -103,7 +103,10 @@ struct Endpoint {
         proposal.resize(n); peer_sequence = 42;
         feed(frame(0xc0, peer_sequence, config.link.initial_sequence, &proposal, 0), now);
         check(!output(now).empty() && engine.link.state == IAP2_LINK_NORMAL, "control established");
-        check(engine.authentication_timer && engine.authentication_at == now, "auth total deadline armed");
+        if (config.startup_order == IAP2_CONTROL_IDENTIFICATION_FIRST)
+            check(engine.identification_timer && engine.identification_at == now && !engine.authentication_timer,
+                  "identification-first total deadline armed, auth remains deferred");
+        else check(engine.authentication_timer && engine.authentication_at == now, "auth total deadline armed");
     }
     void payload(const Bytes& b, uint64_t now = 0, size_t transport_chunk = 0) {
         feed(frame(0x40, ++peer_sequence, engine.link.tx_acked, &b, config.link.offer.sessions[0].id), now, IAP2_OK, transport_chunk);
@@ -548,8 +551,9 @@ static void work_budget_and_queue_pressure() {
 // Both real library endpoints, byte-fragmented synthetic transport, one lost
 // certificate frame. The peer checks complete bytes before issuing each next
 // auth message. Test data is a deterministic pattern, never a credential.
-static void two_endpoint_exchange(bool identify = false) {
+static void two_endpoint_exchange(bool identify = false, bool identification_first = false) {
     Endpoint a(8192, 128); a.config.link.offer.retransmit_ms = 250; a.init();
+    if (identification_first) { a.config.startup_order = IAP2_CONTROL_IDENTIFICATION_FIRST; a.init(); }
     const auto information = identify ? enable_identification(a) : Bytes{};
     iap2_link peer{}; auto config = a.config.link; config.initial_sequence = 42;
     check(iap2_link_init(&peer, &config) == IAP2_OK && iap2_link_start(&peer, 0) == IAP2_OK &&
@@ -563,7 +567,7 @@ static void two_endpoint_exchange(bool identify = false) {
         auto bytes = a.output(now);
         if (!bytes.empty()) {
             bool drop = false;
-            if (bytes.size() >= 10 && bytes[7] == 10 && !lost) { lost = true; drop = true; }
+            if (bytes.size() >= 16 && bytes[7] == 10 && bytes[13] == 0xaa && bytes[14] == 1 && !lost) { lost = true; drop = true; }
             if (identify && bytes.size() >= 16 && bytes[7] == 10 && bytes[13] == 0x1d && bytes[14] == 1 && !lost_identification) {
                 lost_identification = true; drop = true;
             }
@@ -574,8 +578,8 @@ static void two_endpoint_exchange(bool identify = false) {
             }
         }
         if (peer.state == IAP2_LINK_NORMAL && !requested) {
-            const auto request = csm(0xaa00);
-            check(iap2_link_send(&peer, 10, request.data(), request.size(), now) == IAP2_OK, "peer requests certificate"); requested = true;
+            const auto request = csm(identification_first ? 0x1d00 : 0xaa00);
+            check(iap2_link_send(&peer, 10, request.data(), request.size(), now) == IAP2_OK, "peer requests selected first phase"); requested = true;
         }
         for (;;) {
             uint8_t out[1014], session; size_t n;
@@ -587,15 +591,25 @@ static void two_endpoint_exchange(bool identify = false) {
             const auto decoded = iap2_message_decode(incoming.data(), incoming.size(), &message, &used);
             if (decoded == IAP2_MORE) continue;
             check(decoded == IAP2_OK && used == incoming.size(), "peer complete CSM decode");
-            check(incoming == (responses == 0 ? csm(0xaa01, &certificate) : responses == 1 ? csm(0xaa03, &signature) :
-                responses == 2 ? information : app_reply), "peer verifies full reply bytes");
+            const auto expected = identification_first ?
+                (responses == 0 ? information : responses == 1 ? csm(0xaa01, &certificate) :
+                 responses == 2 ? csm(0xaa03, &signature) : app_reply) :
+                (responses == 0 ? csm(0xaa01, &certificate) : responses == 1 ? csm(0xaa03, &signature) :
+                 responses == 2 ? information : app_reply);
+            check(incoming == expected, "peer verifies full reply bytes in selected order");
             Bytes next;
-            if (responses == 0) next = csm(0xaa02, &challenge);
-            if (responses == 1) {
-                next = csm(0xaa05);
-                if (identify) { const auto start = csm(0x1d00); next.insert(next.end(), start.begin(), start.end()); }
+            if (identification_first) {
+                if (responses == 0) { next = csm(0x1d02); const auto request = csm(0xaa00); next.insert(next.end(), request.begin(), request.end()); }
+                if (responses == 1) next = csm(0xaa02, &challenge);
+                if (responses == 2) { next = csm(0xaa05); next.insert(next.end(), app_request.begin(), app_request.end()); }
+            } else {
+                if (responses == 0) next = csm(0xaa02, &challenge);
+                if (responses == 1) {
+                    next = csm(0xaa05);
+                    if (identify) { const auto start = csm(0x1d00); next.insert(next.end(), start.begin(), start.end()); }
+                }
+                if (responses == 2) { next = csm(0x1d02); next.insert(next.end(), app_request.begin(), app_request.end()); }
             }
-            if (responses == 2) { next = csm(0x1d02); next.insert(next.end(), app_request.begin(), app_request.end()); }
             check(++responses <= (identify ? 4u : 2u), "no duplicate complete replies");
             if (!next.empty()) check(iap2_link_send(&peer, 10, next.data(), next.size(), now) == IAP2_OK, "peer next sequence message");
             incoming.clear();
@@ -610,6 +624,9 @@ static void two_endpoint_exchange(bool identify = false) {
                 iap2_control_reply(&a.engine, app_reply.data(), app_reply.size(), now) == IAP2_OK, "explicit synthetic application handler");
             replied = true;
         } else check(control == IAP2_MORE || control == IAP2_LINK_BUSY, "two endpoint control poll");
+        if (identification_first && a.engine.identification.state != IAP2_IDENTIFICATION_ACCEPTED)
+            check(!a.provider.certificates && !a.provider.signatures && !a.engine.authentication_timer,
+                  "reference-order exchange defers provider and authentication budget");
         if (a.engine.auth.state == IAP2_AUTH_ACCEPTED && !peer.tx_count && !a.engine.reply_size &&
             (!identify || (responses == 4 && a.engine.identification.state == IAP2_IDENTIFICATION_ACCEPTED))) {
             check(lost && responses == (identify ? 4u : 2u) && a.provider.certificates == 1 && a.provider.signatures == 1 &&
@@ -640,14 +657,17 @@ static Bytes carplay_offer(unsigned mode = 0) {
     check(iap2_carplay_availability_encode(&value, out.data(), out.size(), &n) == 0, "offer encode");
     out.resize(n); return out;
 }
-static void prepare_carplay_endpoint(Endpoint& e, uint16_t packet = 1024) {
-    const auto info = enable_identification(e); e.handshake(0, packet); e.authenticate();
+static void prepare_carplay_endpoint(Endpoint& e, uint16_t packet = 1024, bool identification_first = false) {
+    if (identification_first) { e.config.startup_order = IAP2_CONTROL_IDENTIFICATION_FIRST; e.init(); }
+    const auto info = enable_identification(e); e.handshake(0, packet);
+    if (!identification_first) e.authenticate();
     e.payload(csm(0x1d00)); check(e.drain_reply() == info, "prepare identification information");
     e.payload(csm(0x1d02)); check(e.poll() == IAP2_MORE && e.engine.identification.state == IAP2_IDENTIFICATION_ACCEPTED,
                                 "prepare explicit identification acceptance");
+    if (identification_first) e.authenticate();
 }
-static void carplay_start_reply() {
-    Endpoint e; prepare_carplay_endpoint(e, 29); auto profile = carplay_profile();
+static void carplay_start_reply(bool identification_first = false) {
+    Endpoint e; prepare_carplay_endpoint(e, 29, identification_first); auto profile = carplay_profile();
     std::string identifier = "SYNTHETIC-RECEIVER"; profile.device_identifier = {identifier.data(), identifier.size()};
     Bytes expected(1024); size_t n;
     check(iap2_carplay_wired_start_encode(&profile, expected.data(), expected.size(), &n) == 0, "expected start encode"); expected.resize(n);
@@ -711,15 +731,149 @@ static void carplay_start_capacity_and_lifecycle() {
           small.engine.identification.state == IAP2_IDENTIFICATION_DISABLED, "new endpoint requires fresh identification opt-in");
     small.canaries();
 }
+static Bytes enable_identification_first(Endpoint& e) {
+    e.config.startup_order = IAP2_CONTROL_IDENTIFICATION_FIRST; e.init();
+    return enable_identification(e);
+}
+static void startup_order_configuration() {
+    Endpoint e;
+    check(e.config.startup_order == IAP2_CONTROL_AUTHENTICATION_FIRST &&
+          e.engine.startup_order == IAP2_CONTROL_AUTHENTICATION_FIRST, "original startup order remains default");
+    const auto before = Bytes(reinterpret_cast<uint8_t *>(&e.engine), reinterpret_cast<uint8_t *>(&e.engine) + sizeof e.engine);
+    auto bad = e.config; bad.startup_order = static_cast<iap2_control_startup_order>(2);
+    check(iap2_control_init(&e.engine, &bad, &e.callbacks, &e.buffers) == IAP2_ARGUMENT &&
+          !std::memcmp(&e.engine, before.data(), before.size()), "invalid startup order init is transactional");
+    e.config.startup_order = IAP2_CONTROL_IDENTIFICATION_FIRST; e.init();
+    const auto idle = Bytes(reinterpret_cast<uint8_t *>(&e.engine), reinterpret_cast<uint8_t *>(&e.engine) + sizeof e.engine);
+    check(iap2_control_start(&e.engine, 900) == IAP2_ARGUMENT &&
+          !std::memcmp(&e.engine, idle.data(), idle.size()), "missing explicit identity cannot start or accept clock");
+    enable_identification(e); e.handshake(10);
+    check(!e.provider.certificates && !e.provider.signatures, "startup configuration invokes no provider");
+    iap2_control_close(&e.engine); e.init();
+    check(e.engine.startup_order == IAP2_CONTROL_IDENTIFICATION_FIRST &&
+          e.engine.identification.state == IAP2_IDENTIFICATION_DISABLED &&
+          iap2_control_start(&e.engine, 10) == IAP2_ARGUMENT, "reinit copies order but requires renewed identity opt-in");
+    iap2_control_default_config(&e.config); e.init(); e.handshake();
+    check(!e.engine.identification_timer && e.engine.authentication_timer, "explicit reset to default retains auth-only mode");
+}
+static void identification_first_phase_gates() {
+    for (unsigned phase = 0; phase < 2; ++phase) {
+        for (uint16_t id = 0xaa00; id <= 0xaa05; ++id) {
+            Endpoint e; enable_identification_first(e); e.handshake();
+            if (phase) { e.payload(csm(0x1d00)); e.drain_reply(); }
+            e.payload(csm(id));
+            check(e.poll() == IAP2_AUTH_FAILED && e.engine.reason == IAP2_CONTROL_REASON_AUTH &&
+                  !e.provider.certificates && !e.provider.signatures && !e.engine.reply_size,
+                  "all premature auth namespace messages close without provider work");
+        }
+    }
+    for (uint16_t id : {0x1d01, 0x1d02, 0x1d03}) {
+        Endpoint e; enable_identification_first(e); e.handshake(); e.payload(csm(id));
+        check(e.poll() == IAP2_INVALID && e.engine.reason == IAP2_CONTROL_REASON_IDENTIFICATION &&
+              !e.provider.certificates, "premature identification result/outbound message fails closed");
+    }
+    Endpoint rejected; enable_identification_first(rejected); rejected.handshake();
+    rejected.payload(csm(0x1d00)); rejected.drain_reply();
+    rejected.payload(Bytes{0x40,0x40,0,14,0x1d,3,0,4,0,0,0,4,0,3});
+    check(rejected.poll() == IAP2_IDENTIFICATION_FAILED && rejected.engine.last_identification_rejection == 9 &&
+          !rejected.provider.certificates && !rejected.engine.authentication_timer && !rejected.engine.identification_timer,
+          "identification rejection preserves reason without starting authentication");
+    Endpoint held; enable_identification_first(held); held.handshake();
+    const auto request = carplay_offer(), reply = csm(0x1235);
+    const auto profile = carplay_profile();
+    held.payload(request); check(held.poll() == IAP2_CONTROL_MESSAGE, "unrelated early message remains explicit application event");
+    check(iap2_control_reply(&held.engine, reply.data(), reply.size(), 0) == IAP2_AUTH_FAILED &&
+          iap2_carplay_reply_wired_start(&held.engine, &profile, 0) == IAP2_AUTH_FAILED &&
+          held.held() == request && !held.provider.certificates, "application cannot bypass either startup phase");
+}
+static void identification_first_deadlines() {
+    for (unsigned phase = 0; phase < 3; ++phase) {
+        Endpoint e; e.config.identification_ms = 200; e.config.authentication_ms = 10;
+        enable_identification_first(e); e.handshake();
+        if (phase) { e.payload(csm(0x1d00), 20); e.poll(20); }
+        if (phase == 2) e.drain_reply(20);
+        check(e.poll(199) >= 0 && !e.engine.authentication_timer && !e.provider.certificates &&
+              e.engine.identification_at == 0, "waiting start, blocked reply and waiting result share first-phase budget");
+        e.output(199);
+        check(iap2_control_next_delay(&e.engine) <= 1 && e.poll(200) == IAP2_LINK_CLOSED &&
+              e.engine.reason == IAP2_CONTROL_REASON_TIMEOUT, "exact first-phase deadline with no provider calls");
+    }
+    for (uint64_t start : {uint64_t{0}, UINT64_MAX - 1000}) {
+        Endpoint e; e.config.identification_ms = 200; e.config.authentication_ms = 300;
+        enable_identification_first(e); e.handshake(start);
+        e.payload(csm(0x1d00), start + 100); e.drain_reply(start + 100);
+        e.payload(csm(0x1d02), start + 199); check(e.poll(start + 199) == IAP2_MORE, "late valid first-phase acceptance");
+        check(!e.engine.identification_timer && e.engine.authentication_timer && e.engine.authentication_at == start + 199,
+              "second phase starts when acceptance is processed");
+        e.output(start + 300); // Service the separate link ACK after its 100 ms delay.
+        check(e.poll(start + 498) == IAP2_MORE && iap2_control_next_delay(&e.engine) == 1 &&
+              e.poll(start + 499) == IAP2_LINK_CLOSED, "independent second-phase deadline, including near UINT64_MAX");
+    }
+    Endpoint expired; expired.config.identification_ms = 200; enable_identification_first(expired); expired.handshake();
+    expired.payload(csm(0x1d00)); expired.drain_reply();
+    const auto success = csm(0x1d02), late = frame(0x40, ++expired.peer_sequence, expired.engine.link.tx_acked, &success);
+    size_t n = 999;
+    check(iap2_control_feed(&expired.engine, late.data(), late.size(), &n, 200) == IAP2_LINK_CLOSED && !n &&
+          !expired.provider.certificates, "deadline wins over acceptance arriving at the boundary");
+    Endpoint held; held.config.identification_ms = 200; enable_identification_first(held); held.handshake();
+    held.payload(csm(0x6800)); held.poll();
+    check(held.poll(200) == IAP2_LINK_CLOSED && !held.provider.certificates, "unhandled application input cannot suspend first phase");
+}
+static void identification_first_ack_barrier() {
+    Endpoint e(8192, 29); const auto information = enable_identification_first(e); e.handshake();
+    auto start = csm(0x1d00);
+    for (const auto byte : start) e.payload(Bytes{byte});
+    check(e.poll() == IAP2_LINK_BUSY && e.engine.link.tx_count == 8 && !e.provider.certificates,
+          "split identification request produces bounded queue pressure");
+    auto next = csm(0x1d02); const auto cert_request = csm(0xaa00); next.insert(next.end(), cert_request.begin(), cert_request.end());
+    e.payload(next, 40, 1);
+    check(e.poll(40) == IAP2_LINK_BUSY && e.engine.identification.state == IAP2_IDENTIFICATION_WAIT_RESULT &&
+          !e.engine.authentication_timer && !e.provider.certificates, "coalesced acceptance/auth waits behind full identification reply ACK");
+    auto expected = information; const auto cert = pattern(e.provider.certificate_size, 0x90), cert_reply = csm(0xaa01, &cert);
+    expected.insert(expected.end(), cert_reply.begin(), cert_reply.end());
+    check(e.drain_reply(80) == expected && e.engine.identification.state == IAP2_IDENTIFICATION_ACCEPTED &&
+          e.engine.authentication_at == 80 && !e.engine.identification_timer && e.provider.certificates == 1,
+          "ACK barrier releases coalesced messages in order, provider runs exactly once");
+    check(e.poll(79) == IAP2_ARGUMENT && e.engine.authentication_at == 80, "backward clock cannot reset phase budget");
+    e.canaries();
+}
+static void identification_first_reset_and_provider_failure() {
+    for (unsigned phase = 0; phase < 4; ++phase) {
+        Endpoint e; enable_identification_first(e); e.handshake();
+        if (phase) { e.payload(csm(0x1d00)); e.drain_reply(); }
+        if (phase >= 2) { e.payload(csm(0x1d02)); e.poll(); }
+        if (phase == 3) e.authenticate();
+        e.feed(frame(0x10, 0, 0), 0, IAP2_LINK_CLOSED);
+        check(e.engine.identification.state == IAP2_IDENTIFICATION_IDLE && e.engine.auth.state == IAP2_AUTH_IDLE &&
+              !e.engine.identification_timer && !e.engine.authentication_timer, "remote reset clears every startup phase");
+        e.init(); check(iap2_control_start(&e.engine, 0) == IAP2_ARGUMENT, "reconnect cannot reuse old identity acceptance");
+        enable_identification(e); e.handshake(); e.payload(csm(0x1d02));
+        check(e.poll() == IAP2_INVALID, "stale acceptance rejected on fresh connection");
+    }
+    Endpoint e; enable_identification_first(e); e.handshake();
+    e.payload(csm(0x1d00)); e.drain_reply(); e.payload(csm(0x1d02)); e.poll();
+    e.provider.error = IAP2_PROVIDER_FAILED; e.payload(csm(0xaa00));
+    check(e.poll() == IAP2_PROVIDER_FAILED && e.provider.certificates == 1 && !e.provider.signatures &&
+          e.engine.reason == IAP2_CONTROL_REASON_AUTH && !e.engine.identification_timer && !e.engine.authentication_timer &&
+          e.engine.identification.state == IAP2_IDENTIFICATION_IDLE, "provider failure after identification tears down both phases");
+}
 int main() {
     try {
-        configuration(); header_splits(); large_receive(); coalesced_and_hold(); malformed_and_capacity();
-        negotiated_fragmentation_and_pressure(); authentication_serialization(); provider_failures(); auth_protocol_failures();
-        disconnect_and_reinit(); remote_close_and_retry_timeout(); adapter_timers(); work_budget_and_queue_pressure(); two_endpoint_exchange();
-        application_replies(); application_reply_deadlines(); identification_integration(); identification_failures();
-        identification_lifecycle(); two_endpoint_exchange(true);
-        carplay_start_reply(); carplay_start_gates(); carplay_start_capacity_and_lifecycle();
-        std::cout << "PASS: 23 control adapter test groups (synthetic providers/transport only).\n";
+        // Indirect iteration keeps independent large fixture lifetimes out of
+        // one optimizer-inlined main stack frame (especially ASan on Windows).
+        void (*const groups[])() = {
+            configuration, header_splits, large_receive, coalesced_and_hold, malformed_and_capacity,
+            negotiated_fragmentation_and_pressure, authentication_serialization, provider_failures, auth_protocol_failures,
+            disconnect_and_reinit, remote_close_and_retry_timeout, adapter_timers, work_budget_and_queue_pressure,
+            [] { two_endpoint_exchange(); }, application_replies, application_reply_deadlines,
+            identification_integration, identification_failures, identification_lifecycle,
+            [] { two_endpoint_exchange(true); }, [] { carplay_start_reply(); }, carplay_start_gates, carplay_start_capacity_and_lifecycle,
+            startup_order_configuration, identification_first_phase_gates, identification_first_deadlines,
+            identification_first_ack_barrier, identification_first_reset_and_provider_failure,
+            [] { two_endpoint_exchange(true, true); }, [] { carplay_start_reply(true); }
+        };
+        for (const auto group : groups) group();
+        std::cout << "PASS: " << sizeof groups / sizeof groups[0] << " control adapter test groups (synthetic providers/transport only).\n";
         std::cout << "Host control-state storage: " << sizeof(iap2_control) << " bytes, plus caller buffers.\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }

@@ -17,12 +17,17 @@ enum iap2_control_reason { IAP2_CONTROL_REASON_NONE, IAP2_CONTROL_REASON_LOCAL,
     IAP2_CONTROL_REASON_LINK, IAP2_CONTROL_REASON_MESSAGE,
     IAP2_CONTROL_REASON_AUTH, IAP2_CONTROL_REASON_TIMEOUT,
     IAP2_CONTROL_REASON_IDENTIFICATION };
+enum iap2_control_startup_order {
+    IAP2_CONTROL_AUTHENTICATION_FIRST = 0, /* Existing experimental default. */
+    IAP2_CONTROL_IDENTIFICATION_FIRST = 1 /* Pinned LIVI runtime ordering. */
+};
 
 typedef struct iap2_control_config {
     iap2_link_config link; /* Exactly one control session, kind 0/version 1. */
     uint32_t message_ms; /* Assembly + hold per CSM; also separate app reply-to-ACK budget. */
-    uint32_t authentication_ms; /* NORMAL to accepted, including backpressure. */
-    uint32_t identification_ms; /* Auth accepted to identification accepted, if enabled. */
+    uint32_t authentication_ms; /* Eligible phase start to accepted, including backpressure. */
+    uint32_t identification_ms; /* Eligible phase start to accepted, if enabled. */
+    enum iap2_control_startup_order startup_order;
 } iap2_control_config;
 
 /* Caller owns these three distinct, nonoverlapping buffers for the entire
@@ -47,6 +52,7 @@ typedef struct iap2_control {
     enum iap2_control_reason reason;
     int last_error;
     uint32_t message_ms, authentication_ms, identification_ms;
+    enum iap2_control_startup_order startup_order;
     uint32_t last_identification_rejection; /* Preserved across closure, reset by init. */
     uint64_t message_at, authentication_at, identification_at, reply_at;
     size_t receive_used, receive_expected, reply_size, reply_offset;
@@ -63,10 +69,17 @@ int iap2_control_init(iap2_control *, const iap2_control_config *,
                       const iap2_auth_provider *, const iap2_control_buffers *);
 /* Optional, only before start. Copies explicit metadata and preflights reply
  * capacity. Init disables identification; every new init needs a new enable.
- * This local profile requires auth before StartIdentification, waits for reply
- * ACK before results, and fails closed on rejected/out-of-order identification.
+ * Order is explicit in config; IDENTIFICATION_FIRST requires this enable before
+ * start and forbids auth messages/provider work until identification ACCEPTED.
+ * AUTHENTICATION_FIRST retains the original auth-before-identification policy.
+ * Both wait for reply ACK before results and fail closed on rejected/out-of-order
+ * identification. No automatic fallback or phase restart after failure.
  * No transport components or CarPlay flags are advertised. */
 int iap2_control_enable_identification(iap2_control *, const iap2_identification_metadata *);
+/* IDENTIFICATION_FIRST without enabled metadata returns ARGUMENT without
+ * starting the link or accepting the clock. Phase one starts at NORMAL; phase
+ * two starts when poll processes phase-one acceptance, not when bytes arrive.
+ * Both phases have separate total budgets; neither restarts on partial work. */
 int iap2_control_start(iap2_control *, uint64_t now_ms);
 /* EOF, local failure or cancellation. Clears partial/reply/provider scratch
  * contents and resets auth to IDLE. Not a secure memory-erasure guarantee. */

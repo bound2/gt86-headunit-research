@@ -7,6 +7,11 @@ The selected goal remains software-only CarPlay on the factory hardware.
 
 ## Current result
 
+Follow-up: the startup codecs/reply work is published as `ccd89dd`.
+The [subsequent startup-order implementation](startup-order.md) adds the explicit
+identification-first profile proposed below. This report otherwise records the
+startup-message checkpoint and its original sequencing gap.
+
 Four CarPlay-related control-message codecs and an explicit wired-start reply
 helper are implemented and tested on the PC. The helper queues receiver metadata
 only after a valid wired offer and accepted authentication and identification.

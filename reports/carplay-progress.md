@@ -16,18 +16,19 @@ link profile adds negotiation, ACKs, retransmission and bounded queues with
 16 link test groups. A bounded control-session adapter now connects link payloads
 to authentication, including split/coalesced messages and larger replies. It
 now also supports atomic application replies and opt-in minimal accessory
-identification, with 23 control and seven dedicated identification test groups.
+identification, with 30 control and seven dedicated identification test groups.
 The new bounded byte-stream transport pump retains partial writes, accounts for
-receive tails and closes failed/stale connections, with 15 dedicated test groups.
+receive tails and closes failed/stale connections, with 17 dedicated test groups.
 CarPlay startup codecs now round-trip four pinned fixtures, with nine dedicated
 groups and an explicit, gated wired-start reply helper. No capability is
 automatically advertised and no network/media session is opened. The pinned
-runtime identifies before authenticating; our current experimental profile
-still requires the reverse order, an explicit compatibility gap.
+runtime's identification-first order is now supported through explicit opt-in
+configuration, with independent phase budgets and provider gating. The original
+authentication-first default remains available. See [startup-order.md](startup-order.md).
 All ten CTest suites pass, and all six protocol suites pass under host
 address/undefined-behavior sanitizers. The seven C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-39 and [the session-start report](carplay-session-start.md).
+Steps 22-40 and [the session-start report](carplay-session-start.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1509,6 +1510,29 @@ lists still do not advertise the new CarPlay messages. Real USB ownership,
 authentication, pairing/network/media, installed-version matching and safe
 execution/recovery access remain separate unresolved requirements.
 
+## Step 40 - Support explicit identification-first startup
+
+Status: preceding startup-message work committed and pushed as `ccd89dd`.
+The new [startup-order.md](startup-order.md) records the configuration, phase
+gates, timer ownership and source evidence step by step. The endpoint now
+supports the pinned reference's identification-before-authentication order
+without changing the existing default. Missing explicit identity blocks start;
+premature authentication never invokes the provider. Reinitialization requires
+identity opt-in again, and all terminal paths clear both phase states.
+
+Seven new control groups bring that suite to 30; two new transport groups bring
+it to 17. Both startup orders, ACK barriers, coalesced phase transitions,
+independent deadlines, lost packets, provider failure and reset pass synthetic
+tests. The wired reply helper also passes after identification-first startup.
+All ten CTest suites, six sanitized suites, seven-unit ARM check and 19 Python
+tests pass. Host endpoint size is now 19,960 bytes; pump size remains 2,184 bytes.
+
+Review found that multi-language identification currently repeats parameter 13,
+whereas the pinned encoder packs the language strings into one parameter. The
+single-language fixture did not expose it. Correct that payload/test next, then
+extend truthful supported-message/USB-host declarations. None of these host
+checks establishes a real QNX transport, authentication acceptance or media.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1519,10 +1543,11 @@ execution/recovery access remain separate unresolved requirements.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement and test an explicit identification-first profile following the
-   pinned runtime; Steps 37-39 now trace session startup and implement a bounded
-   message subset. The default profile's reverse ordering and missing CarPlay
-   message/transport declarations remain compatibility gaps. The bounded host
+3. Correct the packed SupportedLanguage field found during the Step 40 payload
+   audit, then extend explicit supported-message/transport declarations.
+   Identification-first startup is now implemented and tested; Steps 37-39
+   trace session startup and implement a bounded message subset. Missing CarPlay
+   message/transport declarations remain a compatibility gap. The bounded host
    transport pump passes simulated transfers and authentication (Steps 34-35).
    The pinned corpus's stock USB/HID path and service coordination are traced
    (Steps 31-32), but physical ownership and a usable iAP2 profile are unknown.

@@ -173,8 +173,8 @@ neither a real authentication-chip test nor an iPhone interoperability result.
 The subsequent [session-start investigation](carplay-session-start.md) traces
 CarPlay establishment and transport handoff in the pinned reference and adds
 bounded startup codecs with an explicit wired-start reply. It also finds an
-identification/authentication ordering mismatch; implementing an explicit
-identification-first profile is the next local interoperability task. Keep
+identification/authentication ordering mismatch, subsequently addressed by the
+explicit [identification-first profile](startup-order.md). Keep
 unknown USB roles, network interfaces and CarPlay capabilities explicit; do not
 turn them into guessed defaults or copy the stock HID path uncritically.
 

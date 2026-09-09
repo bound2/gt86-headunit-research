@@ -32,11 +32,14 @@ static int observe(iap2_control *c, int status) {
         c->application_reply = 0; c->reply_at = 0;
     }
     if (c->link.state == IAP2_LINK_NORMAL && !c->authentication_timer &&
-        c->auth.state != IAP2_AUTH_ACCEPTED) {
+        c->auth.state != IAP2_AUTH_ACCEPTED &&
+        (c->startup_order == IAP2_CONTROL_AUTHENTICATION_FIRST ||
+         c->identification.state == IAP2_IDENTIFICATION_ACCEPTED)) {
         c->authentication_timer = 1; c->authentication_at = c->link.now;
     }
-    if (c->auth.state == IAP2_AUTH_ACCEPTED && c->identification.state == IAP2_IDENTIFICATION_IDLE &&
-        !c->identification_timer) {
+    if (c->link.state == IAP2_LINK_NORMAL && c->identification.state == IAP2_IDENTIFICATION_IDLE &&
+        !c->identification_timer && (c->startup_order == IAP2_CONTROL_IDENTIFICATION_FIRST ||
+         c->auth.state == IAP2_AUTH_ACCEPTED)) {
         c->identification_timer = 1; c->identification_at = c->link.now;
     }
     return status;
@@ -57,6 +60,7 @@ void iap2_control_default_config(iap2_control_config *config) {
     iap2_link_default_config(&config->link);
     config->message_ms = 5000; config->authentication_ms = 30000;
     config->identification_ms = 30000;
+    config->startup_order = IAP2_CONTROL_AUTHENTICATION_FIRST;
 }
 int iap2_control_init(iap2_control *c, const iap2_control_config *config,
                       const iap2_auth_provider *provider, const iap2_control_buffers *buffers) {
@@ -66,13 +70,16 @@ int iap2_control_init(iap2_control *c, const iap2_control_config *config,
         buffers->receive_capacity > IAP2_MAX_FRAME_SIZE || buffers->reply_capacity < 11 ||
         buffers->reply_capacity > IAP2_MAX_FRAME_SIZE || !buffers->scratch_capacity ||
         buffers->scratch_capacity > buffers->reply_capacity - 10 ||
-        config->link.offer.session_count != 1 || !config->message_ms || !config->authentication_ms || !config->identification_ms)
+        config->link.offer.session_count != 1 || !config->message_ms || !config->authentication_ms || !config->identification_ms ||
+        (config->startup_order != IAP2_CONTROL_AUTHENTICATION_FIRST &&
+         config->startup_order != IAP2_CONTROL_IDENTIFICATION_FIRST))
         return IAP2_ARGUMENT;
     /* Link init validates before mutation. It owns the only self-pointer. */
     status = iap2_link_init(&c->link, &config->link); if (status) return status;
     copy((uint8_t *)&c->buffers, (const uint8_t *)buffers, sizeof *buffers);
     c->message_ms = config->message_ms; c->authentication_ms = config->authentication_ms;
     c->identification_ms = config->identification_ms; c->last_identification_rejection = 0;
+    c->startup_order = config->startup_order;
     clear((uint8_t *)&c->identification, sizeof c->identification);
     c->reason = IAP2_CONTROL_REASON_NONE; c->last_error = IAP2_OK;
     status = iap2_auth_init(&c->auth, provider, buffers->scratch, buffers->scratch_capacity);
@@ -90,7 +97,10 @@ int iap2_control_enable_identification(iap2_control *c, const iap2_identificatio
     return IAP2_OK;
 }
 int iap2_control_start(iap2_control *c, uint64_t now) {
-    int status = check_time(c, now); if (status) return status;
+    int status;
+    if (c && c->startup_order == IAP2_CONTROL_IDENTIFICATION_FIRST &&
+        c->identification.state == IAP2_IDENTIFICATION_DISABLED) return IAP2_ARGUMENT;
+    status = check_time(c, now); if (status) return status;
     return observe(c, iap2_link_start(&c->link, now));
 }
 void iap2_control_close(iap2_control *c) {
@@ -147,11 +157,16 @@ int iap2_control_poll(iap2_control *c, uint64_t now) {
             status = iap2_message_decode(c->buffers.receive, c->receive_used, &message, &consumed);
             if (status != IAP2_OK || consumed != c->receive_used)
                 return fail(c, IAP2_CONTROL_REASON_MESSAGE, IAP2_INVALID);
+            if (c->startup_order == IAP2_CONTROL_IDENTIFICATION_FIRST &&
+                c->identification.state != IAP2_IDENTIFICATION_ACCEPTED &&
+                message.id >= 0xaa00 && message.id <= 0xaa05)
+                return fail(c, IAP2_CONTROL_REASON_AUTH, IAP2_AUTH_FAILED);
             status = iap2_auth_handle(&c->auth, c->buffers.receive, c->receive_used,
                 c->buffers.reply, c->buffers.reply_capacity, &c->reply_size);
             if (status == IAP2_UNSUPPORTED && c->identification.state != IAP2_IDENTIFICATION_DISABLED &&
                 message.id >= 0x1d00 && message.id <= 0x1d03) {
-                if (c->auth.state != IAP2_AUTH_ACCEPTED)
+                if (c->startup_order == IAP2_CONTROL_AUTHENTICATION_FIRST &&
+                    c->auth.state != IAP2_AUTH_ACCEPTED)
                     return fail(c, IAP2_CONTROL_REASON_IDENTIFICATION, IAP2_AUTH_FAILED);
                 status = iap2_identification_handle(&c->identification, c->buffers.receive, c->receive_used,
                     c->buffers.reply, c->buffers.reply_capacity, &c->reply_size);

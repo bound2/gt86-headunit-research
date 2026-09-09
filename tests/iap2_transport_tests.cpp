@@ -3,6 +3,7 @@
 #include "iap2_transport.h"
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <deque>
 #include <iostream>
 #include <limits>
@@ -313,8 +314,39 @@ static void retry_exhaustion_without_tail() {
     check(first_transmissions == 4 && f.backend.cancelled.size() == 1, "initial send plus three retries, then cancel");
 }
 
-static void full_authentication_exchange() {
-    Fixture f; f.control_config.link.offer.packet_size = 64; f.reinit(); f.init_pump();
+static Bytes enable_test_identification(Fixture& f) {
+    const auto span = [](const char *s) { return iap2_identification_text{s, std::strlen(s)}; };
+    iap2_identification_metadata m{};
+    m.name = span("PC TEST ONLY"); m.model = span("SYNTHETIC"); m.manufacturer = span("Test fixture");
+    m.serial = span("NOT-A-DEVICE-SERIAL"); m.firmware = span("test-1"); m.hardware = span("none");
+    m.current_language = m.languages[0] = span("en"); m.language_count = 1;
+    Bytes information(1024); size_t n;
+    check(iap2_identification_encode(&m, information.data(), information.size(), &n) == 0 &&
+          iap2_control_enable_identification(&f.endpoint, &m) == 0, "explicit pump test identity");
+    information.resize(n); return information;
+}
+static void identification_first_pump_deadline() {
+    Fixture f; f.control_config.startup_order = IAP2_CONTROL_IDENTIFICATION_FIRST;
+    f.control_config.identification_ms = 17; f.control_config.authentication_ms = 2;
+    f.reinit(); f.init_pump();
+    check(iap2_transport_start(&f.pump, 1, 0) == IAP2_ARGUMENT && !f.pump.active && !f.pump.generation &&
+          !f.backend.reads && !f.backend.write_calls, "pump cannot start identification-first without metadata");
+    enable_test_identification(f); f.handshake();
+    const auto deadline = f.endpoint.identification_at + 17;
+    f.backend.write_block = true; f.queue(csm(0x1d00));
+    while (f.now + 1 < deadline) f.run();
+    check(f.pump.tx_size && iap2_transport_next_delay(&f.pump) <= 1 && !f.endpoint.authentication_timer && !f.certificates,
+          "identification deadline not hidden by blocked output; shorter auth budget remains deferred");
+    check(f.poll() == IAP2_LINK_CLOSED && f.endpoint.reason == IAP2_CONTROL_REASON_TIMEOUT &&
+          f.backend.cancelled.size() == 1 && !f.endpoint.identification_timer && !f.endpoint.authentication_timer,
+          "first-phase timeout cancels pump once and clears both budgets");
+    check(f.poll() == IAP2_LINK_CLOSED && f.backend.cancelled.size() == 1, "closed pump does not repeat cancellation");
+}
+static void full_authentication_exchange(bool identification_first = false) {
+    Fixture f; f.control_config.link.offer.packet_size = 64;
+    if (identification_first) f.control_config.startup_order = IAP2_CONTROL_IDENTIFICATION_FIRST;
+    f.reinit(); f.init_pump();
+    const auto information = identification_first ? enable_test_identification(f) : Bytes{};
     f.backend.read_limit = 3; f.backend.write_limit = 5;
     iap2_link peer{}; auto peer_config = f.control_config.link; peer_config.initial_sequence = 42;
     check(iap2_link_init(&peer, &peer_config) == 0 && iap2_link_start(&peer, 0) == 0, "peer start");
@@ -324,6 +356,9 @@ static void full_authentication_exchange() {
     const Bytes app_body(90, 0x24), app_request = csm(0x6807), app_reply = csm(0x6808, &app_body);
     for (unsigned iteration = 0; iteration < 5000; ++iteration) {
         const int pump_status = f.poll(); check(pump_status >= 0, "pump exchange alive");
+        if (identification_first && f.endpoint.identification.state != IAP2_IDENTIFICATION_ACCEPTED)
+            check(!f.certificates && !f.signatures && !f.endpoint.authentication_timer,
+                  "fragmented pump identification defers auth provider and budget");
         if (pump_status == IAP2_CONTROL_MESSAGE) {
             check(app_queued && !replied && f.held() == app_request, "application request held by pump");
             ++f.now; // Application can advance the shared clock between pump calls.
@@ -338,36 +373,48 @@ static void full_authentication_exchange() {
             f.backend.output.clear();
         }
         if (peer.state == IAP2_LINK_NORMAL && !requested) {
-            const auto request = csm(0xaa00);
-            check(iap2_link_send(&peer, 10, request.data(), request.size(), f.now) == 0, "peer requests certificate"); requested = true;
+            const auto request = csm(identification_first ? 0x1d00 : 0xaa00);
+            check(iap2_link_send(&peer, 10, request.data(), request.size(), f.now) == 0, "peer requests selected first phase"); requested = true;
         }
         uint8_t bytes[1024], session; size_t n;
         while (iap2_link_receive(&peer, &session, bytes, sizeof bytes, &n) == 0) {
             check(session == 10, "peer control session"); received.insert(received.end(), bytes, bytes + n);
         }
         if (received.size() >= 6 && received.size() == (static_cast<size_t>(received[2]) << 8 | received[3])) {
-            check(received == (stage == 0 ? csm(0xaa01, &cert) : stage == 1 ? csm(0xaa03, &signature) : app_reply), "peer sees complete synthetic reply");
-            if (stage < 2) {
-                const auto next = stage == 0 ? csm(0xaa02, &challenge) : csm(0xaa05);
-                check(iap2_link_send(&peer, 10, next.data(), next.size(), f.now) == 0, "peer queues next auth step");
+            if (identification_first && !stage) {
+                check(received == information, "peer verifies full identification before requesting authentication");
+                auto next = csm(0x1d02); append(next, csm(0xaa00));
+                check(iap2_link_send(&peer, 10, next.data(), next.size(), f.now) == 0, "peer coalesces identification acceptance and auth request");
+            } else {
+                const unsigned auth_stage = stage - (identification_first ? 1u : 0u);
+                check(received == (auth_stage == 0 ? csm(0xaa01, &cert) : auth_stage == 1 ? csm(0xaa03, &signature) : app_reply),
+                      "peer sees complete synthetic reply");
+                if (auth_stage < 2) {
+                    const auto next = auth_stage == 0 ? csm(0xaa02, &challenge) : csm(0xaa05);
+                    check(iap2_link_send(&peer, 10, next.data(), next.size(), f.now) == 0, "peer queues next auth step");
+                }
             }
-            check(++stage <= 3, "no duplicate replies"); received.clear();
+            check(++stage <= (identification_first ? 4u : 3u), "no duplicate replies"); received.clear();
         }
-        if (stage == 2 && f.endpoint.auth.state == IAP2_AUTH_ACCEPTED && !app_queued) {
+        if (stage == (identification_first ? 3u : 2u) && f.endpoint.auth.state == IAP2_AUTH_ACCEPTED && !app_queued) {
             check(iap2_link_send(&peer, 10, app_request.data(), app_request.size(), f.now) == 0, "peer application request");
             app_queued = true;
         }
         const int status = iap2_link_output(&peer, bytes, sizeof bytes, &n, f.now);
         check(status == IAP2_OK || status == IAP2_MORE, "peer output live");
         if (n) f.backend.input.insert(f.backend.input.end(), bytes, bytes + n);
-        if (stage == 3 && f.endpoint.auth.state == IAP2_AUTH_ACCEPTED && !peer.tx_count && !f.pump.tx_size &&
+        if (stage == (identification_first ? 4u : 3u) && f.endpoint.auth.state == IAP2_AUTH_ACCEPTED && !peer.tx_count && !f.pump.tx_size &&
             !f.endpoint.reply_size && !f.endpoint.link.tx_count) { accepted = true; break; }
     }
     check(accepted && replied && f.certificates == 1 && f.signatures == 1 && f.signed_challenge == challenge,
           "full auth/application exchange over pump, exact challenge, provider exactly once");
-    check(f.endpoint.identification.state == IAP2_IDENTIFICATION_DISABLED, "auth is not implicit identification or CarPlay");
+    check(f.endpoint.identification.state == (identification_first ? IAP2_IDENTIFICATION_ACCEPTED : IAP2_IDENTIFICATION_DISABLED),
+          "identification only accepted when explicitly configured and completed");
     iap2_transport_close(&f.pump);
     check(f.endpoint.auth.state == IAP2_AUTH_IDLE && f.backend.cancelled.size() == 1, "accepted auth cleared on transport close");
+    check(!f.endpoint.identification_timer && !f.endpoint.authentication_timer &&
+          f.endpoint.identification.state == (identification_first ? IAP2_IDENTIFICATION_IDLE : IAP2_IDENTIFICATION_DISABLED),
+          "transport close also clears selected identification phase");
 }
 int main() {
     try {
@@ -375,7 +422,8 @@ int main() {
         disconnect_stall_and_cleanup(); reconnect_and_stale_results(); output_and_handshake_deadlines();
         input_fragmentation_and_coalescing(); recoverable_frame_tail(); receive_queue_pressure(); receiving_while_output_blocked();
         endpoint_timeouts_and_peer_reset(); retransmission_blocked_by_tail(); retry_exhaustion_without_tail(); full_authentication_exchange();
-        std::cout << "PASS: 15 bounded transport test groups (fake byte streams only).\n";
+        identification_first_pump_deadline(); full_authentication_exchange(true);
+        std::cout << "PASS: 17 bounded transport test groups (fake byte streams only).\n";
         std::cout << "Host transport storage: " << sizeof(iap2_transport) << " bytes plus control endpoint/buffers.\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL: " << error.what() << '\n'; return 1; }

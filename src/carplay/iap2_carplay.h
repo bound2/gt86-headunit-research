@@ -72,8 +72,8 @@ int iap2_carplay_wired_start_encode(const iap2_carplay_wired_start *, uint8_t *,
  * A held message view expires on success or terminal endpoint closure. Invalid
  * input leaves the request/reply unchanged; timed control-reply rules apply
  * when delegated. Call between pump polls with the same monotonic clock.
- * Current auth-before-identification policy is UNCHANGED; the pinned runtime's
- * identification-first sequence is a separate interoperability task.
+ * Either explicit control startup order is supported; both acceptance gates
+ * still apply. This helper neither chooses nor changes the endpoint profile.
  */
 int iap2_carplay_reply_wired_start(iap2_control *, const iap2_carplay_wired_start *, uint64_t now_ms);
 

@@ -165,7 +165,7 @@ atomically. Reserved authentication/identification replies cannot be injected
 through this API. See
 [CarPlay progress, Steps 25-27](reports/carplay-progress.md#step-25---connect-control-messages-to-the-authentication-sequencer).
 
-Twenty-three control test groups cover buffer limits, backpressure, teardown, deadlines
+Thirty control test groups cover buffer limits, backpressure, teardown, deadlines
 and exchanges between two library endpoints with byte-fragmented transport
 and deliberate packet loss. Provider results are synthetic patterns, not real
 credentials. These are local stream/serialization choices, not an Apple
@@ -178,10 +178,12 @@ Start/Information/Accepted-or-Rejected sequencer. Enable it through
 `iap2_control_enable_identification` before starting the endpoint, using explicit
 caller-supplied identity, language and power metadata. Identification is disabled
 after every new endpoint initialization; no real identity is guessed. The
-enabled local profile requires authentication first and bounds the entire
-identification exchange with a configurable deadline. The pinned LIVI runtime
-instead identifies before authenticating; supporting that explicit alternative
-is the next interoperability task, not behavior implemented by this profile.
+default profile requires authentication first. Set `config.startup_order` to
+`IAP2_CONTROL_IDENTIFICATION_FIRST` to use the pinned runtime's order instead;
+this mode requires enabled metadata before start and defers authentication
+callbacks until identification acceptance. Both phases have independent total
+budgets, ACK barriers and reset behavior. See the new
+[startup-order report](reports/startup-order.md) for integration checks and limits.
 
 The encoder deliberately omits USB/Bluetooth/vehicle components, application
 protocols and CarPlay flags. Its fixed message lists contain only implemented
@@ -203,8 +205,8 @@ and receive tails, and bounds work/backpressure/deadlines. Connection generation
 reject stale results after reconnect; cancellation clears transport and endpoint
 state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
 
-Fifteen test groups exercise a fake backend, including a complete synthetic
-authentication exchange over fragmented reads/writes. All ten CTest suites and
+Seventeen test groups exercise a fake backend, including complete synthetic
+exchanges in both startup orders over fragmented reads/writes. All ten CTest suites and
 six sanitized protocol suites pass. Details and callback lifetime requirements
 are in the
 [step-by-step transport adapter report](reports/transport-adapter.md) and
@@ -230,7 +232,7 @@ and transport capabilities; a real phone exchange is not established.
 
 The pinned wired reference uses USBmux, trust pairing, the carkit service and a
 separate USB network path, not the traced stock iPod HID path. Its startup order
-also differs from our current experimental endpoint. See the new
+is now supported as an explicit opt-in endpoint profile. See the
 [step-by-step session-start report](reports/carplay-session-start.md) and
 [CarPlay progress, Steps 37-39](reports/carplay-progress.md#step-37---publish-the-checkpoint-and-trace-wired-session-startup).
 
