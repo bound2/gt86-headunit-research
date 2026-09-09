@@ -11,6 +11,10 @@ Observed from the owner's photos:
 | Navigation software | `6.9.0WL` |
 | Map release | `2017 v1` |
 
+The seven originals in `Pictures/headunit` have been inspected; photo-by-photo
+evidence and the remaining hardware-identification gaps are recorded in
+[CarPlay progress, Step 11](reports/carplay-progress.md#step-11---inspect-the-owners-existing-head-unit-photographs).
+
 The display/audio unit and Go navigation module are separate research targets.
 Firmware from the same product family is not proof that it can be installed on
 this particular unit. This project does not flash hardware or prepare an update
@@ -81,6 +85,33 @@ from the synthetic CTest suites.
 
 For bytecode listings use `luac.exe -l -p FILE`: `-p` prevents the compiler from
 creating its default `luac.out` output file.
+
+## Native CarPlay protocol components (in development)
+
+The selected approach is software only on the factory head unit. The new
+`carplay_protocol` C99 library implements iAP2 link framing/checksums, streaming
+frame reassembly, control-message encoding/decoding, and accessory authentication
+sequencing through a caller-supplied certificate/challenge provider. It performs
+no I/O and contains no authentication keys or fallback signer.
+
+`scripts/Build.ps1` builds this library and runs `iap2_tests` alongside the four
+existing suites. The new tests use 33 committed LIVI message vectors and golden
+link frames; they also cover fragmentation, corrupt packets, length bounds and
+authentication failures. Provenance and GPL-3.0-or-later licensing are recorded
+in [third_party/README.md](third_party/README.md).
+
+An optional portability check uses the installed LLVM compiler:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayArm.ps1
+```
+
+It produces `build/carplay-arm/carplay_protocol.o`, a 32-bit ARM relocatable
+object with no unresolved symbols. This checks portable code generation, not
+QNX executable linking or compatibility with the car. The receiver still needs
+USB/Bluetooth transport, reliable link negotiation, the actual Apple
+authentication provider, CarPlay session/media protocols, and QNX display/audio
+integration. There is no installable CarPlay package yet.
 
 ## Read-only C++ analyzer
 
