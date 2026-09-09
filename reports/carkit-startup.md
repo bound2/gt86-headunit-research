@@ -4,6 +4,10 @@ Date: 2026-09-09. Continues [the TLS implementation](lockdown-tls.md) and
 [CarPlay progress](carplay-progress.md). Host-only implementation/testing;
 no phone, trust record, car, update USB or firmware image was changed.
 
+Follow-up: [carkit-iap2.md](carkit-iap2.md) connects this stream to the existing
+iAP2 engine. It adds timer/drain helpers and application-use tracking; carkit is
+now 184 x64 bytes. Counts/sizes below otherwise record the earlier startup step.
+
 ## Step 1 - Revalidate the reference and current starting point
 
 The previous TLS step is committed/pushed as `aa418e1`. Its tests encrypted

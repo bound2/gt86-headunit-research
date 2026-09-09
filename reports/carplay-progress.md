@@ -45,15 +45,18 @@ TLS adapter now performs real mutually authenticated TLS 1.2 over the handoff,
 with explicit CA/device-pin validation and seven cryptographic test groups.
 An owning protected RPC client and carkit startup layer now add seven groups:
 validated service ports, explicit SSL policy, a separate service connection,
-real dual TLS and raw iAP2 round trips over simulated USBmux. Connecting that
-stream to the iAP2 session engine remains next. Python checks total 25.
+real dual TLS and raw iAP2 round trips over simulated USBmux. A new owning bridge
+now connects that stream to the existing iAP2 session engine, with six integrated
+groups covering identification, synthetic accessory authentication, explicit
+wired-start replies and completion/lifetime gates. Projection network/media
+and actual hardware integration remain missing. Python checks total 25.
 Native USB and phone pairing remain absent.
-All seventeen ordinary CTest suites and nineteen TLS-enabled suites pass.
-All thirteen original protocol suites and both TLS/carkit suites pass under host
+All seventeen ordinary CTest suites and twenty TLS-enabled suites pass.
+All thirteen original protocol suites and all three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including instrumentation of Mbed TLS.
 The seventeen freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-52 and [the carkit report](carkit-startup.md). Hosted TLS uses heap/platform
+Steps 22-53 and [the integrated iAP2 report](carkit-iap2.md). Hosted TLS uses heap/platform
 services and is not included in that ARM claim.
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -1914,6 +1917,46 @@ and media paths. Native transport, pairing provision, authentication-chip
 access, actual Go identity and verified execution/recovery remain unresolved.
 No installable software-only CarPlay receiver or vehicle change was produced.
 
+## Step 53 - Connect the iAP2 session engine to carkit
+
+Status: protected RPC/carkit startup committed/pushed as `7539981`.
+The new [carkit-iap2.md](carkit-iap2.md) records an owning bridge to the existing
+iAP2 pump/link/control engine. Its pending frame is copied into independent
+storage, submitted through carkit and not credited to the pump until service
+TLS/USBmux output is drained and TCP-acknowledged. This does not manufacture an
+iAP2 ACK or renew the retained-output/retransmission budgets.
+
+Timer-only preflight now checks upper iAP2 deadlines before lower physical I/O.
+One bridge poll drives at most two physical reads/writes. Explicit saved handles,
+pump generation and one-shot ownership reject stale/rebound lifetimes; closure
+resets endpoint authentication and clears pending data without cancelling a
+replacement mux. Early decrypted but unread input is preserved, while prior
+external application use prevents a false fresh-service rebind.
+
+Six groups drive actual dual TLS (or explicitly allowed plain carkit) through
+the existing detection/link negotiation, wired identification, synthetic
+certificate/challenge/result sequence, explicit zero-intent power notification
+and wired-start request/reply. Other groups verify unacknowledged writes staying
+pending, three-byte plain prefixes, early encrypted markers, deadlines before
+physical I/O, invalid binds/clocks/generations, provider/connection failure and
+CONTROL handling. The accessory provider, phone peer and advertised projection
+address/key are synthetic; no real authentication chip or media server is proven.
+
+All 20 TLS-enabled suites (17 ordinary), three fully instrumented hosted suites,
+thirteen original sanitizer suites, the seventeen-unit freestanding ARM check
+and 25 Python tests pass. An initial sanitizer stack overflow came from combined
+large test fixtures; test-owned heap allocation fixes it without changing
+production limits/timeouts or disabling checks. Changed C99 warning checks and
+document links pass. The bridge is 3,312 x64 bytes including its pump/pending
+frame; carkit is now 184 bytes, with endpoint/buffers/crypto heap additional.
+
+Next implement the separate projection-session request path and real receiver
+identity/address/key provision, then network/media delivery. The pinned wired
+runtime maintains a separate USB-network path for AV, so an iAP2 wired-start
+fixture is not a working projection server. Native transport, actual pairing
+and authentication-chip access, exact Go identity and verified execution/recovery
+remain unresolved. No installable software-only CarPlay update was produced.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1924,9 +1967,10 @@ No installable software-only CarPlay receiver or vehicle change was produced.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Attach the iAP2 transport/link/control engine to the carkit stream, preserving
-   write-completion, cancellation and ownership semantics; then continue with
-   broader session/network/media integration and explicit trust-pairing provision.
+3. Implement the separate projection-session request path and actual receiver
+   identity/address/key provision, then network/media integration and explicit
+   trust-pairing provision. The iAP2 transport/link/control engine is connected
+   to carkit with completion/cancellation/ownership accounting in Step 53.
    Protected framed RPC ownership, StartService/port/SSL policy and carkit stream
    startup are implemented in Step 52. The real TLS
    adapter with explicit credentials, peer validation and deadlines is now

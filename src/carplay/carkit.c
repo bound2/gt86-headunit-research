@@ -42,6 +42,14 @@ static int tick(carkit *c, uint64_t now) {
 void carkit_default_config(carkit_config *cfg) {
     if (cfg) { cfg->policy = CARKIT_REQUIRE_TLS; cfg->startup_ms = 15000; cfg->initial_sequence = 0; lockdown_tls_default_config(&cfg->tls); }
 }
+int carkit_check(carkit *c, uint64_t now) { return tick(c, now); }
+int carkit_write_drained(carkit *c, uint64_t now) {
+    const usbmux_connection *conn; int status = tick(c, now); if (status) return status;
+    if (c->state != CARKIT_OPEN) return CARKIT_BUSY;
+    conn = c->client->tls->dispatcher->connections[c->handle.slot];
+    if (conn->peer_fin || conn->fin_requested || conn->fin_sent) return stop(c, CARKIT_REASON_TRANSPORT, IAP2_END);
+    return (c->use_tls && c->service_tls->tx_size) || conn->tx_size || conn->flight_count ? IAP2_MORE : IAP2_OK;
+}
 int carkit_open(carkit *c, lockdown_client *client, lockdown_tls *service_tls,
                 const lockdown_tls_credentials *creds, const carkit_config *config, uint64_t now) {
     static const uint8_t name[] = "com.apple.carkit.service";
@@ -120,6 +128,7 @@ int carkit_write(carkit *c, const uint8_t *bytes, size_t size, size_t *accepted,
         if (d->connections[c->handle.slot]->peer_fin) return stop(c, CARKIT_REASON_TRANSPORT, IAP2_END);
         status = usbmux_dispatcher_write(d, &c->handle, bytes, size, accepted, now);
     }
+    if (*accepted) c->application_used = 1;
     if (status == IAP2_OK || status == IAP2_MORE || status == CARKIT_BUSY) return status;
     return stop(c, c->use_tls ? CARKIT_REASON_TLS : CARKIT_REASON_TRANSPORT, status);
 }
@@ -130,6 +139,7 @@ int carkit_read(carkit *c, uint8_t *out, size_t capacity, size_t *size, uint64_t
     if (c->state != CARKIT_OPEN) return IAP2_MORE;
     status = c->use_tls ? lockdown_tls_read(c->service_tls, out, capacity, size, now) :
         usbmux_dispatcher_read(c->client->tls->dispatcher, &c->handle, out, capacity, size, now);
+    if (*size) c->application_used = 1;
     if (status == IAP2_OK || status == IAP2_MORE) return status;
     return stop(c, c->use_tls ? CARKIT_REASON_TLS : CARKIT_REASON_TRANSPORT, status);
 }

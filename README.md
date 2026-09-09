@@ -359,7 +359,7 @@ CA trust and an exact device-certificate pin, with bounded app/BIO buffers and
 handshake/write/hold deadlines. Seven groups exercise EC/RSA mutual handshakes,
 encrypted service fixture bytes and failure cases over simulated USBmux.
 `scripts/Build-CarPlayTls.ps1` prepares the verified dependency archive and runs
-19 CTest suites; `scripts/Check-CarPlayTlsSanitizers.ps1` instruments the crypto
+20 CTest suites; `scripts/Check-CarPlayTlsSanitizers.ps1` instruments the crypto
 dependency as well as the adapter. The ordinary build still has 17 suites.
 TLS uses heap/platform services and is not included in the freestanding ARM
 claim. No actual pairing records, phone or head unit are accessed. See
@@ -371,8 +371,15 @@ the service port/SSL policy, opens a second stream and completes service TLS
 before exposing raw iAP2. Seven new groups exercise that integrated sequence,
 explicitly permitted plain services, malformed replies and both stream lifetimes.
 The default requires service TLS; TLS failures never trigger plaintext fallback.
-Connecting this stream to the iAP2 session engine and native transport/media
-remains next; see [the carkit startup report](reports/carkit-startup.md).
+See [the carkit startup report](reports/carkit-startup.md).
+
+`carkit_iap2.h` now connects that stream to the existing iAP2 pump/link/control
+engine. Its owned output remains pending until the underlying stream is drained
+and TCP-acknowledged; upper-layer deadlines are checked before physical I/O.
+Six integrated test groups cover dual TLS, identification, synthetic accessory
+authentication, explicit wired-start replies, partial writes and disconnects.
+The projection network/media server and native transport are still missing;
+see [the integrated iAP2 report](reports/carkit-iap2.md).
 
 ## Read-only firmware analysis
 

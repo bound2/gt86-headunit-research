@@ -31,7 +31,7 @@ typedef struct carkit {
     lockdown_client *client; lockdown_tls *service_tls;
     lockdown_tls_credentials credentials; carkit_config config; usbmux_handle handle;
     uint64_t now, started_at;
-    uint16_t port; uint8_t use_tls, tls_flag_present;
+    uint16_t port; uint8_t use_tls, tls_flag_present, application_used;
     enum carkit_state state; enum carkit_reason reason; int last_error;
 } carkit;
 void carkit_default_config(carkit_config *);
@@ -51,6 +51,14 @@ int carkit_open(carkit *, lockdown_client *, lockdown_tls *service_tls,
  * do not externally release/retry/mutate it. Close or its hold timer terminates.
  */
 int carkit_poll(carkit *, uint64_t now_ms);
+/* Timers/lifetimes only, no backend or crypto I/O. */
+int carkit_check(carkit *, uint64_t now_ms);
+/* OPEN only: OK means service TLS's pending plaintext is empty AND its USBmux
+ * connection has no physical output or unacknowledged data. MORE means pending.
+ * This is a transport drain barrier, not an iAP2 ACK. Caller must exclusively
+ * own service writes to associate the barrier with its submitted byte prefix.
+ */
+int carkit_write_drained(carkit *, uint64_t now_ms);
 /* Raw iAP2 byte prefixes, NOT four-byte plist frames. TLS copies one whole write
  * <=4096 or BUSY; plaintext accepts a transport-limited prefix. accepted is not
  * physical completion, peer ACK or CarPlay success. Poll for forward progress.

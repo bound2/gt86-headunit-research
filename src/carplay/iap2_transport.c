@@ -105,7 +105,7 @@ static int endpoint_check(iap2_transport *p, int status) {
                     p->endpoint->last_error ? p->endpoint->last_error : status);
     return IAP2_OK;
 }
-int iap2_transport_poll(iap2_transport *p, uint64_t now) {
+int iap2_transport_check(iap2_transport *p, uint64_t now) {
     iap2_control *c;
     size_t used;
     int status;
@@ -113,11 +113,17 @@ int iap2_transport_poll(iap2_transport *p, uint64_t now) {
     if (!p->active) return IAP2_LINK_CLOSED;
     c = p->endpoint;
     if (now < p->now || now < c->link.now) return IAP2_ARGUMENT;
-    p->now = now; p->again = 0;
+    p->now = now;
     status = iap2_control_feed(c, NULL, 0, &used, now);
     if (endpoint_check(p, status)) return IAP2_LINK_CLOSED;
     if (status) return stop(p, IAP2_TRANSPORT_REASON_ENDPOINT, status);
     if (!pending_delay(p)) return stop(p, IAP2_TRANSPORT_REASON_DEADLINE, IAP2_LINK_CLOSED);
+    return IAP2_OK;
+}
+int iap2_transport_poll(iap2_transport *p, uint64_t now) {
+    iap2_control *c; size_t used; int status = iap2_transport_check(p, now);
+    if (status) return status;
+    c = p->endpoint; p->again = 0;
 
     if (!p->rx_size && (!p->read_paused || now - p->read_at >= p->config.retry_ms)) {
         iap2_transport_result r = { IAP2_TRANSPORT_FATAL, 0, 0 };

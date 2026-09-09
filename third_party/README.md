@@ -272,3 +272,11 @@ RPCs, exact-token/ACK gates, explicit service policy, same-identity checks and
 two-stream lifetime handling are local implementation choices; no new upstream
 bodies or actual pairing credentials were copied. See
 [the carkit startup report](../reports/carkit-startup.md).
+
+The later `carkit_iap2.c`/`.h`, integrated tests and shared carkit test fixture
+select GPL-3.0-only. They compose the existing GPL-3.0-or-later iAP2 engine with
+the GPL-3.0-only carkit layers and the same pinned Mbed TLS dependency. No new
+upstream bodies or credentials were copied. Drain accounting, ownership checks
+and pre-I/O deadline integration are local policies. The accessory-auth provider
+in tests remains explicitly synthetic, unlike the real TLS cryptography. See
+[the integrated iAP2 report](../reports/carkit-iap2.md).

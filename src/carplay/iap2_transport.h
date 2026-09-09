@@ -101,6 +101,12 @@ void iap2_transport_close(iap2_transport *);
  * start. Never reinitialize the endpoint while the pump is active.
  */
 int iap2_transport_poll(iap2_transport *, uint64_t now_ms);
+/* Deadline preflight used by layered transports before performing lower-layer
+ * I/O. Advances shared endpoint clocks with an empty feed; no provider, output
+ * production or read/write callbacks. Expiry may invoke synchronous cancel.
+ * Retained-output deadlines are unchanged and are checked again by poll.
+ */
+int iap2_transport_check(iap2_transport *, uint64_t now_ms);
 /* Delay from the last supplied time. Polling design, no readiness callback:
  * idle/no-progress I/O is retried within retry_ms. Zero is runnable bounded
  * work, not merely a blocked write or an unhandled application message.
