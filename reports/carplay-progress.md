@@ -28,10 +28,12 @@ No capability is automatically advertised and no network/media session is opened
 runtime's identification-first order is now supported through explicit opt-in
 configuration, with independent phase budgets and provider gating. The original
 authentication-first default remains available. See [startup-order.md](startup-order.md).
-All ten CTest suites pass, and all six protocol suites pass under host
-address/undefined-behavior sanitizers. The eight C99
+The new USBmux packet/stream layer adds 10 groups and seven independent wire
+vectors; it is not yet a TCP connection or physical USB backend.
+All eleven CTest suites pass, and all seven protocol suites pass under host
+address/undefined-behavior sanitizers. The nine C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-43 and [the wired-identification report](wired-identification.md).
+Steps 22-44 and [the USBmux report](usbmux-transport.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1596,6 +1598,27 @@ pairing or media connection occurs. Next trace and implement the USBmux framing
 dependency below the iAP2 byte stream, then continue toward carkit pairing/TLS,
 network/media and QNX integration. Hardware execution/recovery remains unresolved.
 
+## Step 44 - Implement bounded USBmux packet framing
+
+Status: wired-identity work committed/pushed as `65c6ad8`.
+The new [usbmux-transport.md](usbmux-transport.md) records a pinned usbmuxd
+cross-check alongside LIVI, including their different version/setup/sequence
+handling. Independent C99 codecs preserve the raw header fields, bound frames
+to 65,536 bytes and reject unsupported TCP options. Caller-owned streaming
+assembly handles partial/coalesced input and latches malformed prefixes.
+
+Seven independent synthetic vectors and 10 groups exercise exact bytes, all
+fixture splits/truncations, transactional capacity failures, sequence/window
+boundaries and maximum-size packets. All 11 CTest suites, seven sanitized
+protocol suites, nine-unit ARM check and 19 Python tests pass. The new USBmux
+files select GPL-3.0-only; iAP2 notices are unchanged. No reference daemon,
+USB interface or phone-pairing code was executed.
+
+Next add bounded version/setup and TCP connection state, then continue toward
+Lockdown/TLS trust pairing and the carkit byte stream. The packet layer alone
+does not connect to a phone or supply a physical transport. Real CarPlay,
+hardware compatibility and execution/recovery remain unverified.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1606,8 +1629,9 @@ network/media and QNX integration. Hardware execution/recovery remains unresolve
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Trace and implement bounded USBmux framing/stream handling for the wired
-   carkit route. Explicit supported-message/USB-host declarations are implemented
+3. Add bounded USBmux version/setup and TCP connection handling for the wired
+   carkit route; packet codecs and streaming are implemented in Step 44.
+   Explicit supported-message/USB-host declarations are implemented
    in Step 43; typed PowerSourceUpdate and unsolicited output in Step 42. The packed SupportedLanguage defect is fixed
    in Step 41. Identification-first startup is implemented and tested; Steps 37-39
    trace session startup and implement a bounded message subset. Real native

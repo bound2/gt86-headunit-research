@@ -131,3 +131,34 @@ Aggregate bounds, profile activation/ownership/reset and typed-helper declaratio
 gates are local policies. No hardware configuration, broader subscriptions or
 media support is inferred or copied. See
 [wired-identification.md](../reports/wired-identification.md).
+
+## USBmux packet references
+
+`usbmux_wire.c`/`.h`, `tests/usbmux_tests.cpp` and the independent seven-vector
+fixture select **GPL-3.0-only**. The full GPLv3 text is already preserved in
+[LIVI-COPYING](LIVI-COPYING). Existing iAP2 file notices remain unchanged;
+no project-wide permissive license or license for vendor firmware is asserted.
+
+Two primary sources inform the wire layout:
+
+- LIVI at the same pin above,
+  [iap2-usbmux/src/mux.rs](https://github.com/f-io/LIVI/blob/a76553fc941dcf378dd55c04da56aaf3d6911e08/native/livi-helperd/crates/iap2-usbmux/src/mux.rs),
+  GPL-3.0-or-later.
+- usbmuxd at `3ded00c9985a5108cfc7591a309f9a23d57a8cba`,
+  [src/device.c](https://github.com/libimobiledevice/usbmuxd/blob/3ded00c9985a5108cfc7591a309f9a23d57a8cba/src/device.c)
+  and [src/usb.h](https://github.com/libimobiledevice/usbmuxd/blob/3ded00c9985a5108cfc7591a309f9a23d57a8cba/src/usb.h).
+  Its source notices offer GPL version 2 or version 3; these new files select
+  version 3. The source notices credit Hector Martin and, for `device.c`,
+  Mikkel Kamstrup Erlandsen. No upstream function bodies are copied verbatim.
+
+The new fixture is manually specified synthetic data, not an upstream fixture
+file, capture or credential. It records both setup sequence-slot conventions
+and deliberately opaque peer magic. Fixed capacity, transactional outputs,
+minimal TCP-header policy, borrowed views and fail-closed streaming are local
+design choices, not upstream guarantees or Apple conformance claims. Source
+blobs and behavior differences are recorded in
+[usbmux-transport.md](../reports/usbmux-transport.md).
+
+The ignored `build/usbmuxd-reference` is a no-checkout source repository read
+with `git show`; no daemon or installer was run. No USB library, platform API,
+private specification or actual device transport is bundled by this step.
