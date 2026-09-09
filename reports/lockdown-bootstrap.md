@@ -142,11 +142,14 @@ no upstream function bodies or real pairing records were copied.
 
 ## Step 7 - Continue with real TLS and protected carkit startup
 
-Next implement a bounded TLS stream adapter with explicit credential provision,
-peer validation, cancellation and handshake deadlines. Test actual cryptographic
-handshakes with synthetic local credentials before connecting it to the
-dispatcher handoff. Then carry framed StartService over that protected session,
-validate the returned port/SSL policy, and establish the carkit stream.
+Follow-up: [lockdown-tls.md](lockdown-tls.md) now implements and tests the actual
+cryptographic stream upgrade. The counts above record this earlier bootstrap
+step; protected RPC/carkit startup and target integration remain incomplete.
+
+The follow-up supplies explicit credentials, peer validation, cancellation and
+handshake deadlines and tests actual cryptographic handshakes on this handoff.
+Next own framed RPC exchanges over that protected session, validate returned
+StartService port/SSL policy, and establish the carkit stream.
 
 User-authorized pairing/storage remains separate from loading an existing
 identity; neither is an automatic recovery path. Real QNX USB/network ownership,

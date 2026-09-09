@@ -245,3 +245,22 @@ ownership/fresh-stream gates, token-bound terminal handoff, shared timer-only
 check and lack of automatic pairing/retry are local implementation policies.
 No new upstream bodies, dependency, TLS code or credential records were copied.
 See [the startup report](../reports/lockdown-bootstrap.md).
+
+### Optional Lockdown TLS dependency
+
+The new `lockdown_tls.c`/`.h`, TLS configuration and synthetic cryptographic tests
+select GPL-3.0-only. The separate hosted target links
+[Mbed TLS 3.6.7](https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-3.6.7),
+commit `068ff080b369adfac81509f9b57b2afabaf82dc5`. Its release archive SHA256 is
+`a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`.
+Mbed TLS offers Apache-2.0 OR GPL-2.0-or-later; this integration selects the
+latter. Bundled third-party notices remain in the unmodified extracted release;
+redistribution must retain applicable source/license obligations. No source
+archive or compiled crypto binary is committed here.
+
+Preparation downloads only the pinned official archive into ignored storage and
+checks its hash. The adapter uses documented Mbed TLS APIs, without copying
+implementation bodies. It does not reproduce the pinned idevice reference's
+disabled peer verification. Tests generate ephemeral synthetic credentials in
+RAM and never load/save actual trust records. See the
+[TLS report](../reports/lockdown-tls.md) for exact policies and portability limits.

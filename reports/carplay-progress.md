@@ -40,12 +40,19 @@ explicit GetValue XML encoding and an owned request/response channel now add
 18 groups. A bounded XML/binary plist decoder and typed response validation
 add 13 groups and seven synthetic binary fixtures. A pre-TLS startup client
 now adds 11 groups, explicit session/service request encoders and token-bound
-TLS handoff, with no plaintext resume or automatic pairing. Python checks total 25.
-Native USB, TLS and phone pairing remain absent.
-All seventeen CTest suites pass, and all thirteen protocol suites pass under host
-address/undefined-behavior sanitizers. The seventeen C99
+TLS handoff, with no plaintext resume or automatic pairing. An optional hosted
+TLS adapter now performs real mutually authenticated TLS 1.2 over the handoff,
+with explicit CA/device-pin validation and seven cryptographic test groups.
+Encrypted service fixture bytes round-trip over simulated USBmux; protected RPC
+ownership and carkit startup are not implemented yet. Python checks total 25.
+Native USB and phone pairing remain absent.
+All seventeen ordinary CTest suites and eighteen TLS-enabled suites pass.
+All thirteen original protocol suites and the new TLS suite pass under host
+address/undefined-behavior sanitizers, including instrumentation of Mbed TLS.
+The seventeen freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-50 and [the startup report](lockdown-bootstrap.md).
+Steps 22-51 and [the TLS report](lockdown-tls.md). Hosted TLS uses heap/platform
+services and is not included in that ARM claim.
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1819,6 +1826,49 @@ startup. The service encoder alone is not a live service request. Pairing/storag
 native QNX transport, network/media and hardware execution/recovery remain
 unresolved; no installable CarPlay receiver or vehicle change was produced.
 
+## Step 51 - Implement and cryptographically test the TLS stream upgrade
+
+Status: bootstrap/handoff committed/pushed as `5683773`.
+The new [lockdown-tls.md](lockdown-tls.md) records the pinned Mbed TLS 3.6.7
+dependency, explicit credential/peer policy, stream ownership and test procedure.
+The separate optional target performs actual TLS handshakes, not a callback
+that claims encryption succeeded. It requires client certificate/key, normal CA
+verification and an exact device DER pin. No verification flags are cleared,
+legacy downgrade or plaintext fallback is provided. Reference idevice's disabled
+verification is deliberately not reproduced; actual pairing-certificate
+compatibility remains unverified.
+
+Init consumes the validated handoff only on success and retains SessionID.
+The last plaintext receive ACK can drain normally, but pending plaintext data
+cannot cross the upgrade boundary. Polls limit backend and ciphertext BIO work;
+owned pending plaintext preserves the crypto library's write-retry contract.
+Explicit handshake/write/hold deadlines and generation checks remain connected
+to shared transport timers. Errors free crypto, zero local app buffers and
+cancel the current shared generation once, without touching a replacement.
+
+Seven groups test real EC/RSA mutual authentication, encrypted StartService
+fixture bytes and binary replies, wrong CA/device/client credentials, expired
+certificates, entropy failure, incompatible suites, corrupted records, EOF,
+close_notify, partial I/O, minimum RX rings, maximum app buffers, other streams,
+CONTROL, deadlines and stale owners. Synthetic certificates/keys are generated
+only in RAM; no real trust record or device is accessed. A test initially
+assumed AES-128 preference; it now accepts either AES-GCM suite in the declared
+profile, including the server's valid AES-256 selection.
+
+Verification passes: 18 TLS-enabled CTest suites (17 in the ordinary build),
+thirteen existing sanitizer suites plus the new fully instrumented TLS suite,
+the unchanged seventeen-unit freestanding ARM check, and 25 Python tests.
+The hosted TLS object is 7,976 bytes plus crypto heap and transport storage.
+Its allocator, time, random provider and target crypto side-channel requirements
+are explicitly separate from the freestanding portability result.
+
+Next connect a protected framed RPC owner to this real TLS stream and existing
+plist validation, then explicit StartService/port/SSL policy and carkit stream
+startup. Encrypted fixture transport alone is not a completed service client.
+QNX USB/network, pairing provision, media, exact hardware identity and verified
+execution/recovery remain unresolved. No installable update or vehicle change
+was produced; software-only CarPlay on the owner's head unit is not demonstrated.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1829,8 +1879,10 @@ unresolved; no installable CarPlay receiver or vehicle change was produced.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Add a bounded TLS stream adapter with explicit credentials, peer validation
-   and handshake deadlines, then protected StartService, trust pairing and carkit.
+3. Add protected framed RPC ownership and StartService/port/SSL policy, then
+   carkit stream startup and explicit trust-pairing provision. The real TLS
+   adapter with explicit credentials, peer validation and deadlines is now
+   implemented in Step 51; it is not yet a verified QNX crypto port.
    Explicit request encoders and pre-TLS startup/handoff are implemented in Step 50.
    Bounded XML/binary
    response decoding/validation is implemented in Step 49.

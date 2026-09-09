@@ -345,13 +345,25 @@ mutations. Validation is not trust/TLS establishment. See
 `lockdown_bootstrap.h` now owns explicit pre-TLS GetValue/StartSession requests
 and typed events on a fresh Lockdown stream. A validated SSL-required reply
 cannot return to plaintext mode; an exact token transfers the stream and copied
-SessionID to the future TLS layer without consuming trailing bytes. No automatic
+SessionID to the TLS layer without consuming trailing bytes. No automatic
 Pair, retry, StartService dispatch or mark-secure bypass is supplied.
 Separate StartSession/StartService XML encoders require caller metadata.
 Eleven groups verify this sequence, stale/expired handoffs and error handling.
 Timed channel request/poll/release/detach calls enforce shared deadlines without
 backend reads/writes. Bootstrap state is 248 host bytes plus caller storage.
 See [the startup and handoff report](reports/lockdown-bootstrap.md).
+
+An optional `carplay_tls` target now performs real, verified TLS 1.2 over that
+handoff using pinned Mbed TLS 3.6.7. It requires explicit client credentials,
+CA trust and an exact device-certificate pin, with bounded app/BIO buffers and
+handshake/write/hold deadlines. Seven groups exercise EC/RSA mutual handshakes,
+encrypted service fixture bytes and failure cases over simulated USBmux.
+`scripts/Build-CarPlayTls.ps1` prepares the verified dependency archive and runs
+18 CTest suites; `scripts/Check-CarPlayTlsSanitizers.ps1` instruments the crypto
+dependency as well as the adapter. The ordinary build still has 17 suites.
+TLS uses heap/platform services and is not included in the freestanding ARM
+claim. No actual pairing records, phone or head unit are accessed. Protected RPC
+ownership and carkit startup remain next; see [the TLS report](reports/lockdown-tls.md).
 
 ## Read-only firmware analysis
 
