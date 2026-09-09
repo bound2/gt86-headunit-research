@@ -17,5 +17,11 @@ and exact serialization. They contain no real SessionID, escrow bag, trust recor
 or device capture; all fixtures select GPL-3.0-only. See
 [the response report](../../../reports/lockdown-responses.md).
 
+start-session.xml, start-service.xml and session-tls.xml add independent
+request/reply fixtures for the pre-TLS startup client. Their UUID-shaped values
+and SessionID are synthetic, not a valid pairing record. The service encoder
+constructs bytes only; a real secure session must precede its use. These new
+fixtures also select GPL-3.0-only and are checked with Python plistlib.
+
 The wire prefix is four bytes, big-endian, containing the BODY length only.
 Tests specify this prefix independently; it is not part of these XML files.

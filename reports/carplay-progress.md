@@ -38,12 +38,14 @@ coordinates up to four connections through explicit backend callbacks, with
 bounded stream APIs and 13 additional groups. Bounded Lockdown service framing,
 explicit GetValue XML encoding and an owned request/response channel now add
 18 groups. A bounded XML/binary plist decoder and typed response validation
-add 13 groups and seven synthetic binary fixtures; Python checks now total 24.
+add 13 groups and seven synthetic binary fixtures. A pre-TLS startup client
+now adds 11 groups, explicit session/service request encoders and token-bound
+TLS handoff, with no plaintext resume or automatic pairing. Python checks total 25.
 Native USB, TLS and phone pairing remain absent.
-All sixteen CTest suites pass, and all twelve protocol suites pass under host
-address/undefined-behavior sanitizers. The sixteen C99
+All seventeen CTest suites pass, and all thirteen protocol suites pass under host
+address/undefined-behavior sanitizers. The seventeen C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-49 and [the response report](lockdown-responses.md).
+Steps 22-50 and [the startup report](lockdown-bootstrap.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1782,6 +1784,41 @@ boundaries. Real carkit startup, QNX transport, network/media and hardware
 execution/recovery remain unresolved. No installable image or vehicle change
 was produced; software-only CarPlay is not yet demonstrated.
 
+## Step 50 - Add explicit Lockdown startup and TLS handoff
+
+Status: response parser/validator committed/pushed as `f4587a1`.
+The new [lockdown-bootstrap.md](lockdown-bootstrap.md) records explicit
+StartSession/StartService XML encoders and an owning pre-TLS client. It binds a
+fresh Lockdown stream, copies caller metadata, sends only explicit GetValue or
+StartSession, validates replies and holds typed values/errors/TLS-required
+events. There is no automatic pairing, UUID generation, record access or retry.
+
+An accepted SSL-required reply cannot be released back to plaintext IDLE.
+Exact-token handoff copies SessionID and returns the original stream with
+trailing bytes preserved. The bootstrap becomes terminal; no mark-secure/resume
+bypass or StartService dispatch path exists before a real TLS adapter. EOF,
+malformed replies, stale generations and expired handoffs cannot expose a
+usable TLS stream.
+
+The shared timer-only dispatcher check strengthens timed channel operations:
+release/detach now enforce other streams' deadlines without backend reads/writes,
+after rejecting stale handles. A deadline test initially retained a pending ACK
+write; it now drains physical output before testing the intended peer-ACK timer.
+No production timeout was weakened.
+
+Eleven groups cover independent request bytes, metadata/capacity bounds,
+fresh-stream ownership, XML/binary reply splits, query-to-session sequencing,
+explicit errors, handoff tails, parser limits, EOF, CONTROL and shared deadlines.
+All 17 CTest suites, thirteen sanitized suites, seventeen-unit ARM check and 25
+Python tests pass. Bootstrap storage is 248 x64 host bytes plus caller buffers.
+New code/tests select GPL-3.0-only with no new upstream bodies or credentials.
+
+Next implement a real bounded TLS stream adapter with credential/peer-validation
+boundaries and cryptographic tests, then protected StartService and carkit
+startup. The service encoder alone is not a live service request. Pairing/storage,
+native QNX transport, network/media and hardware execution/recovery remain
+unresolved; no installable CarPlay receiver or vehicle change was produced.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1792,8 +1829,10 @@ was produced; software-only CarPlay is not yet demonstrated.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Add explicit session/service request construction and validated application
-   transitions, then TLS/trust pairing and carkit startup. Bounded XML/binary
+3. Add a bounded TLS stream adapter with explicit credentials, peer validation
+   and handshake deadlines, then protected StartService, trust pairing and carkit.
+   Explicit request encoders and pre-TLS startup/handoff are implemented in Step 50.
+   Bounded XML/binary
    response decoding/validation is implemented in Step 49.
    Service framing, GetValue encoding and a bounded
    opaque response channel are implemented in Step 48.

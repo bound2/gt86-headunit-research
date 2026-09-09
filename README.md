@@ -100,7 +100,7 @@ authentication keys or fallback signer is supplied.
 `iap2_control_tests`, `iap2_identification_tests`, `iap2_transport_tests` and
 `iap2_carplay_tests`, `usbmux_tests`, `usbmux_host_tests` and
 `usbmux_connection_tests`, `usbmux_dispatcher_tests`, `lockdown_tests` and
-`service_plist_tests` alongside the four
+`service_plist_tests` and `lockdown_bootstrap_tests` alongside the four
 existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
@@ -144,9 +144,9 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the twelve protocol test executables with AddressSanitizer and
+This builds/runs the thirteen protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all sixteen C99
+or car access is required. The ARM portability check now covers all seventeen C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -220,8 +220,8 @@ reject stale results after reconnect; cancellation clears transport and endpoint
 state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
 
 Seventeen test groups exercise a fake backend, including complete synthetic
-exchanges in both startup orders over fragmented reads/writes. All sixteen CTest suites and
-twelve sanitized protocol suites pass. Details and callback lifetime requirements
+exchanges in both startup orders over fragmented reads/writes. All seventeen CTest suites and
+thirteen sanitized protocol suites pass. Details and callback lifetime requirements
 are in the
 [step-by-step transport adapter report](reports/transport-adapter.md) and
 [CarPlay progress, Steps 34-36](reports/carplay-progress.md#step-34---implement-the-bounded-byte-stream-pump).
@@ -327,8 +327,8 @@ release tokens and deadlines. Channel state is 160 host bytes plus caller buffer
 
 Eighteen synthetic C++ groups cover exact XML fixtures, fragmentation, maximum
 bodies, malformed input, timeout/cancellation, stale handles, handoff bytes and
-concurrent dispatcher traffic and typed XML/binary response handling. Five Python
-plist checks validate fixtures independently, bringing the Python suite to 24
+concurrent dispatcher traffic and typed XML/binary response handling. Six Python
+plist checks validate fixtures independently, bringing the Python suite to 25
 tests. The framing layer is still opaque and does not establish TLS, pair a phone
 or start carkit. See the
 [step-by-step service report](reports/lockdown-service.md).
@@ -341,6 +341,17 @@ without releasing them or doing I/O. Thirteen new groups and seven binary
 fixtures exercise this layer, including 24,000 deterministic malformed-input
 mutations. Validation is not trust/TLS establishment. See
 [the response-validation report](reports/lockdown-responses.md).
+
+`lockdown_bootstrap.h` now owns explicit pre-TLS GetValue/StartSession requests
+and typed events on a fresh Lockdown stream. A validated SSL-required reply
+cannot return to plaintext mode; an exact token transfers the stream and copied
+SessionID to the future TLS layer without consuming trailing bytes. No automatic
+Pair, retry, StartService dispatch or mark-secure bypass is supplied.
+Separate StartSession/StartService XML encoders require caller metadata.
+Eleven groups verify this sequence, stale/expired handoffs and error handling.
+Timed channel request/poll/release/detach calls enforce shared deadlines without
+backend reads/writes. Bootstrap state is 248 host bytes plus caller storage.
+See [the startup and handoff report](reports/lockdown-bootstrap.md).
 
 ## Read-only firmware analysis
 

@@ -236,3 +236,12 @@ numeric/Unicode checks, strict response correlation, error/TLS policy and
 explicit channel-release boundaries are independent implementation choices,
 not claims of full Apple conformance. No external DTD/entity is loaded by the
 receiver. See [the response report](../reports/lockdown-responses.md).
+
+`lockdown_bootstrap.c`/`.h`, its tests and the extracted service-test helper
+also select GPL-3.0-only. The StartSession/StartService encoders use the same
+pinned idevice request fields; their independent XML fixtures contain synthetic
+identity/session values and no private keys. The pre-TLS state machine, exclusive
+ownership/fresh-stream gates, token-bound terminal handoff, shared timer-only
+check and lack of automatic pairing/retry are local implementation policies.
+No new upstream bodies, dependency, TLS code or credential records were copied.
+See [the startup report](../reports/lockdown-bootstrap.md).

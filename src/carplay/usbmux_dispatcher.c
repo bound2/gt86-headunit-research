@@ -78,6 +78,7 @@ static int tick(usbmux_dispatcher *d, uint64_t now) {
     }
     return IAP2_OK;
 }
+int usbmux_dispatcher_check(usbmux_dispatcher *d,uint64_t now) { return tick(d,now); }
 static int result(usbmux_dispatcher *d, const usbmux_io_result *r, size_t maximum) {
     if (r->generation != d->generation) return stop(d, USBMUX_DISPATCHER_REASON_STALE, IAP2_INVALID, USBMUX_DISPATCHER_SLOTS);
     if (r->status < USBMUX_IO_PROGRESS || r->status > USBMUX_IO_FATAL || r->count > maximum ||

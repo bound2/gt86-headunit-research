@@ -59,8 +59,9 @@ int lockdown_channel_request(lockdown_channel *, const uint8_t *, size_t, uint64
  * and TCP-acknowledged. It does not mean a successful/valid plist response.
  * CONTROL is propagated when there is no held response; inspect dispatcher
  * control events independently when both exist. Keep polling while held.
- * Only polling/dispatcher operations service shared transport timers; request,
- * release and detach check the channel's own budgets and handle lifetime.
+ * Timed request/poll/release/detach operations check shared deadlines after
+ * validating arguments and handle lifetime. Checks do not read/write backend
+ * bytes, but can queue ACK/FIN output or cancel an expired shared generation.
  */
 int lockdown_channel_poll(lockdown_channel *, uint64_t now_ms);
 /* Untimed body view, borrowed until release/detach/closure. Error/MORE zero all

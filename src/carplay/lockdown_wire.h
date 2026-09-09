@@ -29,6 +29,18 @@ int lockdown_frame_encode(const uint8_t *body, size_t, uint8_t *, size_t capacit
  */
 int lockdown_get_value_encode(const lockdown_body *label, const lockdown_body *key,
                                const lockdown_body *domain, uint8_t *, size_t capacity, size_t *written);
+/* Explicit request bodies only; neither API sends bytes or changes phone state.
+ * StartSession: label 1..64, HostID/SystemBUID 1..128 printable ASCII bytes.
+ * Values must come from the caller's selected pairing identity; no generated
+ * identity, record lookup or fallback pairing. UUID syntax is not inferred.
+ * StartService: explicit service name 1..128 printable ASCII bytes; Request and
+ * Service only (no automatic Label/EscrowBag). The caller must establish the
+ * required secure Lockdown session before using this body on a stream.
+ * All XML metacharacters escaped; bounds preflighted, written=0 on failure.
+ */
+int lockdown_start_session_encode(const lockdown_body *label, const lockdown_body *host_id,
+                                   const lockdown_body *system_buid, uint8_t *, size_t, size_t *written);
+int lockdown_start_service_encode(const lockdown_body *service, uint8_t *, size_t, size_t *written);
 #ifdef __cplusplus
 }
 #endif

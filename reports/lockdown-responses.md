@@ -9,6 +9,9 @@ An explicit helper connects validation to held dispatcher-channel responses.
 This is response handling, not phone pairing, TLS establishment, carkit startup
 or an installable CarPlay receiver.
 
+Follow-up: [Step 50](lockdown-bootstrap.md) connects typed validation to explicit
+startup state and TLS handoff. The verification counts below record Step 49.
+
 ## Step 1 - Verify the response and serialization references
 
 The existing checksum-pinned idevice 0.1.65 sources remain the Lockdown reference.

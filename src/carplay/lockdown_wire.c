@@ -69,3 +69,33 @@ int lockdown_get_value_encode(const lockdown_body *label, const lockdown_body *k
     if (capacity < size) return IAP2_NO_SPACE;
     *written = xml(out, label, key, domain); return IAP2_OK;
 }
+static void field(uint8_t *out,size_t *at,const char *key,const lockdown_body *value) {
+    literal(out,at,"<key>"); literal(out,at,key); literal(out,at,"</key><string>");
+    escaped(out,at,value); literal(out,at,"</string>");
+}
+static size_t session_xml(uint8_t *out,const lockdown_body *label,const lockdown_body *host,const lockdown_body *buid) {
+    size_t at=0;
+    literal(out,&at,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>");
+    field(out,&at,"Label",label); literal(out,&at,"<key>Request</key><string>StartSession</string>");
+    field(out,&at,"HostID",host); field(out,&at,"SystemBUID",buid); literal(out,&at,"</dict></plist>\n"); return at;
+}
+static size_t service_xml(uint8_t *out,const lockdown_body *service) {
+    size_t at=0;
+    literal(out,&at,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict><key>Request</key><string>StartService</string>");
+    field(out,&at,"Service",service); literal(out,&at,"</dict></plist>\n"); return at;
+}
+int lockdown_start_session_encode(const lockdown_body *label,const lockdown_body *host,const lockdown_body *buid,
+                                   uint8_t *out,size_t capacity,size_t *written) {
+    size_t size;
+    if(written) *written=0;
+    if(!out || !written || !valid_text(label,1,64) || !valid_text(host,1,128) || !valid_text(buid,1,128)) return IAP2_ARGUMENT;
+    size=session_xml(NULL,label,host,buid); if(size>capacity) return IAP2_NO_SPACE;
+    *written=session_xml(out,label,host,buid); return IAP2_OK;
+}
+int lockdown_start_service_encode(const lockdown_body *service,uint8_t *out,size_t capacity,size_t *written) {
+    size_t size;
+    if(written) *written=0;
+    if(!out || !written || !valid_text(service,1,128)) return IAP2_ARGUMENT;
+    size=service_xml(NULL,service); if(size>capacity) return IAP2_NO_SPACE;
+    *written=service_xml(out,service); return IAP2_OK;
+}

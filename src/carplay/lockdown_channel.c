@@ -24,10 +24,15 @@ static int check_time(lockdown_channel *c, uint64_t now) {
     status = usbmux_dispatcher_state(c->dispatcher, &c->handle, &state);
     if (status) return stop(c, status == USBMUX_DISPATCHER_STALE ? LOCKDOWN_CHANNEL_REASON_STALE : LOCKDOWN_CHANNEL_REASON_TRANSPORT, status, 0);
     if (now < c->now || now < c->dispatcher->now) return IAP2_ARGUMENT;
-    c->now = now;
     if ((c->state == LOCKDOWN_CHANNEL_EXCHANGE && now - c->started_at >= c->config.exchange_ms) ||
-        (c->state == LOCKDOWN_CHANNEL_HELD && now - c->held_at >= c->config.hold_ms))
+        (c->state == LOCKDOWN_CHANNEL_HELD && now - c->held_at >= c->config.hold_ms)) {
+        c->now = now;
         return stop(c, LOCKDOWN_CHANNEL_REASON_DEADLINE, LOCKDOWN_CHANNEL_CLOSED, 1);
+    }
+    status = usbmux_dispatcher_check(c->dispatcher, now);
+    if (status == IAP2_ARGUMENT) return status;
+    c->now = now;
+    if (status) return stop(c, LOCKDOWN_CHANNEL_REASON_TRANSPORT, status, 0);
     return IAP2_OK;
 }
 void lockdown_channel_default_config(lockdown_channel_config *config) { if (config) config->exchange_ms = config->hold_ms = 5000; }

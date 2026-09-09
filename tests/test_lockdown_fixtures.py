@@ -56,6 +56,17 @@ class LockdownFixtures(unittest.TestCase):
             self.assertEqual(raw, plistlib.dumps(expected[name], fmt=plistlib.FMT_BINARY, sort_keys=False))
         self.assertEqual(found, expected)
 
+    def test_session_and_service_fixtures(self):
+        self.assertEqual(self.read("start-session.xml"), {
+            "Label": "gt86-research", "Request": "StartSession",
+            "HostID": "00000000-0000-4000-8000-000000000001",
+            "SystemBUID": "00000000-0000-4000-8000-000000000002"})
+        self.assertEqual(self.read("start-service.xml"), {
+            "Request": "StartService", "Service": "com.apple.carkit.service"})
+        self.assertEqual(self.read("session-tls.xml"), {
+            "Request": "StartSession", "SessionID": "synthetic-session",
+            "EnableSessionSSL": True})
+
 
 if __name__ == "__main__":
     unittest.main()

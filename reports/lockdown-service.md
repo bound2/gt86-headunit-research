@@ -145,10 +145,11 @@ that conservative failure policy. A stale physical/connection handle invalidates
 only the old channel and cannot cancel a replacement session. Buffers are not
 claimed to be securely erased. No trust records or private keys are loaded.
 
-Applications must keep polling, including while holding a response. Channel
-request/release/detach calls check their own budgets and handle lifetime; shared
-transport timers are serviced by polling and dispatcher operations. Untimed
-views are not a replacement for those timed calls. CONTROL is returned when
+Applications must keep polling, including while holding a response.
+[Step 50](lockdown-bootstrap.md#step-5---enforce-shared-deadlines-during-release-and-handoff)
+strengthens request/release/detach to check shared transport deadlines as well
+as channel budgets after handle validation, without backend reads/writes.
+Untimed views are not a replacement for timed calls. CONTROL is returned when
 there is no held response; when both exist, callers inspect/release dispatcher
 CONTROL independently.
 

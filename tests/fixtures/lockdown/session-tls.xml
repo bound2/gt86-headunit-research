@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Request</key><string>StartSession</string><key>SessionID</key><string>synthetic-session</string><key>EnableSessionSSL</key><true/></dict></plist>

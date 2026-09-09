@@ -85,6 +85,13 @@ void usbmux_dispatcher_close(usbmux_dispatcher *);
  * event while continuing to poll; CLOSED: inspect reason/failed_slot/last_error.
  */
 int usbmux_dispatcher_poll(usbmux_dispatcher *, uint64_t now_ms);
+/* Timers only: check all shared clocks/deadlines without backend reads/writes.
+ * May queue bounded ACK/FIN output; deadline failure cancels the current shared
+ * generation exactly once. Does NOT route buffered input or complete output.
+ * Callers holding a stream handle must validate its generation BEFORE this
+ * physical-session-wide operation; an old owner must not tick a newer session.
+ */
+int usbmux_dispatcher_check(usbmux_dispatcher *, uint64_t now_ms);
 /* Polling backoff + hard deadlines. Zero means bounded work, not a repeatedly
  * blocked write or unhandled CONTROL. UINT32_MAX means inactive. */
 uint32_t usbmux_dispatcher_next_delay(const usbmux_dispatcher *);
