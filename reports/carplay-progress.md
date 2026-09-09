@@ -29,11 +29,13 @@ runtime's identification-first order is now supported through explicit opt-in
 configuration, with independent phase budgets and provider gating. The original
 authentication-first default remains available. See [startup-order.md](startup-order.md).
 The new USBmux packet/stream layer adds 10 groups and seven independent wire
-vectors; it is not yet a TCP connection or physical USB backend.
-All eleven CTest suites pass, and all seven protocol suites pass under host
-address/undefined-behavior sanitizers. The nine C99
+vectors. Its bounded version/setup host adds 15 groups, actual-write completion
+barriers, explicit sequence conventions, deadlines and stale-generation rejection;
+it is not yet a TCP connection or physical USB backend.
+All twelve CTest suites pass, and all eight protocol suites pass under host
+address/undefined-behavior sanitizers. The ten C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-44 and [the USBmux report](usbmux-transport.md).
+Steps 22-45 and [the USBmux report](usbmux-transport.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1619,6 +1621,33 @@ Lockdown/TLS trust pairing and the carkit byte stream. The packet layer alone
 does not connect to a phone or supply a physical transport. Real CarPlay,
 hardware compatibility and execution/recovery remain unverified.
 
+## Step 45 - Add a bounded USBmux version/setup host
+
+Status: packet-layer checkpoint committed/pushed as `d754aca`.
+The [USBmux report](usbmux-transport.md#step-5---implement-the-version-2-host-handshake)
+now records the host state transitions, write-completion contract, explicit
+sequence profiles and local failure/deadline policy. The host offers version
+2.0, requires a major-2 reply and only becomes READY after setup is physically
+written. It does not silently ignore failed negotiation or fall back to v1.
+
+The host owns one pending TX packet and one partial/held RX packet in separate
+caller buffers. Coalesced tails remain with the caller. TCP output is explicit
+and copies its input; it neither consumes held RX nor performs TCP connection
+handling. Generation guards close stale sessions without accepting stale time
+or bytes. Total handshake/write/assembly-plus-hold budgets are not renewed by
+partial progress. The caller must quiesce I/O before closing/restarting.
+
+Fifteen new host groups pass, including independent first-SYN bytes under both
+sequence conventions, every 16-bit sequence slot, exact deadlines, all version
+split points and 65,536-byte packets. All 12 CTest suites, eight sanitized suites,
+ten-unit ARM check and 19 Python tests pass. Host state is 200 bytes plus separate
+RX/TX buffers; existing iAP2 endpoint/pump storage is unchanged.
+
+Next implement bounded TCP connection, ACK/window and routing behavior on top
+of these packet queues, before Lockdown/plist/TLS pairing and carkit integration.
+READY means USBmux setup completed in the simulation, not an authenticated,
+paired or CarPlay-capable phone connection. No device or vehicle was accessed.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1629,8 +1658,9 @@ hardware compatibility and execution/recovery remain unverified.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Add bounded USBmux version/setup and TCP connection handling for the wired
-   carkit route; packet codecs and streaming are implemented in Step 44.
+3. Add bounded USBmux TCP connection, routing and flow-control handling for the
+   wired carkit route; version/setup and packet queues are implemented in Step 45,
+   packet codecs and streaming in Step 44.
    Explicit supported-message/USB-host declarations are implemented
    in Step 43; typed PowerSourceUpdate and unsolicited output in Step 42. The packed SupportedLanguage defect is fixed
    in Step 41. Identification-first startup is implemented and tested; Steps 37-39

@@ -162,3 +162,12 @@ blobs and behavior differences are recorded in
 The ignored `build/usbmuxd-reference` is a no-checkout source repository read
 with `git show`; no daemon or installer was run. No USB library, platform API,
 private specification or actual device transport is bundled by this step.
+
+`usbmux_host.c`/`.h` and `tests/usbmux_host_tests.cpp` also select GPL-3.0-only
+using these same pins. Initial version/setup bytes and selectable sequence-slot
+conventions follow the two references. Requiring major version 2, physical
+write-completion barriers, single owned TX/held RX packets, bounded deadlines,
+generation rejection and no automatic fallback are independent local policies.
+The tests specify first-version/setup/SYN bytes independently and use synthetic
+completion events; no upstream function bodies, daemon, backend or real trust
+records are included. TCP connection/window/ACK behavior is not implemented here.

@@ -98,7 +98,8 @@ authentication keys or fallback signer is supplied.
 
 `scripts/Build.ps1` builds this library and runs `iap2_tests`, `iap2_link_tests`,
 `iap2_control_tests`, `iap2_identification_tests`, `iap2_transport_tests` and
-`iap2_carplay_tests` and `usbmux_tests` alongside the four existing suites. The tests use 33 committed
+`iap2_carplay_tests`, `usbmux_tests` and `usbmux_host_tests` alongside the four
+existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
 authentication failures. Provenance and GPL-3.0-or-later licensing are recorded
@@ -133,7 +134,7 @@ The control-session adapter below now connects this engine to authentication;
 actual device transport and a real provider remain separate work. See
 [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
 
-Eleven CTest suites pass, including 16 link test groups and a simulated two-endpoint
+Twelve CTest suites pass, including 16 link test groups and a simulated two-endpoint
 exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
 checks use the installed LLVM and Visual Studio toolchain:
 
@@ -141,9 +142,9 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the seven protocol test executables with AddressSanitizer and
+This builds/runs the eight protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all nine C99
+or car access is required. The ARM portability check now covers all ten C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -217,8 +218,8 @@ reject stale results after reconnect; cancellation clears transport and endpoint
 state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
 
 Seventeen test groups exercise a fake backend, including complete synthetic
-exchanges in both startup orders over fragmented reads/writes. All eleven CTest suites and
-seven sanitized protocol suites pass. Details and callback lifetime requirements
+exchanges in both startup orders over fragmented reads/writes. All twelve CTest suites and
+eight sanitized protocol suites pass. Details and callback lifetime requirements
 are in the
 [step-by-step transport adapter report](reports/transport-adapter.md) and
 [CarPlay progress, Steps 34-36](reports/carplay-progress.md#step-34---implement-the-bounded-byte-stream-pump).
@@ -265,9 +266,16 @@ options and latches malformed stream prefixes until reset. Ten new test groups
 cover seven independent synthetic vectors, every fixture split, coalesced input,
 short-output canaries and maximum-size frames.
 
+`usbmux_host.h` now negotiates version 2/setup with physical-write completion
+barriers, separate caller-owned RX/TX storage and one held received packet.
+Explicit sequence profiles reproduce either reference convention. Fifteen host
+test groups cover partial/coalesced transfers, backpressure, hard deadlines,
+stale generations, every sequence slot and maximum-size packets. Host state is
+200 bytes plus the two caller buffers; no backend is invoked.
+
 This is not a TCP connection engine, USB backend or phone-pairing implementation.
-The next layer must negotiate version/setup and manage connection state. The
-new USBmux files select GPL-3.0-only after cross-checking LIVI against pinned
+Next add bounded TCP routing, sequence/ACK/window handling and the carkit service
+dependencies. The USBmux files select GPL-3.0-only after cross-checking LIVI against pinned
 usbmuxd source; existing iAP2 files retain GPL-3.0-or-later. See the
 [step-by-step USBmux report](reports/usbmux-transport.md) and
 [reference provenance](third_party/README.md).

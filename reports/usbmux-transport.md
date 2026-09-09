@@ -95,14 +95,118 @@ offers GPL version 2 or version 3, not an unrestricted later-version option.
 Existing iAP2 files retain their own notices. See
 [provenance and license text](../third_party/README.md).
 
-## Step 5 - Remaining integration
+## Step 5 - Implement the version-2 host handshake
 
-Next implement a bounded version/setup host handshake with actual-write
-completion, explicit sequence policy, packet ownership, deadlines and stale
-connection rejection. Then add TCP connection/flow-control handling, the
-Lockdown/plist/TLS trust-pairing path and carkit byte-stream integration.
-The current codecs are not a USB backend or TCP connection, and do not make
-an iPhone accept identification, authenticate, or start CarPlay.
+The wire checkpoint was committed/pushed as `d754aca`. Added
+[usbmux_host.h](../src/carplay/usbmux_host.h) and
+[usbmux_host.c](../src/carplay/usbmux_host.c), with this startup sequence:
+
+```text
+VERSION_TX -- all 20 bytes written --> VERSION_RX
+VERSION_RX -- valid major-2 reply --> SETUP_TX
+SETUP_TX   -- all 17 bytes written --> READY
+```
+
+Start queues version `2.0.0`. A valid reply must have major version 2; minor and
+padding fields remain available for diagnostics without an invented zero-only
+restriction. Unsupported major versions close the host without setup/fallback.
+SETUP sends `0x07`. READY means only that the host has completed mux setup;
+it is not a TCP connection, successful trust pairing or CarPlay session.
+
+The explicit `config.sequence` selects `USBMUX_HOST_USBMUXD` by default:
+setup's second slot is `0xffff`, then future packets use the incoming second
+slot. `USBMUX_HOST_LIVI` instead keeps the outgoing second slot at zero.
+Both send setup at TX slot zero and advance that slot modulo 65,536 only after
+the complete pending packet is physically written. Incoming magic/slots remain
+visible. This is selectable reference behavior, not an interoperability finding
+or a claim about the slots' unverified peer-direction semantics.
+
+## Step 6 - Preserve packet ownership and physical completion
+
+Initialization requires distinct caller-owned RX/TX buffers, each 36..65,536
+bytes, and makes no I/O call. The object is noncopyable and initialized once;
+all exposed fields are read-only. Host state occupies 200 bytes on this PC,
+plus buffers. It has no heap, backend callbacks, hidden clock or socket API.
+
+`output` lends the pending tail without consuming it. `advance` reports only
+the number of bytes actually completed from that tail. Copying/submitting a
+buffer is not completion; partial/zero completion never changes the packet.
+Overcounts or unexpected positive completions close the active host. No
+subsequent packet can interleave with pending bytes. An asynchronous backend
+must supply its own storage, serialized completions and quiescence mechanism.
+
+`feed` consumes at most one frame and reports the exact count. During version
+or setup output, input is blocked with zero consumed; the caller retains it.
+After READY, CONTROL and minimal TCP frames become a single held packet.
+Malformed/oversized input or a late VERSION/SETUP closes the host. Coalesced
+tails stay at the caller until setup completes or the held packet is released.
+
+The held view is stable until `release` or closure/restart. Explicit TCP sending
+copies a validated encoded header/payload into separate TX storage; it may copy
+from held RX, but must never overlap TX/state. Sending and physical completion
+do not release RX. New RX may update sequence metadata while TX is pending,
+but never rewrites the already queued header. Local malformed-TCP/capacity
+errors leave the session and queues intact without consuming a sequence slot.
+
+## Step 7 - Bound time and reject old connections
+
+All timed operations check deadlines before accepting progress. Defaults are
+local policies, configurable from 1 to 60,000 milliseconds:
+
+| Budget | Default | Starts | Ends |
+| --- | --- | --- | --- |
+| Total handshake | 2,000 ms | Successful start | Setup fully written |
+| Per-packet write | 250 ms | Packet queued | Packet fully written |
+| Receive assembly plus hold | 5,000 ms | First input byte | Packet released/version accepted |
+
+Partial/zero progress, repeated views, busy queues and newly completed assembly
+do not renew the current budget. Exact deadline expiration closes before
+processing a late completion, version response or release. The minimum delay
+uses subtraction to avoid absolute-deadline overflow. Caller time cannot wrap
+or decrease. `next_delay` reports hard deadlines, not backend readiness; an
+idle READY host has none. The caller also waits on I/O/application events and
+calls `poll` before acting on untimed borrowed output views.
+
+Each successful start needs a nonzero generation greater than every previous
+successful start. Every timed operation checks it. A stale event closes the
+active host without accepting the stale clock or bytes; the reason survives
+subsequent close calls. Decreasing time with the current generation is an
+argument error with no state change. A reconnect resets negotiation, sequence,
+partial/held input and pending output. The caller must synchronously quiesce
+old I/O before close/restart; generation checks cannot prevent a backend from
+writing through stale pointers. Zero-byte input is not EOF: signal EOF/failure
+through explicit closure. Discarding state is not secure memory erasure.
+
+## Step 8 - Verify host state and failure paths
+
+Fifteen independent host groups cover both setup conventions and exact first
+SYN bytes, one-byte physical writes, every version split, coalesced tails,
+nonzero minor/padding, rejected versions, held/copy ownership, empty CONTROL,
+malformed peer input, local send failures, invalid completion counts, deadline
+boundaries, generation rejection across all timed APIs, sequence wrap through
+every 16-bit value, near-maximum clocks and maximum-sized RX/TX packets.
+The synthetic SYN requests port 62078 but never establishes a TCP connection.
+
+Current verification passed:
+
+1. `scripts/Build.ps1`: 12/12 CTest suites.
+2. `scripts/Check-CarPlaySanitizers.ps1`: all eight protocol suites under ASan/UBSan.
+3. `scripts/Check-CarPlayArm.ps1`: ten C99 units, relocatable ARM link without imports.
+4. `python -B -m unittest discover -s tests -p test_*.py -v`: 19 tests.
+5. `git diff --check` and local Markdown link checks.
+
+The new host files/tests retain the USBmux step's GPL-3.0-only choice. These
+host policies are local designs informed by the same pins, not source claims
+that either reference supplies these guarantees. No device input is captured.
+
+## Step 9 - Remaining integration
+
+Next add TCP connection/flow-control handling: route both ports, validate SYN
+and ACK/sequence ranges, respect bounded receive windows, and handle close/reset
+without mistaking a physical mux write for peer TCP acknowledgement. Then add
+the Lockdown/plist/TLS trust-pairing path and carkit byte-stream integration.
+The current packet host is not a USB backend or TCP connection, and does not
+make an iPhone accept identification, authenticate, or start CarPlay.
 
 Real USB ownership/profile support, the existing authentication provider,
 network/media protocols, QNX display/audio integration and verified hardware
