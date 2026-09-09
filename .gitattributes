@@ -3,3 +3,4 @@ reports/*.tsv whitespace=-blank-at-eol
 reports/*strings*.txt whitespace=-blank-at-eol
 # Preserve the upstream miniLZO files byte-for-byte.
 third_party/lzo-2.10/** -text -whitespace
+tests/fixtures/lockdown/*.xml text eol=lf

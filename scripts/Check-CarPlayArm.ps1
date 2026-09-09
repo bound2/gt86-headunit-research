@@ -14,7 +14,7 @@ foreach ($headunitTool in @($headunitClang, $headunitLinker, $headunitNm)) {
 $headunitOutput = Join-Path $headunitRoot 'build/carplay-arm'
 New-Item -ItemType Directory -Path $headunitOutput -Force | Out-Null
 $headunitObjects = @()
-foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link', 'iap2_control', 'iap2_identification', 'iap2_transport', 'iap2_carplay', 'iap2_power', 'usbmux_wire', 'usbmux_host', 'usbmux_connection', 'usbmux_dispatcher')) {
+foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link', 'iap2_control', 'iap2_identification', 'iap2_transport', 'iap2_carplay', 'iap2_power', 'usbmux_wire', 'usbmux_host', 'usbmux_connection', 'usbmux_dispatcher', 'lockdown_wire', 'lockdown_channel')) {
     $headunitSource = Join-Path $headunitRoot "src/carplay/$headunitName.c"
     $headunitObject = Join-Path $headunitOutput "$headunitName.o"
     & $headunitClang --target=armv7-none-eabi -mcpu=cortex-a8 -mfloat-abi=soft `

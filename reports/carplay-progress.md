@@ -35,12 +35,14 @@ the host remains packet-only. A separate bounded TCP-style connection engine
 now adds port routing, sequence/ACK/window handling and close behavior, with
 15 groups and a layered host/connection simulation. A new dispatcher now
 coordinates up to four connections through explicit backend callbacks, with
-bounded stream APIs and 13 additional groups. Native USB and phone pairing
-remain absent.
-All fourteen CTest suites pass, and all ten protocol suites pass under host
-address/undefined-behavior sanitizers. The twelve C99
+bounded stream APIs and 13 additional groups. Bounded Lockdown service framing,
+explicit GetValue XML encoding and an owned request/response channel now add
+17 groups; four independently parsed XML fixtures bring Python checks to 23.
+Response semantics, native USB and phone pairing remain absent.
+All fifteen CTest suites pass, and all eleven protocol suites pass under host
+address/undefined-behavior sanitizers. The fourteen C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-47 and [the dispatcher report](usbmux-dispatcher.md).
+Steps 22-48 and [the service report](lockdown-service.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1711,6 +1713,43 @@ iAP2/control endpoint. The real QNX backend, authentication provider, media path
 hardware identity and execution/recovery remain unresolved; no installable
 CarPlay image or vehicle change was produced.
 
+## Step 48 - Add bounded Lockdown service framing
+
+Status: runtime dispatcher committed/pushed as `1ed50a7`.
+The new [lockdown-service.md](lockdown-service.md) pins LIVI's exact
+`idevice 0.1.65` dependency, verifies the archive against Cargo.lock and traces
+service framing, GetValue and carkit's pairing/session/TLS order. Only source
+was inspected; no reference daemon, phone service or trust-record operation ran.
+
+The independent C99 layer frames 1..65,536-byte opaque bodies with a four-byte
+big-endian body length. Its explicit GetValue encoder escapes XML metadata and
+checks output capacity before writing. The owned channel binds a plain,
+TX-drained dispatcher stream and queues one request. Bounded polling reads
+exactly one prefix/body, preserves following bytes, and publishes the response
+only after the request is physically sent and TCP-acknowledged.
+
+Release tokens, total exchange/hold budgets, stale-handle rejection and shared
+transport cancellation bound lifetime and failure. Idle detach returns the
+original stream without consuming possible handoff bytes or starting TLS.
+The response remains opaque: even an Error plist is framed data, not an
+accepted RPC result. There is no implicit pairing, retry or real GetValue call.
+
+Seventeen groups cover independent XML fixtures, every response split position,
+partial EOF, malformed lengths, capacity/metadata bounds, request ownership,
+ACK gating, coalesced handoff tails, exact deadlines, token/generation checks,
+other-stream/CONTROL progress and maximum-sized service bodies. All 15 CTest
+suites, eleven sanitized protocol suites, fourteen-unit ARM check and 23 Python
+tests pass. Channel state is 160 x64 host bytes plus caller buffers. The new
+files/tests select GPL-3.0-only; the MIT-declared dependency is a source reference
+only, and no implementation bodies were copied.
+
+Next add bounded typed plist response validation, then explicit trust policy,
+credential-provider/storage boundaries, TLS and carkit startup. A decrypted
+stream adapter is still needed; detaching plain framing is not a TLS handshake.
+Real QNX transport, authentication-chip access, network/media and verified
+execution/recovery remain unresolved. No installable CarPlay image, update USB
+or vehicle change was produced.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1721,8 +1760,10 @@ CarPlay image or vehicle change was produced.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Add bounded Lockdown/service framing and plist exchanges, then TLS/trust
-   pairing and carkit startup. USBmux dispatch/byte-stream integration is now
+3. Add bounded typed plist response validation, then explicit TLS/trust
+   pairing and carkit startup. Service framing, GetValue encoding and a bounded
+   opaque response channel are implemented in Step 48.
+   USBmux dispatch/byte-stream integration is now
    implemented in Step 47. TCP-style connection, routing and
    flow control are implemented in Step 46; version/setup and packet queues in
    Step 45, packet codecs and streaming in Step 44.

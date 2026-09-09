@@ -99,7 +99,7 @@ authentication keys or fallback signer is supplied.
 `scripts/Build.ps1` builds this library and runs `iap2_tests`, `iap2_link_tests`,
 `iap2_control_tests`, `iap2_identification_tests`, `iap2_transport_tests` and
 `iap2_carplay_tests`, `usbmux_tests`, `usbmux_host_tests` and
-`usbmux_connection_tests` and `usbmux_dispatcher_tests` alongside the four
+`usbmux_connection_tests`, `usbmux_dispatcher_tests` and `lockdown_tests` alongside the four
 existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
@@ -143,9 +143,9 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the ten protocol test executables with AddressSanitizer and
+This builds/runs the eleven protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all twelve C99
+or car access is required. The ARM portability check now covers all fourteen C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -219,8 +219,8 @@ reject stale results after reconnect; cancellation clears transport and endpoint
 state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
 
 Seventeen test groups exercise a fake backend, including complete synthetic
-exchanges in both startup orders over fragmented reads/writes. All fourteen CTest suites and
-ten sanitized protocol suites pass. Details and callback lifetime requirements
+exchanges in both startup orders over fragmented reads/writes. All fifteen CTest suites and
+eleven sanitized protocol suites pass. Details and callback lifetime requirements
 are in the
 [step-by-step transport adapter report](reports/transport-adapter.md) and
 [CarPlay progress, Steps 34-36](reports/carplay-progress.md#step-34---implement-the-bounded-byte-stream-pump).
@@ -314,6 +314,22 @@ host bytes, including a 1,024-byte scratch buffer; host/connection objects and
 their buffers are additional. No native USB implementation, phone trust/TLS,
 carkit service or media receiver is provided. See the
 [step-by-step dispatcher report](reports/usbmux-dispatcher.md).
+
+### Bounded Lockdown service framing
+
+`lockdown_wire.h` adds four-byte big-endian body-length framing and an explicit,
+read-only GetValue XML encoder. `lockdown_channel.h` binds one plain dispatcher
+stream, copies one request and receives exactly one bounded response. It
+preserves coalesced trailing bytes for explicit handoff, requires the request
+to be physically sent and TCP-acknowledged, and protects held responses with
+release tokens and deadlines. Channel state is 160 host bytes plus caller buffers.
+
+Seventeen synthetic C++ groups cover exact XML fixtures, fragmentation, maximum
+bodies, malformed input, timeout/cancellation, stale handles, handoff bytes and
+concurrent dispatcher traffic. Four Python plist checks validate fixture semantics
+independently, bringing the Python suite to 23 tests. This C layer does not yet
+parse responses, establish TLS, pair a phone or start carkit. See the
+[step-by-step service report](reports/lockdown-service.md).
 
 ## Read-only firmware analysis
 

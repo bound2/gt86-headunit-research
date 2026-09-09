@@ -191,3 +191,29 @@ control tokens, whole-session failure policy and round-robin scheduling are
 local designs. The tests use synthetic echoes through explicit callbacks, not
 native USB, real trust records or carkit sessions. See
 [usbmux-dispatcher.md](../reports/usbmux-dispatcher.md).
+
+## Lockdown service references
+
+`lockdown_wire.c`/`.h`, `lockdown_channel.c`/`.h`, their synthetic tests and
+XML fixtures select GPL-3.0-only. The dispatcher test peer was factored into
+`tests/support/usbmux_fixture.h` under the same license; its optional service
+callback is test-only. No native backend, trust record or TLS code is included.
+
+The same LIVI pin's `iap2-wired/src/carkit.rs` supplies service startup order.
+Its lockfile selects `idevice 0.1.65`, whose package manifest declares MIT and
+credits Jackson Coxson. The exact downloaded crate SHA256 is
+`7484b3a39a089068167a8ab0b3da6a05b5f6f8969daf1a893da1c7087cb2e09a`;
+VCS metadata identifies `jkcoxson/idevice` at
+`2bc6a05c80daaf8583884cf7f2d2563be17e6c2d`, package subdirectory `idevice`.
+The archive contains no LICENSE file found by the inspection. It remains an
+ignored source reference, not a vendored or executable dependency.
+
+The pinned `src/lib.rs` and `src/services/lockdown.rs` inform the four-byte
+big-endian body length and GetValue fields. No upstream function bodies or
+fixtures were copied. Local frame/metadata limits, transactional encoding,
+opaque-response ownership, exact-needed reads, serial tokens, deadline policy,
+shared cancellation and explicit detach are independent implementation choices.
+The XML fixtures are synthetic and independently checked using Python plistlib;
+they are not phone captures, trust records or evidence of Apple conformance.
+See [the service report](../reports/lockdown-service.md) for exact source links,
+file hashes, security boundaries and missing response parsing/pairing/TLS.
