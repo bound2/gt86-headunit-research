@@ -113,7 +113,30 @@ USB/Bluetooth transport, reliable link negotiation, the actual Apple
 authentication provider, CarPlay session/media protocols, and QNX display/audio
 integration. There is no installable CarPlay package yet.
 
-## Read-only C++ analyzer
+## Read-only firmware analysis
+
+### Apple authentication-driver analysis
+
+The two pinned Apple-authentication modules can now be inspected and exercised
+with synthetic I2C responses on the PC. The native ARM checks cover identity,
+certificate paging and signature transfers; they do not access the car or
+authenticate an iPhone. Findings and limits are recorded in
+[CarPlay progress, Steps 13-15](reports/carplay-progress.md#step-13---separate-plugin-metadata-from-the-actual-chip-identity).
+
+```powershell
+python -B scripts/inspect_ipod_auth.py
+python -B scripts/inspect_ipod_auth.py --module ipod --disassemble
+python -B scripts/probe_ipod_auth.py
+python -B -m unittest discover -s tests -p test_ipod_auth_tools.py -v
+```
+
+These corpus-dependent tools require the extracted research inputs. The probe
+uses the existing Unicorn 2.1.4 installation in `build/python-libs`; disassembly
+uses LLVM, whose location can be supplied with `--llvm`. Optional `--output`
+paths must be new files. No vendor binaries or device identities are bundled
+in the tools. The fixed `acp_ver` plugin entry is **not** a chip-version reading.
+
+### C++ binary analyzer
 
 ```powershell
 ./build/Release/fwinspect.exe info extracted/swdl/usr/bin/usbSquelch

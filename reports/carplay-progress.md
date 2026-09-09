@@ -19,6 +19,12 @@ contains H.264 decoder class references worth investigating. Neither result
 establishes a working CarPlay receiver or a demonstrated recovery method. All
 work below is on the local PC.
 
+The Apple-authentication path is now traced through both stock ARM modules:
+17 synthetic-bus checks pass, including cached identity reporting, certificate
+paging and challenge/signature transfers. Five analysis-tool safety tests also
+pass. `acp_ver` proved to be a fixed plugin entry, not a chip-version reading.
+The real chip identity and iPhone acceptance remain unknown; see Steps 13-15.
+
 ## Step 1 - Establish the target and limits
 
 Status: complete for the information already available.
@@ -348,9 +354,9 @@ QNX's own release notes describe this module as the interface to the iPod
 authentication chip, independently supporting the interpretation of the Toyota
 boot configuration. [QNX Aviage Multimedia Suite release notes](https://www.qnx.com/developers/articles/rel_3503_5.html).
 
-`acp_ver` is a useful candidate for a runtime metadata query through the
-existing media stack. It is not a recovered chip-version value, and the query
-path and field semantics are not yet established. The module's own
+The initial hypothesis was that `acp_ver` might offer a runtime metadata query.
+**Superseded by Step 13:** its descriptor value is fixed; the actual runtime
+identity follows a different path. The module's own
 `VERSION=20.26.53` is a software build identifier, not the Apple chip generation.
 Its exported `iofs_module` object is a plugin interface, not an established
 standalone certificate/signing API. These clues do not yet justify a new
@@ -361,6 +367,158 @@ Reproduce the string inspection without executing the vendor library:
 ```powershell
 ./build/Release/fwinspect.exe strings extracted/qnx-system-v3/image-380000/lib/dll/iofs-i2c-ipod.so
 ```
+
+## Step 13 - Separate plugin metadata from the actual chip identity
+
+Status: disassembled and exercised with synthetic identity bytes on 2026-09-09.
+
+Two original binaries are now pinned by SHA256:
+
+| Module in `image-380000/lib/dll/` | SHA256 |
+| --- | --- |
+| `iofs-i2c-ipod.so` | `f7791854a0fd94a9eaa85159291007ffb49c07ea49a7e66253c5aa07df8919e6` |
+| `iofs-ipod.so` | `f0598ab13b10ad77fca2a309a484453512c0c9094ff726de77d54416c74cf629` |
+
+All addresses below are module-relative virtual addresses, not runtime process
+addresses. The executable segments start at file offset/address zero. Writable
+segment addresses differ from file offsets by `0x1000` in both modules.
+
+The I2C module's descriptor at `0x1c28` pairs `=Iacp_ver` with the literal
+integer `1`, followed by `=Sauthcoproc` and `0x858`. The main iPod module has
+the same descriptor values at `0x359b8`. These are fixed plugin declarations.
+Interpreting the first as an interface-version declaration is an inference;
+it is definitively not a value fetched from the physical chip.
+
+The actual identity path is in `iofs-ipod.so` at `0x3db8`:
+
+1. Initialize the configured I2C provider.
+2. Read four bytes starting at register `0x00`.
+3. Cache byte 0 as `device`, byte 1 as `firmware`, and bytes 2-3 as the
+   big-endian chip `protocol` version.
+4. Branch on those values. This legacy code handles device values 1, 2 and 3,
+   and chip-protocol major values 1 and 2. Unknown values return failure in the
+   tested paths. These are software branches, not the identity of this car.
+
+The numbers must not be conflated:
+
+| Value | Meaning / limit |
+| --- | --- |
+| `acp_ver = 1` | Fixed plugin metadata; not a hardware measurement. |
+| Register `0x00` | Live chip device-version byte, still unknown on the car. |
+| Registers `0x02`-`0x03` | Chip register-protocol version; major 2 is not proof of iAP2 link support or CarPlay. |
+| Driver `VERSION=20.26.53` | QNX software build identifier. |
+
+The cached-description routine at `0x2f90` emits `authcoproc` metadata with
+`type`, `device`, `firmware`, `protocol`, `devno` and `x509/size`. It delegates
+I2C details to the provider's `0x600` callback: `addr`, `path`, and `speed`.
+With a synthetic identity of `03 05 02 00`, the original routines report device
+3, firmware 5 and protocol 2.00. **These are test inputs, not readings from the
+owner's unit.** Description alone generated no bus operations in the harness.
+
+A higher-level description callback at `0x29008` calls `0x2f90` at `0x290a0`.
+Separately, the extracted `io-fs-media` contains `.FS_info.` and `info.xml`
+strings. An existing media-information pseudo-file is therefore a candidate
+read-only route, but its complete path, callback dispatch and availability on
+6.9.0WL have not been established. Do not present a guessed path as a working
+command or assume it is accessible from the ordinary head-unit menus.
+
+## Step 14 - Trace certificate and challenge-response transfers
+
+Status: native callback table and register sequences reproduced with mocks.
+
+The I2C provider's callback table starts at `0x1d68`:
+
+| Table slot | Routine | Observed responsibility |
+| --- | --- | --- |
+| `0x1d98` | `0x8d4` | Parse options, open `/dev/i2c0`, optionally set bus speed. Default slave address is `0x10`; an `addr` option can override it. |
+| `0x1d9c` | `0x840` | Lock/unlock control through `devctl`. |
+| `0x1da0` | `0x798` | Register read using `devctlv`, command `0xc0140507`, with one register-select byte followed by a receive. |
+| `0x1da4` | `0x6e4` | Register write using `devctlv`, command `0x80100505`, sending register selector and payload. |
+| `0x1da8` | `0x6cc` | Unsupported readiness callback: sets errno 89 and returns -1. |
+| `0x1dac` | `0x600` | Emit cached I2C configuration metadata. |
+
+The read/write layouts match QNX's `DCMD_I2C_SENDRECV` and `DCMD_I2C_SEND`
+interfaces. QNX documents combined send/receive as an atomic register-read
+operation and provides bus-lock commands. This supports using the existing
+QNX bus interface, but does not establish correct arbitration with Toyota's
+running media service. [QNX 6.5 I2C framework](https://www.qnx.com/developers/docs/6.5.0SP1/neutrino/technotes/i2c_framework.html).
+
+In the main iPod module, the chip-protocol-major-2 branch uses:
+
+| Operation | Register sequence verified in the harness |
+| --- | --- |
+| Identify | Read 4 bytes at `0x00`; later read 4 bytes at `0x04` for `devno`. |
+| Certificate | Read 2-byte big-endian length at `0x30`; read at most 128 bytes per page starting at `0x31`, incrementing the register for each page. Cache at context offset `0x58`. |
+| Submit challenge | At routine `0x3944`, lock the bus and write a combined 2-byte big-endian length plus challenge payload starting at `0x20`. Write `01` at `0x10` to request signing. |
+| Retrieve signature | Read status at `0x10`, signature length at `0x11`, then signature bytes at `0x12`. An error-status path reads `0x05`. |
+| Deliver / release | Calls the legacy iPod command sender with command `0x18`; the harness intercepts this. The caller cleanup routine at `0x371c` releases the lock. Calling only the inner signing routine is not a complete transaction. |
+
+The certificate/signing register addresses overlap the pinned LIVI MFi
+implementation's operations. LIVI instead selects separate challenge-length
+and challenge-data registers (`0x20`/`0x21`) and uses a different read/polling
+strategy. The overlap is concrete support for investigating reuse; it does
+not prove that all transaction forms work on the installed chip.
+[Pinned LIVI I2C implementation](https://github.com/f-io/LIVI/blob/a76553fc941dcf378dd55c04da56aaf3d6911e08/native/livi-helperd/crates/iap2-mfi/src/linux.rs).
+
+Two important limits emerged:
+
+- The legacy core's accepted chip-protocol versions do not constrain what a
+  new provider could implement through the lower-level register interface.
+  Conversely, copying the legacy core does not add CarPlay negotiation. Its
+  signature output is a legacy iPod message, not an iAP2 authentication CSM.
+- The certificate reader accepts lengths 1-2048, but its page loop stops after
+  reading the page at offset 1792: at most 1920 bytes total. With a declared
+  length of 2048 it returns success after only 1920 bytes, leaving the final
+  128 bytes untouched in the test context. Any reused certificate path needs
+  an exact-length check; the old reader must not be treated as generally sound.
+
+No certificate, private key or real signature was extracted. No real chip was
+contacted, and no iPhone authenticated. The hardware-reuse question is now a
+specific interface/identity test, not simply whether Bluetooth or USB exists.
+
+## Step 15 - Preserve and validate the native-driver trace
+
+Status: 17 native ARM scenarios and five tool-safety tests pass on 2026-09-09.
+
+New tools:
+
+- `scripts/inspect_ipod_auth.py`: verifies each binary's SHA256, reads dynamic
+  relocations and provider metadata, and optionally disassembles a bounded
+  range using LLVM. Because these ELFs retain only non-code section headers,
+  it clears their section-directory fields **in memory only**, so LLVM can
+  disassemble the load segments. Original files, code and data remain intact.
+- `scripts/probe_ipod_auth.py`: loads the two pinned modules into Unicorn,
+  resolves their relocations, and executes selected native routines together.
+  All filesystem/device calls, timing, logging, XML emission and phone-message
+  dispatch are intercepted. Each native call has a 300,000-instruction and
+  five-second limit; unexpected imports, code paths or interrupts fail.
+- `tests/test_ipod_auth_tools.py`: checks hash mismatch rejection, exclusive
+  output creation, bounded disassembly ranges, unchanged input files and the
+  precise analysis-only header adaptation.
+
+The 17 native scenarios cover a complete synthetic identity/certificate/signature
+sequence, cached metadata without bus I/O, certificate lengths 1/128/1920 with
+cached reinitialization, the protocol-1 identity branch, rejected device/protocol
+values, certificate lengths 0/2049, the 2048-versus-1920 paging mismatch, bus
+failures/timeouts, open/speed-setup failures, signature error status, oversized
+signature, and temporarily unavailable signature status. Success uses arbitrary
+synthetic certificate/signature bytes; it tests byte transport, not cryptography.
+
+Reproduce from the project root using the existing Unicorn 2.1.4 dependency in
+`build/python-libs` (LLVM is only needed for disassembly):
+
+```powershell
+python -B scripts/inspect_ipod_auth.py
+python -B scripts/inspect_ipod_auth.py --module ipod --disassemble
+python -B scripts/probe_ipod_auth.py
+python -B -m unittest discover -s tests -p test_ipod_auth_tools.py -v
+```
+
+The latest 17-scenario record is `extracted/ipod-auth-probe-v2.json` (ignored by
+Git); the earlier 13-scenario exploratory run is `extracted/ipod-auth-probe.json`.
+Both tools accept `--output NEW_PATH` and refuse existing output files. Use a
+new filename for another saved run. These corpus-dependent tests are separate
+from the five CTest suites and the earlier 13 Lua update-path checks.
 
 ## Next checks
 
@@ -374,10 +532,12 @@ Reproduce the string inspection without executing the vendor library:
    cannot establish that both versions contain the same defects.
 3. Connect the portable iAP2 components to a reliable link engine and actual
    QNX USB transport. Establish the existing Apple authentication chip's identity
-   and usable interface, first tracing the stock driver's `acp_ver` metadata
-   route. Neither Bluetooth music nor iPod USB playback proves its suitability
-   for CarPlay. This remains a condition on the software-only approach, not a
-   requirement for an added receiver module.
+   and usable interface. The register operations are now traced; next resolve
+   the existing cached `authcoproc` metadata export and how to collect it from
+   the actual unit. `acp_ver` is not a hardware query. Any new provider must
+   validate complete certificates and coordinate bus ownership. iPhone
+   acceptance remains a separate test. This is a condition on the software-only
+   approach, not a requirement for an added receiver module.
 4. Resolve whether the AIR decoder can be used outside AIR, or whether a
    separate decoder is needed. Port the remaining CarPlay session/media
    protocols and trace display ownership and audio focus.
