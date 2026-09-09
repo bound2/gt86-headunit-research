@@ -1,0 +1,8 @@
+
+extracted/qnx-system-complete/image-8/usr/bin/verifyISO:	file format elf32-littlearm
+
+Sections:
+Idx Name          Size     VMA      LMA      Type
+  0 PT_LOAD#3     00002850 00100000 811f2000 TEXT
+
+SYMBOL TABLE:

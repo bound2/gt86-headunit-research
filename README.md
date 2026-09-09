@@ -22,15 +22,23 @@ Analysis identifies QNX 6.5 SP1 components, ARM little-endian executables, Lua 5
 bytecode and an image-authentication step. This is a later version from the same
 navigation family, not a verified flash image for the owner's specific unit.
 
-Read [the findings and remaining unknowns](reports/findings.md).
+The second pass decompresses all five embedded QNX image files, validates their
+imagefs checksums and traces two updater authentication layers. The embedded
+SHA256 digest matches both official ISO payloads. No custom-code execution or
+CarPlay support has been demonstrated.
+
+Read [the initial findings](reports/findings.md) and
+[the QNX extraction and authentication analysis](reports/qnx-analysis.md).
 
 ## Build and verify (Windows)
 
-Uses the installed VS2022 C++ tools and CMake; no third-party build dependencies.
+Uses the installed VS2022 C++ tools and CMake. miniLZO 2.10 is vendored for QNX
+decompression; see [dependency provenance and license](third_party/README.md).
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Verify-Firmware.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Verify-IsoPayload.ps1
 ```
 
 `Build.ps1` normalizes an inherited duplicate `Path`/`PATH` environment entry
@@ -55,6 +63,30 @@ Tests cover a standard CRC32 vector, empty input, ARM endianness, invalid/trunca
 ELF headers, Lua version recognition and strings ending at EOF. ZIP tests cover a
 roundtrip through an independent ZIP encoder, offsets above 4 GiB and rejection
 of incomplete directory data.
+
+## QNX unpacker
+
+After extracting the ISOs below, use fresh output directories:
+
+```powershell
+./build/Release/qnxinspect.exe unpack extracted/swdl/usr/share/swdl.bin extracted/qnx-updater-v3
+./build/Release/qnxinspect.exe unpack extracted/install/usr/share/IFS/ifs-extbox.bin extracted/qnx-system-v3
+```
+
+`qnxinspect` handles the observed little-endian ARM startup/LZO container and
+Toyota's HBCIFS v2 block-compressed variant. It checks decompressed lengths,
+32-bit imagefs checksums, directory bounds and regular-file paths. It emits raw
+imagefs files, regular files and an inventory with CRC32 and extraction paths.
+It records symlinks and devices without creating them. Conflicting duplicate
+filenames are retained under `duplicates/`; this does not emulate QNX lookup
+precedence. Empty file records ending in `/` remain inventory-only markers.
+Existing output roots are rejected. A filesystem/write error can leave partial
+output; only a zero exit status indicates a complete extraction.
+
+QNX tests cover synthetic containers, multi-block LZO roundtrips, corrupt and
+truncated data, metadata overlap, path traversal, symlink bounds, duplicate-file
+preservation and refusing an existing destination. The payload hash script
+reproduces the observed SHA256 comparison; it does **not** validate signatures.
 
 ## Download and extraction
 

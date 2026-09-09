@@ -1,0 +1,71 @@
+0x114	/usr/lib/ldqnx.so.2
+0x6c9	libSecurityComponentAPI.so.1
+0x6e6	__aeabi_unwind_cpp_pr0
+0x6fd	__register_frame_info
+0x713	__cxa_begin_catch
+0x725	memcpy
+0x72c	_Jv_RegisterClasses
+0x740	_ZNSs5_GrowEjb
+0x74f	_fini
+0x755	remove
+0x75c	__cxa_finalize
+0x76b	_ZdlPv
+0x772	fopen64
+0x77a	strlen
+0x781	__gxx_personality_v0
+0x796	memmove
+0x79e	fclose
+0x7a5	_ZNKSt12_String_base5_XlenEv
+0x7c2	fread
+0x7c8	_ZNKSt12_String_base5_XranEv
+0x7e5	__cxa_end_cleanup
+0x7f7	__cxa_end_catch
+0x807	memset
+0x80e	_Z27DestroySecurityComponentAPIP21ISecurityComponentAPI
+0x846	sprintf
+0x84e	fseek
+0x854	_ZNSs5_TidyEbj
+0x863	_Z26CreateSecurityComponentAPI11CURLLibType
+0x88f	__cxa_rethrow
+0x89d	_Znwj
+0x8a3	_init
+0x8a9	__deregister_frame_info
+0x8c1	spi_close
+0x8cb	spi_dma_xchange
+0x8db	__get_errno_ptr
+0x8eb	spi_open
+0x8f4	spi_setcfg
+0x8ff	spi_xchange
+0x90b	libcpp.so.4
+0x917	libc.so.3
+0x921	_init_array
+0x92d	errno
+0x933	_preinit_array
+0x942	system
+0x949	mem_offset64
+0x956	_init_libc
+0x966	MsgSendv
+0x96f	_fini_array
+0x97b	atexit
+0x982	_btext
+0x989	__exidx_start
+0x997	__exidx_end
+0x9a3	__data_start
+0x9b0	_edata
+0x9b7	__bss_start
+0x9c3	__bss_start__
+0x9d1	__bss_end__
+0x9dd	__end__
+0x9e5	_stack
+0x25fc	ERROR: Failed to open file %s
+0x261c	ERROR: Failed to read from file %s
+0x2644	ERROR: Failed to initialize SAM Library
+0x2674	hashFile 
+0x2680	Failed to open file %s
+0x269c	ERROR: Failed to generate Hash of ISO.
+0x26c8	ERROR: Calculated and stored hash do not match.
+0x26fc	ERROR: Failed to validate ISO signature.
+0x2728	ERROR: Invalid Parameter
+0x2744	Usage: verifyISO digestName isoFilepath
+0x2770	ISO Verified OK.
+0x2784	/tmp/tmp.digest

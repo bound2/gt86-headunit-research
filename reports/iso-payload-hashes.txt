@@ -1,0 +1,15 @@
+
+
+File             : downloads/6.17.0L/swdl.iso
+PayloadOffset    : 32768
+DigestOffset     : 64
+SHA256           : aeb79c7e6ed864516521d3b655aebe6731fe6367728addf1d3ddd8751984da64
+PayloadHash      : PASS
+VendorSignatures : NOT_VERIFIED
+
+File             : downloads/6.17.0L/swdlInstall.iso
+PayloadOffset    : 32768
+DigestOffset     : 64
+SHA256           : cd224ed32a2d2f915a0da797f68e9c4154ed28ed46d0f16a5ca6a498e21283b2
+PayloadHash      : PASS
+VendorSignatures : NOT_VERIFIED

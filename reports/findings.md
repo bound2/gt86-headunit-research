@@ -84,6 +84,11 @@ that is separate from compiling programs for the head unit.
 
 ## Next useful work
 
+**Second-pass update:** items 1 and 2 below have now been investigated. See
+[QNX extraction and authentication analysis](qnx-analysis.md) for validated
+extraction results, verifier call sites and the remaining questions. The list
+below records the state at the end of the initial pass.
+
 1. Parse/decompress the QNX IFS images and locate the actual `verifyISO` executable,
    runtime services and startup configuration. Its implementation has not yet been
    extracted or analyzed; raw strings in compressed images are unreliable evidence.
