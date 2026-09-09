@@ -138,7 +138,10 @@ struct Endpoint {
     }
     void authenticate(uint64_t now = 0) {
         certificate(now);
-        const auto challenge = pattern(64, 0x10); payload(csm(0xaa02, &challenge), now);
+        const auto challenge = pattern(64, 0x10), request = csm(0xaa02, &challenge);
+        const size_t payload_limit = engine.link.negotiated.packet_size - 10;
+        for (size_t offset = 0; offset < request.size(); offset += payload_limit)
+            payload(Bytes(request.begin() + offset, request.begin() + std::min(request.size(), offset + payload_limit)), now);
         const auto signature = pattern(provider.signature_size, 0x30);
         check(drain_reply(now) == csm(0xaa03, &signature), "complete signature response");
         payload(csm(0xaa05), now); check(poll(now) == IAP2_MORE && engine.auth.state == IAP2_AUTH_ACCEPTED,
@@ -149,7 +152,7 @@ struct Endpoint {
 static void configuration() {
     Endpoint e;
     const auto before = Bytes(reinterpret_cast<uint8_t *>(&e.engine), reinterpret_cast<uint8_t *>(&e.engine) + sizeof e.engine);
-    for (unsigned choice = 0; choice < 10; ++choice) {
+    for (unsigned choice = 0; choice < 11; ++choice) {
         auto config = e.config; auto buffers = e.buffers;
         switch (choice) {
         case 0: buffers.receive_capacity = 5; break;
@@ -162,6 +165,7 @@ static void configuration() {
         case 7: config.link.offer.session_count = 2; break;
         case 8: config.link.offer.sessions[0].kind = 1; break;
         case 9: config.link.offer.packet_size = 28; break;
+        case 10: config.identification_ms = 0; break;
         }
         check(iap2_control_init(&e.engine, &config, &e.callbacks, &buffers) == IAP2_ARGUMENT, "invalid control config");
         check(std::memcmp(&e.engine, before.data(), before.size()) == 0, "failed init transaction");
@@ -176,6 +180,143 @@ static void configuration() {
     e.canaries();
     Endpoint session; session.config.link.offer.sessions[0].id = 23; session.init(); session.handshake();
     session.authenticate(); session.canaries();
+}
+
+static iap2_identification_metadata test_identity() {
+    const auto span = [](const char *s) { return iap2_identification_text{s, std::strlen(s)}; };
+    iap2_identification_metadata m{};
+    m.name = span("PC TEST ONLY"); m.model = span("SYNTHETIC"); m.manufacturer = span("Test fixture");
+    m.serial = span("NOT-A-DEVICE-SERIAL"); m.firmware = span("test-1"); m.hardware = span("none");
+    m.current_language = m.languages[0] = span("en"); m.language_count = 1;
+    m.power_capability = 0; m.maximum_current_ma = 0; return m;
+}
+static Bytes enable_identification(Endpoint& e) {
+    const auto m = test_identity(); Bytes information(1024); size_t n;
+    check(iap2_identification_encode(&m, information.data(), information.size(), &n) == IAP2_OK &&
+        iap2_control_enable_identification(&e.engine, &m) == IAP2_OK, "enable explicit synthetic identity");
+    information.resize(n); return information;
+}
+static void application_replies() {
+    Endpoint e;
+    const auto request = csm(0x1234), small_reply = csm(0x1235);
+    check(iap2_control_reply(nullptr, small_reply.data(), small_reply.size(), 0) == IAP2_ARGUMENT &&
+        iap2_control_reply(&e.engine, nullptr, 0, 0) == IAP2_ARGUMENT &&
+        iap2_control_reply(&e.engine, small_reply.data(), small_reply.size(), 0) == IAP2_ARGUMENT,
+        "reply pointer/prestart arguments");
+    e.handshake(0, 29);
+    e.payload(request); check(e.poll() == IAP2_CONTROL_MESSAGE, "preauth held request");
+    check(iap2_control_reply(&e.engine, small_reply.data(), small_reply.size(), 0) == IAP2_AUTH_FAILED &&
+        e.held() == request && !e.engine.reply_size, "reply gated on auth without consuming request");
+    check(iap2_control_release_message(&e.engine) == IAP2_OK, "release preauth request"); e.authenticate();
+    check(iap2_control_reply(&e.engine, small_reply.data(), small_reply.size(), 0) == IAP2_MORE, "no unsolicited reply");
+    auto joined = request; joined.insert(joined.end(), request.begin(), request.end()); e.payload(joined);
+    check(e.poll() == IAP2_CONTROL_MESSAGE, "held request for reply");
+    for (const auto& bad : {Bytes{}, Bytes{0x40,0x40}, Bytes{0x40,0x40,0,6,0x12,0x35,0}}) {
+        const uint8_t placeholder = 0;
+        check(iap2_control_reply(&e.engine, bad.empty() ? &placeholder : bad.data(), bad.size(), 0) == IAP2_INVALID &&
+            e.held() == request && !e.engine.reply_size, "bad reply transaction");
+    }
+    for (uint16_t id : {0xaa00,0xaa01,0xaa03,0xaa05,0x1d00,0x1d01,0x1d02,0x1d03}) {
+        const auto reserved = csm(id);
+        check(iap2_control_reply(&e.engine, reserved.data(), reserved.size(), 0) == IAP2_UNSUPPORTED &&
+            e.held() == request && !e.engine.reply_size, "manual reply cannot bypass reserved sequencers");
+    }
+    const auto oversized_body = pattern(8192, 2), oversized = csm(0x1235, &oversized_body);
+    check(iap2_control_reply(&e.engine, oversized.data(), oversized.size(), 0) == IAP2_NO_SPACE && e.held() == request,
+        "oversized reply preserves request");
+    const auto body = pattern(6000, 0x40), expected = csm(0x1235, &body); auto reply = expected;
+    check(iap2_control_reply(&e.engine, reply.data(), reply.size(), 0) == IAP2_OK && e.engine.application_reply &&
+        !e.engine.ready && iap2_control_next_delay(&e.engine) == 0, "atomic retained reply and request release");
+    std::fill(reply.begin(), reply.end(), 0);
+    check(iap2_control_reply(&e.engine, small_reply.data(), small_reply.size(), 0) == IAP2_LINK_BUSY, "single reply queue");
+    check(e.poll() == IAP2_LINK_BUSY && e.engine.link.tx_count == 8, "application reply queue pressure");
+    check(e.drain_reply() == expected && e.held() == request && !e.engine.application_reply, "reply snapshot and coalesced tail survive pressure");
+    e.canaries();
+}
+static void application_reply_deadlines() {
+    const auto request = csm(0x1234), reply = csm(0x1235);
+    Endpoint e; e.handshake(); e.authenticate(); e.payload(request);
+    check(e.poll() == IAP2_CONTROL_MESSAGE && iap2_control_reply(&e.engine, reply.data(), reply.size(), 0) == IAP2_OK, "deadline reply");
+    check(e.poll(4999) == IAP2_LINK_BUSY && e.poll(5000) == IAP2_LINK_CLOSED &&
+        e.engine.reason == IAP2_CONTROL_REASON_TIMEOUT && !e.engine.reply_size && e.engine.auth.state == IAP2_AUTH_IDLE,
+        "application transport stall has total budget");
+    Endpoint acked; acked.handshake(); acked.authenticate(); acked.payload(request); acked.poll();
+    check(iap2_control_reply(&acked.engine, reply.data(), reply.size(), 0) == IAP2_OK, "ACK deadline reply");
+    acked.poll(); check(!acked.output(4900).empty(), "late physical handoff");
+    acked.feed(frame(0x40, acked.peer_sequence, acked.engine.link.tx_sequence), 4999);
+    check(!acked.engine.application_reply && acked.poll(5000) == IAP2_MORE && acked.engine.auth.state == IAP2_AUTH_ACCEPTED,
+        "ACK before deadline cancels timer without waiting for poll");
+    Endpoint closed; closed.handshake(); closed.authenticate(); closed.payload(request); closed.poll();
+    check(iap2_control_reply(&closed.engine, reply.data(), reply.size(), 0) == IAP2_OK, "reply before EOF");
+    iap2_control_close(&closed.engine);
+    check(iap2_control_reply(&closed.engine, reply.data(), reply.size(), 0) == IAP2_LINK_CLOSED &&
+        !closed.engine.application_reply && !closed.engine.reply_size, "EOF discards application reply");
+}
+static void identification_integration() {
+    Endpoint e; const auto information = enable_identification(e); e.handshake(0, 29); e.authenticate();
+    check(e.engine.identification_timer && e.engine.identification.state == IAP2_IDENTIFICATION_IDLE, "identification budget armed after auth");
+    const auto other = csm(0x1234); e.payload(other); check(e.poll() == IAP2_CONTROL_MESSAGE, "unknown held before identification");
+    check(iap2_control_reply(&e.engine, other.data(), other.size(), 0) == IAP2_LINK_BUSY && e.held() == other, "reply awaits identification");
+    iap2_control_release_message(&e.engine);
+    auto coalesced = csm(0x1d00), accepted = csm(0x1d02); coalesced.insert(coalesced.end(), accepted.begin(), accepted.end());
+    e.payload(coalesced); check(e.poll() == IAP2_LINK_BUSY && e.engine.identification.state == IAP2_IDENTIFICATION_WAIT_RESULT &&
+        e.engine.link.tx_count == 8, "identification reply backpressure");
+    while (!e.output().empty()) {}
+    check(e.poll() == IAP2_LINK_BUSY && e.engine.identification.state == IAP2_IDENTIFICATION_WAIT_RESULT, "sent identification is not accepted");
+    // Start fresh to check exact complete bytes after the unacknowledged-send case.
+    iap2_control_close(&e.engine); e.init(); enable_identification(e); e.handshake(0,29); e.authenticate(); e.payload(coalesced);
+    check(e.drain_reply() == information && e.engine.identification.state == IAP2_IDENTIFICATION_ACCEPTED &&
+        !e.engine.identification_timer, "ACK barrier then explicit identification acceptance");
+    e.output(100); check(e.poll(40000) == IAP2_MORE && iap2_control_next_delay(&e.engine) == UINT32_MAX, "identified idle timer cancellation");
+    e.canaries();
+}
+static void identification_failures() {
+    const auto metadata = test_identity(); Endpoint small(64);
+    check(iap2_control_enable_identification(&small.engine, &metadata) == IAP2_NO_SPACE &&
+        small.engine.identification.state == IAP2_IDENTIFICATION_DISABLED, "identity preflight fits reply buffer");
+    Endpoint invalid; enable_identification(invalid); const auto before = invalid.engine.identification;
+    auto bad = metadata; bad.serial.size = 0;
+    check(iap2_control_enable_identification(&invalid.engine, &bad) == IAP2_ARGUMENT &&
+        std::memcmp(&before, &invalid.engine.identification, sizeof before) == 0, "invalid metadata preserves enabled identity");
+    invalid.handshake(); check(iap2_control_enable_identification(&invalid.engine, &metadata) == IAP2_ARGUMENT, "no live metadata changes");
+    invalid.payload(csm(0x1d00));
+    check(invalid.poll() == IAP2_AUTH_FAILED && invalid.engine.reason == IAP2_CONTROL_REASON_IDENTIFICATION &&
+        !invalid.provider.certificates && !invalid.engine.reply_size, "preauth identification closes without response");
+    Endpoint disabled; disabled.handshake(); disabled.payload(csm(0x1d00));
+    check(disabled.poll() == IAP2_CONTROL_MESSAGE && disabled.held() == csm(0x1d00), "disabled identity remains explicit app event");
+    for (const auto& message : {csm(0x1d00), csm(0x1d02), csm(0x1d03), csm(0x1d01)}) {
+        Endpoint e; enable_identification(e); e.handshake(); e.authenticate();
+        if (message == csm(0x1d00)) { e.payload(message); e.drain_reply(); }
+        e.payload(message); check(e.poll() == IAP2_INVALID && e.engine.reason == IAP2_CONTROL_REASON_IDENTIFICATION,
+            "duplicate start or out-of-sequence identification result");
+    }
+    Endpoint rejected; enable_identification(rejected); rejected.handshake(); rejected.authenticate();
+    rejected.payload(csm(0x1d00)); rejected.drain_reply();
+    const Bytes reject{0x40,0x40,0,14,0x1d,3,0,4,0,0,0,4,0,3}; rejected.payload(reject);
+    check(rejected.poll() == IAP2_IDENTIFICATION_FAILED && rejected.engine.last_identification_rejection == 9 &&
+        rejected.engine.auth.state == IAP2_AUTH_IDLE && rejected.engine.identification.state == IAP2_IDENTIFICATION_IDLE,
+        "rejection captures flags then tears down both sequences");
+    check(rejected.poll() == IAP2_LINK_CLOSED && rejected.engine.last_identification_rejection == 9, "stable rejection diagnostics");
+    rejected.init(); check(!rejected.engine.last_identification_rejection &&
+        rejected.engine.identification.state == IAP2_IDENTIFICATION_DISABLED, "new init requires new identity opt-in");
+}
+static void identification_lifecycle() {
+    for (unsigned phase = 0; phase < 3; ++phase) {
+        Endpoint e; e.config.identification_ms = 200; e.init(); enable_identification(e); e.handshake(); e.authenticate();
+        if (phase) { e.payload(csm(0x1d00)); e.poll(); }
+        if (phase == 2) e.drain_reply();
+        e.output(100); // Clear ACK or hand off reply; no acceptance follows.
+        check(iap2_control_next_delay(&e.engine) <= 100 && e.poll(200) == IAP2_LINK_CLOSED &&
+            e.engine.reason == IAP2_CONTROL_REASON_TIMEOUT && e.engine.auth.state == IAP2_AUTH_IDLE &&
+            e.engine.identification.state == IAP2_IDENTIFICATION_IDLE, "identification total budget includes start/TX/result waits");
+    }
+    Endpoint e; enable_identification(e); e.handshake(); e.authenticate(); e.payload(csm(0x1d00)); e.drain_reply();
+    e.payload(csm(0x1d02)); check(e.poll() == IAP2_MORE && e.engine.identification.state == IAP2_IDENTIFICATION_ACCEPTED, "accepted before reset");
+    e.feed(frame(0x10,0,0),0,IAP2_LINK_CLOSED);
+    check(e.engine.identification.state == IAP2_IDENTIFICATION_IDLE && e.engine.auth.state == IAP2_AUTH_IDLE &&
+        !e.engine.identification_timer, "remote reset clears identification acceptance");
+    e.init(); enable_identification(e); e.handshake(); e.authenticate(); e.payload(csm(0x1d02));
+    check(e.poll() == IAP2_INVALID, "stale identification success invalid on new connection");
 }
 static void header_splits() {
     const auto request = csm(0xaa00);
@@ -406,20 +547,25 @@ static void work_budget_and_queue_pressure() {
 // Both real library endpoints, byte-fragmented synthetic transport, one lost
 // certificate frame. The peer checks complete bytes before issuing each next
 // auth message. Test data is a deterministic pattern, never a credential.
-static void two_endpoint_exchange() {
+static void two_endpoint_exchange(bool identify = false) {
     Endpoint a(8192, 128); a.config.link.offer.retransmit_ms = 250; a.init();
+    const auto information = identify ? enable_identification(a) : Bytes{};
     iap2_link peer{}; auto config = a.config.link; config.initial_sequence = 42;
     check(iap2_link_init(&peer, &config) == IAP2_OK && iap2_link_start(&peer, 0) == IAP2_OK &&
         iap2_control_start(&a.engine, 0) == IAP2_OK, "two endpoint start");
     const auto challenge = pattern(64, 0x10), certificate = pattern(2048, 0x90), signature = pattern(128, 0x30);
+    const auto app_body = pattern(400, 0x50), app_reply = csm(0x1235, &app_body), app_request = csm(0x1234);
     Bytes incoming;
-    bool requested = false, lost = false;
+    bool requested = false, lost = false, lost_identification = false, replied = false;
     unsigned responses = 0;
     for (uint64_t now = 0; now < 10000; now += 5) {
         auto bytes = a.output(now);
         if (!bytes.empty()) {
             bool drop = false;
             if (bytes.size() >= 10 && bytes[7] == 10 && !lost) { lost = true; drop = true; }
+            if (identify && bytes.size() >= 16 && bytes[7] == 10 && bytes[13] == 0x1d && bytes[14] == 1 && !lost_identification) {
+                lost_identification = true; drop = true;
+            }
             if (!drop) for (size_t offset = 0; offset < bytes.size();) {
                 size_t n = 777, amount = std::min<size_t>(3, bytes.size() - offset);
                 check(iap2_link_feed(&peer, bytes.data() + offset, amount, &n, now) == IAP2_OK && n == amount, "peer fragmented feed");
@@ -440,9 +586,17 @@ static void two_endpoint_exchange() {
             const auto decoded = iap2_message_decode(incoming.data(), incoming.size(), &message, &used);
             if (decoded == IAP2_MORE) continue;
             check(decoded == IAP2_OK && used == incoming.size(), "peer complete CSM decode");
-            check(incoming == (responses == 0 ? csm(0xaa01, &certificate) : csm(0xaa03, &signature)), "peer verifies full reply bytes");
-            const auto next = responses == 0 ? csm(0xaa02, &challenge) : csm(0xaa05);
-            check(++responses <= 2 && iap2_link_send(&peer, 10, next.data(), next.size(), now) == IAP2_OK, "peer next auth request");
+            check(incoming == (responses == 0 ? csm(0xaa01, &certificate) : responses == 1 ? csm(0xaa03, &signature) :
+                responses == 2 ? information : app_reply), "peer verifies full reply bytes");
+            Bytes next;
+            if (responses == 0) next = csm(0xaa02, &challenge);
+            if (responses == 1) {
+                next = csm(0xaa05);
+                if (identify) { const auto start = csm(0x1d00); next.insert(next.end(), start.begin(), start.end()); }
+            }
+            if (responses == 2) { next = csm(0x1d02); next.insert(next.end(), app_request.begin(), app_request.end()); }
+            check(++responses <= (identify ? 4u : 2u), "no duplicate complete replies");
+            if (!next.empty()) check(iap2_link_send(&peer, 10, next.data(), next.size(), now) == IAP2_OK, "peer next sequence message");
             incoming.clear();
         }
         uint8_t out[1024]; size_t n;
@@ -450,10 +604,16 @@ static void two_endpoint_exchange() {
         check(status == IAP2_OK || status == IAP2_MORE, "peer output");
         if (n) a.feed(Bytes(out, out + n), now, IAP2_OK, 2);
         const auto control = a.poll(now);
-        check(control == IAP2_MORE || control == IAP2_LINK_BUSY, "two endpoint control poll");
-        if (a.engine.auth.state == IAP2_AUTH_ACCEPTED && !peer.tx_count) {
-            check(lost && responses == 2 && a.provider.certificates == 1 && a.provider.signatures == 1 &&
+        if (control == IAP2_CONTROL_MESSAGE) {
+            check(identify && !replied && a.held() == app_request &&
+                iap2_control_reply(&a.engine, app_reply.data(), app_reply.size(), now) == IAP2_OK, "explicit synthetic application handler");
+            replied = true;
+        } else check(control == IAP2_MORE || control == IAP2_LINK_BUSY, "two endpoint control poll");
+        if (a.engine.auth.state == IAP2_AUTH_ACCEPTED && !peer.tx_count && !a.engine.reply_size &&
+            (!identify || (responses == 4 && a.engine.identification.state == IAP2_IDENTIFICATION_ACCEPTED))) {
+            check(lost && responses == (identify ? 4u : 2u) && a.provider.certificates == 1 && a.provider.signatures == 1 &&
                 a.provider.challenge == challenge, "full exchange despite loss, callbacks exactly once");
+            if (identify) check(lost_identification && replied, "identification retransmission and application roundtrip exercised");
             a.canaries(); return;
         }
     }
@@ -464,7 +624,9 @@ int main() {
         configuration(); header_splits(); large_receive(); coalesced_and_hold(); malformed_and_capacity();
         negotiated_fragmentation_and_pressure(); authentication_serialization(); provider_failures(); auth_protocol_failures();
         disconnect_and_reinit(); remote_close_and_retry_timeout(); adapter_timers(); work_budget_and_queue_pressure(); two_endpoint_exchange();
-        std::cout << "PASS: 14 control adapter test groups (synthetic providers/transport only).\n";
+        application_replies(); application_reply_deadlines(); identification_integration(); identification_failures();
+        identification_lifecycle(); two_endpoint_exchange(true);
+        std::cout << "PASS: 20 control adapter test groups (synthetic providers/transport only).\n";
         std::cout << "Host control-state storage: " << sizeof(iap2_control) << " bytes, plus caller buffers.\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }

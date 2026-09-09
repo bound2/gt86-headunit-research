@@ -14,11 +14,15 @@ components now implement iAP2 framing, control messages and authentication
 sequencing, validated against 33 upstream vectors. A new experimental reliable-
 link profile adds negotiation, ACKs, retransmission and bounded queues with
 16 link test groups. A bounded control-session adapter now connects link payloads
-to authentication, including split/coalesced messages and larger replies, with
-14 additional test groups. All seven CTest suites pass, and all three protocol
-suites pass under host address/undefined-behavior sanitizers. The four C99
+to authentication, including split/coalesced messages and larger replies. It
+now also supports atomic application replies and opt-in minimal accessory
+identification, with 20 control and seven dedicated identification test groups.
+All eight CTest suites pass, and all four protocol suites pass under host
+address/undefined-behavior sanitizers. The five C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-27. No real authentication provider or device transport is connected.
+Steps 22-30. No real authentication provider or device transport is connected.
+Accessory identification describes the endpoint to a phone; it does not read
+the existing Apple authentication chip's identity or prove its compatibility.
 All 13 earlier host-side
 manifest/dispatch/authentication checks pass. They confirm additional weaknesses
 in resident update control flow, with explicit mock assumptions. Adobe AIR also
@@ -1162,6 +1166,154 @@ until the real provider, QNX execution/USB access and a recovery route are
 established. Chip identity, complete real certificate retrieval, bus ownership
 and iPhone acceptance remain unresolved independently of this adapter.
 
+Follow-up: this adapter checkpoint was committed as `f4b8321` at the owner's
+next request. Steps 28-30 implement the application-reply/identification work
+outlined above; statements about those features being absent are historical.
+
+## Step 28 - Add an atomic application-reply path
+
+Status: implemented and PC-tested on 2026-09-09.
+
+The requested initial checkpoint is commit `f4b8321`,
+`Connect bounded control sessions to iAP2 authentication`. The working tree was
+clean immediately after the commit. The continuation described below remains
+uncommitted, ready for the owner's next checkpoint.
+
+`iap2_control_reply` now connects an explicit application handler to the existing
+bounded outgoing path:
+
+1. Require a started, established link, accepted accessory authentication and,
+   when enabled, accepted identification. A message being held for inspection
+   does not itself permit an unauthenticated response.
+2. Require one held application request; there is no unsolicited-send API or
+   implicit application handler. Reject outgoing authentication/identification
+   IDs so manual replies cannot bypass either sequencer.
+3. Validate one complete CSM and available capacity before copying it. A malformed,
+   reserved or oversized reply preserves the held request and existing queue.
+4. On success, copy the reply into endpoint-owned reply storage and release the
+   held request together. The caller can then change/free its source bytes.
+5. Use the existing fragmentation, send-window and cumulative-ACK handling.
+   A full queue retains the exact unsent offset and coalesced inbound tails.
+6. Bound the queued application's reply-to-ACK duration using `message_ms`
+   (default 5 seconds), separately from the preceding request's assembly/hold
+   budget. A stalled physical transport therefore cannot hold a reply forever.
+   The final valid ACK cancels this timer immediately, without needing a later
+   poll to clear the completed reply buffer.
+
+This API supplies message plumbing, not a CarPlay application protocol. The
+test handler's `0x1234`/`0x1235` messages and pattern bytes are synthetic and are
+not advertised as implemented phone services. Caller time, physical-write tails,
+provider deadlines and disconnect rules remain as in Step 27.
+
+## Step 29 - Add opt-in minimal accessory identification
+
+Status: encoder, sequencer and endpoint integration implemented locally;
+physical metadata and phone acceptance remain unverified.
+
+The pinned reference defines StartIdentification `0x1D00`, Information `0x1D01`,
+Accepted `0x1D02` and Rejected `0x1D03`, with identity, power, language and optional
+component fields. Its rich test fixture advertises features this project does
+not yet implement. Those optional capabilities are not copied into our generated
+profile. References checked on 2026-09-09:
+[pinned identification fields](https://github.com/f-io/LIVI/blob/a76553fc941dcf378dd55c04da56aaf3d6911e08/native/livi-helperd/crates/iap2-csm/src/messages/identification.rs)
+and [pinned fixture assertions](https://github.com/f-io/LIVI/blob/a76553fc941dcf378dd55c04da56aaf3d6911e08/native/livi-helperd/crates/iap2-csm/tests/oracle.rs).
+
+Implementation sequence:
+
+1. Add allocation-free C99 `iap2_identification.h`/`.c`. The metadata requires
+   explicit name, model, manufacturer, serial, firmware, hardware, current and
+   supported languages, power capability and maximum current. There are no
+   default vehicle identifiers and no hardware reads. The caller is responsible
+   for supplying truthful values; the library cannot verify them.
+2. Encode only fields 0..9, 12 and 13. Identity spans are 1..127 printable ASCII
+   bytes, language spans 1..16, with one to four unique supported languages
+   including the current one. These are bounded local restrictions, not a full
+   Unicode or language-tag implementation. Strings are NUL-terminated on wire;
+   integers use the observed field widths/byte order.
+3. Advertise only the currently implemented auth/identification message IDs in
+   the fixed sent/received lists. Emit no transport components, external-accessory
+   protocols, USB interface number, Bluetooth MAC, vehicle data or CarPlay flags.
+   Existing Bluetooth/wired Apple audio support does not establish these values
+   for a custom QNX endpoint. The resulting subset may be rejected by a phone.
+4. Pre-encode and copy metadata into 1024 bytes of owned storage. The maximum
+   permitted profile occupies 942 wire bytes. Invalid metadata or insufficient
+   endpoint reply capacity leaves the previous configuration unchanged. Source
+   metadata spans need not remain alive after successful enablement.
+5. Keep identification disabled by default. `iap2_control_enable_identification`
+   is permitted only before starting the link. Every endpoint reinitialization
+   disables identification and requires a fresh explicit opt-in.
+6. Under the enabled local policy, require authentication acceptance before
+   StartIdentification; send the prepared Information only once; await its full
+   cumulative ACK before processing Accepted/Rejected. Reject duplicate starts,
+   premature results, inbound Information and unexpected parameters. These are
+   experimental sequencing choices, not a statement of Apple-required ordering.
+7. Record unique empty rejection flags in a bounded 32-bit mask. A rejection
+   closes the endpoint; its diagnostic mask survives closure until reinitialization.
+   There is no automatic retry that changes identity or claims more capabilities.
+8. Apply a default 30-second identification budget from authentication acceptance,
+   including waiting for Start, transport pressure and the result notification.
+   Accepted cancels this timer. Disconnect resets both accepted states and
+   partial/reply data. Closure retains the prepared metadata in memory but cannot
+   restart the closed link; a new init clears it. Clearing is not secure erasure.
+
+This is accessory identification **to the phone**, not identification of the
+Apple authentication chip. No chip version, real certificate, usable QNX USB
+endpoint, actual module serial/hardware revision or iPhone acceptance has been
+obtained through this work. The unit's display/audio identifiers must not be
+substituted for the separate Go module's unknown identity.
+
+## Step 30 - Verify the integrated exchange and define the transport task
+
+Status: all eight CTest suites, four sanitized protocol suites, five-unit ARM
+portability check and 13 existing Python tool-safety tests pass.
+
+The new `iap2_identification_tests` executable has seven test groups covering
+common pinned field bytes, explicit metadata validation, exact/maximum capacity,
+owned metadata and sequencing, malformed/out-of-order messages, rejection-mask
+bounds and disabled/null handling. The existing rich Information vector is
+compared only for common identity/power/language fields; this is not a claim that
+our intentionally smaller profile exactly reproduces the full upstream vector.
+Accepted and Rejected use the committed pinned messages directly.
+
+The control suite grows from 14 to 20 groups. Its six additions cover atomic
+application replies, application deadlines, enabled identification under queue
+pressure, rejection/configuration failures, lifecycle/deadlines and a combined
+two-endpoint authentication/identification/application exchange. The combined
+test fragments transport bytes, deliberately loses a certificate packet and an
+identification packet, verifies complete replies before each next stage and
+finishes with a synthetic application roundtrip. No real credential or device
+identity is used.
+
+The first small-MTU integration run correctly rejected the test peer's oversized
+challenge packet. The fixture helper was updated to split the challenge by the
+negotiated payload size. Review also added a regression ensuring a final ACK
+received just before the application deadline cancels that deadline immediately,
+even if the next poll occurs later. These were host fixture/implementation checks,
+not observations from a car or iPhone.
+
+Reproduce:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayArm.ps1
+python -B -m unittest discover -s tests -p test_*.py -v
+```
+
+Host endpoint state now occupies 19,952 bytes plus caller buffers. The five C99
+units still produce a relocatable Cortex-A8 object with no unresolved runtime
+imports, not a QNX executable or installation package. Sanitizers validate the
+exercised host paths, not target timing or Apple protocol conformance.
+
+Next, investigate the stock QNX USB transport and device ownership in the pinned
+corpus: which computer owns the exposed Apple USB path, what role/endpoints the
+stock iPod stack uses, and which services must coordinate access. Separate static
+evidence from assumptions about the owner's installed 6.9.0WL version. Use those
+findings to define a bounded transport adapter and host tests for partial writes,
+stalls and disconnects. Do not guess a USB device path or open/reconfigure a
+physical device. An actual native provider/transport, execution access and a
+recovery route remain prerequisites for any car-side work.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1172,10 +1324,11 @@ and iPhone acceptance remain unresolved independently of this adapter.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Extend the now-connected control/link/authentication endpoint with explicit
-   application replies and accessory identification (Step 27), testing on the
-   PC first. The bounded adapter and synthetic provider exchange pass (Steps
-   25-26); actual QNX USB transport remains separate. Establish the
+3. Trace QNX USB transport ownership, roles/endpoints and stock iPod service
+   coordination in the pinned corpus (Step 30), then define/test a bounded host
+   transport adapter. Application replies and minimal opt-in identification now
+   pass simulated exchanges (Steps 28-30); actual QNX USB transport remains
+   separate. Establish the
    existing Apple authentication chip's identity
    and usable interface. The register operations and cached `authcoproc`
    relative export path are now traced. The first diagnostic-route inspection

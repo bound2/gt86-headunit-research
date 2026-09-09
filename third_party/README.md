@@ -63,3 +63,13 @@ choices, not a claim that upstream implements or validates these policies.
 `tests/iap2_control_tests.cpp` contains independent synthetic transport/provider
 fixtures. Its deterministic certificate/signature patterns are not credentials
 or an authentication-chip emulator; no real provider or private key is supplied.
+
+`iap2_identification.c` uses field IDs from the pinned
+`native/livi-helperd/crates/iap2-csm/src/messages/identification.rs` and common
+fields/Accepted/Rejected fixtures from the existing 33-vector file. Its minimal
+encoder does not reproduce the rich upstream Information fixture: it omits all
+transport/vehicle/application components and CarPlay flags, and its message lists
+contain only implemented auth/identification IDs. Tests compare the common field
+bytes separately, not a purported full upstream-vector match. Printable-ASCII
+limits, opt-in metadata, auth-before-identification ordering, ACK barriers,
+rejection-mask bounds and deadlines are local policies, not Apple requirements.

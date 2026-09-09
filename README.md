@@ -94,8 +94,9 @@ frame reassembly, control-message encoding/decoding, and accessory authenticatio
 sequencing through a caller-supplied certificate/challenge provider. It performs
 no I/O and contains no authentication keys or fallback signer.
 
-`scripts/Build.ps1` builds this library and runs `iap2_tests`, `iap2_link_tests`
-and `iap2_control_tests` alongside the four existing suites. The tests use 33 committed
+`scripts/Build.ps1` builds this library and runs `iap2_tests`, `iap2_link_tests`,
+`iap2_control_tests` and `iap2_identification_tests` alongside the four existing
+suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
 authentication failures. Provenance and GPL-3.0-or-later licensing are recorded
@@ -130,7 +131,7 @@ The control-session adapter below now connects this engine to authentication;
 actual device transport and a real provider remain separate work. See
 [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
 
-Seven CTest suites pass, including 16 link test groups and a simulated two-endpoint
+Eight CTest suites pass, including 16 link test groups and a simulated two-endpoint
 exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
 checks use the installed LLVM and Visual Studio toolchain:
 
@@ -138,9 +139,9 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the three protocol test executables with AddressSanitizer and
+This builds/runs the four protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all four C99
+or car access is required. The ARM portability check now covers all five C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -155,16 +156,40 @@ replies survive queue pressure without repeating certificate/signature requests.
 The experimental profile offers one control session, serializes subsequent
 messages behind a fully acknowledged reply, and closes on malformed messages,
 authentication failures or local deadlines. Disconnect/reinitialization resets
-authentication and partial messages together. Non-authentication messages are
-held for explicit application handling; accessory identification and general
-application replies are not implemented. See
+authentication, identification results and partial messages together. Messages
+not handled by enabled sequencers are held for explicit application handling;
+`iap2_control_reply` now copies a bounded response and releases the request
+atomically. Reserved authentication/identification replies cannot be injected
+through this API. See
 [CarPlay progress, Steps 25-27](reports/carplay-progress.md#step-25---connect-control-messages-to-the-authentication-sequencer).
 
-Fourteen new test groups cover buffer limits, backpressure, teardown, deadlines
-and an exchange between two library endpoints with byte-fragmented transport
+Twenty control test groups cover buffer limits, backpressure, teardown, deadlines
+and exchanges between two library endpoints with byte-fragmented transport
 and deliberate packet loss. Provider results are synthetic patterns, not real
 credentials. These are local stream/serialization choices, not an Apple
 conformance result, an iPhone test or proof of CarPlay compatibility.
+
+### Opt-in accessory identification
+
+`iap2_identification.h` defines a minimal identity encoder and a strict
+Start/Information/Accepted-or-Rejected sequencer. Enable it through
+`iap2_control_enable_identification` before starting the endpoint, using explicit
+caller-supplied identity, language and power metadata. Identification is disabled
+after every new endpoint initialization; no real identity is guessed. The
+enabled local profile requires authentication first and bounds the entire
+identification exchange with a configurable deadline.
+
+The encoder deliberately omits USB/Bluetooth/vehicle components, application
+protocols and CarPlay flags. Its fixed message lists contain only implemented
+authentication/identification IDs. This incomplete profile is for PC integration
+tests, not a claim of phone acceptance. Identifying the accessory to a phone
+does **not** read the existing Apple authentication chip's identity.
+
+Seven dedicated test groups compare common fields and accepted/rejected messages
+with the pinned vectors, enforce metadata/size limits, and check sequencing.
+The extended endpoint simulation verifies a fragmented identification response
+despite packet loss, followed by a synthetic application roundtrip. See
+[CarPlay progress, Steps 28-30](reports/carplay-progress.md#step-28---add-an-atomic-application-reply-path).
 
 ## Read-only firmware analysis
 
