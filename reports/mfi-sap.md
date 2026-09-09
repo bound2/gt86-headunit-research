@@ -234,8 +234,9 @@ allocator/runtime and performance suitability remain unverified.
 
 ## Step 7 - Continue toward an actual receiver
 
-Next implement explicit initial route/mode selection and capability response
-encoding tied to declared, available display/audio/input resources, then typed
+Step 60 adds [initial routing and continuous receiver ownership](receiver-routing.md),
+including explicit enrollment permission and automatic post-M6 transfer. Next
+implement capability response encoding tied to declared, available display/audio/input resources, then typed
 session handling and real endpoints. Do not copy LIVI's complete default feature
 mask or acknowledge unsupported commands as if this head unit already had those
 features. Enrollment approval/rate limiting, target persistence/revocation and

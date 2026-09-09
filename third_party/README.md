@@ -354,3 +354,12 @@ PyCA/hashlib values validate actual ECDH/hash/AES/framing, not Apple licensing.
 Unknown-major rejection, exact routing, output/drain ownership, deadlines and
 bounded provider output are local policies. See [mfi-sap.md](../reports/mfi-sap.md)
 for source blobs, validation commands and the remaining hardware/provider boundary.
+
+`projection_receiver.c`/`.h` and its tests select GPL-3.0-only. The initial router
+composes the existing locally implemented enrollment/verification/MFi owners;
+the same pinned LIVI connection dispatch is a protocol reference, with no copied
+implementation body or new dependency. Explicit permission, exact initial routes,
+stable public tokens and downstream-drain transfer are local ownership policies,
+not conformance claims. All new end-to-end tests use public synthetic credentials
+and an in-memory trust-provider simulation. See
+[receiver-routing.md](../reports/receiver-routing.md).

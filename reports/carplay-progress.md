@@ -64,25 +64,28 @@ and encrypted-control integration. MFiSAP response calculation and an owning
 encrypted `/auth-setup` route now add seven groups, including same-transport
 enrollment-to-verification-to-MFi handoff. Cryptography is real; the explicit
 certificate/signature test providers are synthetic, not Apple credentials or
-proof of handset acceptance. Target QNX storage, approval/revocation UI,
-initial route selection, capability/session handling, network/media and hardware
+proof of handset acceptance. An initial receiver router now adds seven groups,
+explicit local permission and separate verified-candidate approval, automatic
+same-connection post-M6 transfer and public tokens stable across child phases.
+Target QNX storage, approval/revocation UI, initial discovery beyond pairing,
+capability/session handling, network/media and hardware
 integration remain missing. Python regression checks total 25, plus independent
 checkers for 21 pair-verification, 12 control-frame, 51 setup and 39 combined
 MFi/pair-verification fixture values.
 Native USB and actual phone pairing remain absent.
-All nineteen ordinary, twenty-two TLS-only and thirty combined crypto/TLS
+All nineteen ordinary, twenty-two TLS-only and thirty-one combined crypto/TLS
 CTest suites pass. All fifteen protocol suites, five pairing/control/store suites,
-the enrollment, real-file and MFiSAP suites and three TLS/carkit/integration suites pass under host
+the enrollment, real-file, MFiSAP and receiver-router suites and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-59, [the persistent-store report](pair-store.md) and
-[the encrypted MFi report](mfi-sap.md). Hosted TLS
+Steps 22-60, [the persistent-store report](pair-store.md),
+[the encrypted MFi report](mfi-sap.md) and [receiver routing](receiver-routing.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
-not included in either ARM claim. The new hosted MFi/AES target and
+not included in either ARM claim. The new hosted MFi/AES and receiver targets and
 Windows-only filesystem backend are also
 excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
@@ -2361,6 +2364,72 @@ are advertised. A compatible factory-chip provider, target execution/recovery,
 USB-network ownership and actual media integration remain unresolved. Software-
 only CarPlay on the factory unit is still unproven and not installable.
 
+## Step 60 - Route the initial request and own the continuous receiver
+
+Date: 2026-09-10. Added [receiver-routing.md](receiver-routing.md), documenting
+the implementation, pinned reference, caller contract, public/internal lifetime
+mapping, actual tests and remaining target limits. New hosted
+`projection_receiver` selects enrollment or known-controller verification from
+one complete initial plaintext request and owns the selected children through
+encrypted MFi authentication. Initial input is staged separately, copied exactly
+into the selected child and cleared without consuming following wire.
+
+Enrollment is disabled by default. Enabling it permits an explicit local
+authorization decision, not automatic pairing. Permission can precede the first
+request or follow a bounded `PROJECTION_RECEIVER_AUTHORIZE` event. No RNG,
+lookup, commit or MFi provider runs while that request awaits local permission.
+Verified M5 still requires a separate token-bound candidate approval before
+commit/M6. Denial, unknown-controller lookup, provider failure and malformed
+traffic close without switching modes, retrying or authorizing by wire.
+
+The public connection generation stays stable while the internal verification
+child uses a second reserved generation. Public response tokens increase across
+the transfer; a delayed enrollment callback cannot alias verification token 1.
+After acknowledged commit and complete M6 downstream drain, the router invokes
+the existing owned transfer automatically using the same emptied active buffers.
+It returns setup completion, not encrypted readiness. Pair-verify M4 drain alone
+activates encrypted control; MFi reply drain still does not prove phone acceptance.
+
+The initial idle/receive/local-permission budgets default to 30/10/30 seconds,
+absolute per phase. Selected child budgets start at selection or transfer.
+Fragmentation, repeated authorization, bad callbacks and partial output do not
+renew their applicable deadlines. Unknown initial routes, including discovery
+outside the two exact pairing paths, fail closed. Broader initial sequencing
+and target forms remain a real interoperability gap, not an implemented feature.
+
+Seven groups exercise every two-piece initial-verify split, byte-fragmented
+traffic, both preauthorized/deferred enrollment, real SRP/verified approval,
+automatic transfer, real verification and encrypted MFi on one simulated
+connection. They check correlated replies, same-record authenticated tails,
+external ciphertext after M4, explicit application 501 replies, stale generation/
+token/count/decision handling, deliberate token exhaustion, deadline boundaries,
+EOF, clearing, failed commit and lost M6/MFi drain. Invalid initialization is
+checked against nonzero buffer sentinels. Public fixture keys and a memory-only
+trust provider are used; existing actual Windows persistence tests remain separate.
+
+All 31 combined CTest, 19 ordinary, 22 TLS-only and 25 Python regressions pass.
+The new router, MFi, setup, actual-file and three TLS/carkit suites pass ASan/UBSan
+with both crypto dependencies instrumented. Strict Clang C99/C++ warnings pass;
+static analysis reports no finding in the new C99 module. Existing independent
+39-value MFi/pairing and 51-value setup vectors reproduce successfully. No new
+dependency version, production credential, permissive fallback or installation
+artifact was added.
+
+The five existing pairing/control/store sanitizer suites and ten-unit optional
+ARM relocatable check also pass, with the same four allowed runtime helpers.
+
+The hosted receiver occupies 9,632 bytes on x64, plus caller buffers, stack
+temporaries and dependency allocations. It is not part of either existing ARM
+claim and is not a linked/executed QNX receiver. No actual phone, authentication
+chip, head unit, real trust record, firmware image or update USB was accessed
+or modified. Software-only CarPlay on the factory unit remains unproven.
+
+Next implement explicit capability responses and required discovery routing,
+then typed session/resource negotiation and real endpoints. Actual display/
+audio/input resources must back advertised capabilities. Local approval/rate
+limiting, target persistence/revocation, provider scheduling, native USB-network
+ownership and installed-version execution/recovery remain necessary.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2371,8 +2440,13 @@ only CarPlay on the factory unit is still unproven and not installable.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Connect enrollment policy/initial-mode selection, explicit capability
-   encoding, typed session handlers and network/media with real listeners.
+3. Implement explicit capability encoding, evidence-backed discovery routing,
+   typed session handlers and network/media with real listeners. Step 60 connects
+   initial pairing-mode selection, explicit local authorization and separate
+   verified-candidate approval through one owning receiver, with automatic
+   post-M6 transfer and stable public lifetime tokens. A real approval/rate-limit
+   frontend, non-pairing initial discovery and actual phone interoperability
+   remain missing; no generic initial command success is supplied.
    Step 59 implements the post-verification encrypted MFiSAP route and same-
    transport enrollment handoff using real crypto and explicit synthetic test
    providers. The actual factory authentication-chip provider remains absent;

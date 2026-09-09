@@ -403,7 +403,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayCry
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayCrypto.ps1
 ```
 
-The combined build passes 30 suites; new crypto tests use RFC vectors and a
+The combined build passes 31 suites; new crypto tests use RFC vectors and a
 PyCA-reproduced transcript. The crypto sanitizer includes Monocypher itself.
 Its separate ARM object check reports required runtime helpers and does not
 extend the core's import-free claim. Target trust persistence, approval UI,
@@ -453,9 +453,18 @@ failed/malformed replies cannot silently succeed. The enrollment owner can
 transfer into this receiver on the same transport after committed M6 drains.
 Seven groups and 39 independent public values verify actual X25519/SHA/AES,
 encrypted output/drain, failure handling and enrollment transfer. Synthetic
-provider bytes do not prove real MFi licensing or chip compatibility. Initial
-route selection, capability/media handlers and actual hardware integration
+provider bytes do not prove real MFi licensing or chip compatibility.
+Capability/media handlers and actual hardware integration
 remain incomplete. See [the MFiSAP report](reports/mfi-sap.md).
+
+`projection_receiver.h` owns initial setup-versus-verification routing, optional
+local enrollment permission, verified-candidate approval and automatic transfer
+after committed M6 drains. One public connection generation and monotonic response
+tokens survive the child transfer. Seven groups exercise both initial routes,
+actual enrollment/verification/encrypted MFi, fragmentation, tails, stale callbacks
+and failure/deadline gates. Enrollment is disabled by default; initial discovery
+routes beyond exact pairing paths are not yet handled. No listener, approval UI
+or actual media is supplied. See [receiver-routing.md](reports/receiver-routing.md).
 
 ## Read-only firmware analysis
 
