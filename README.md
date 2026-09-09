@@ -98,7 +98,8 @@ authentication keys or fallback signer is supplied.
 
 `scripts/Build.ps1` builds this library and runs `iap2_tests`, `iap2_link_tests`,
 `iap2_control_tests`, `iap2_identification_tests`, `iap2_transport_tests` and
-`iap2_carplay_tests`, `usbmux_tests` and `usbmux_host_tests` alongside the four
+`iap2_carplay_tests`, `usbmux_tests`, `usbmux_host_tests` and
+`usbmux_connection_tests` alongside the four
 existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
@@ -134,7 +135,7 @@ The control-session adapter below now connects this engine to authentication;
 actual device transport and a real provider remain separate work. See
 [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
 
-Twelve CTest suites pass, including 16 link test groups and a simulated two-endpoint
+Thirteen CTest suites pass, including 16 link test groups and a simulated two-endpoint
 exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
 checks use the installed LLVM and Visual Studio toolchain:
 
@@ -142,9 +143,9 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the eight protocol test executables with AddressSanitizer and
+This builds/runs the nine protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all ten C99
+or car access is required. The ARM portability check now covers all eleven C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -218,8 +219,8 @@ reject stale results after reconnect; cancellation clears transport and endpoint
 state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
 
 Seventeen test groups exercise a fake backend, including complete synthetic
-exchanges in both startup orders over fragmented reads/writes. All twelve CTest suites and
-eight sanitized protocol suites pass. Details and callback lifetime requirements
+exchanges in both startup orders over fragmented reads/writes. All thirteen CTest suites and
+nine sanitized protocol suites pass. Details and callback lifetime requirements
 are in the
 [step-by-step transport adapter report](reports/transport-adapter.md) and
 [CarPlay progress, Steps 34-36](reports/carplay-progress.md#step-34---implement-the-bounded-byte-stream-pump).
@@ -273,12 +274,29 @@ test groups cover partial/coalesced transfers, backpressure, hard deadlines,
 stale generations, every sequence slot and maximum-size packets. Host state is
 200 bytes plus the two caller buffers; no backend is invoked.
 
-This is not a TCP connection engine, USB backend or phone-pairing implementation.
-Next add bounded TCP routing, sequence/ACK/window handling and the carkit service
-dependencies. The USBmux files select GPL-3.0-only after cross-checking LIVI against pinned
+The host API is packet-only, not a USB backend or phone-pairing implementation.
+The separate connection engine below adds bounded TCP-style streams. The
+USBmux files select GPL-3.0-only after cross-checking LIVI against pinned
 usbmuxd source; existing iAP2 files retain GPL-3.0-or-later. See the
 [step-by-step USBmux report](reports/usbmux-transport.md) and
 [reference provenance](third_party/README.md).
+
+### Bounded TCP-style connections over USBmux
+
+`usbmux_connection.h` opens an explicitly routed port pair, validates SYN/ACK
+and cumulative acknowledgement ranges, bounds peer-window use and tracks eight
+unacknowledged data flights. A caller-owned receive ring handles duplicate and
+overlapping input, advertises bounded credit and retains unread bytes through
+peer half-close. Graceful FIN/ACK closure, stale-event rejection and independent
+opening/write/ACK/read/close budgets are implemented without I/O or allocation.
+
+Fifteen test groups include a complete synthetic request/response through the
+packet host using three-byte reads and five-byte writes. Connection state is
+360 host bytes plus separate RX/TX storage. This is not a general IP TCP stack:
+no retransmission/congestion control, TIME-WAIT, automatic tuple allocation or
+production dispatcher is supplied. The ordered reliable USBmux backend, phone
+pairing/TLS, carkit service and media path still need integration. See the
+[step-by-step connection report](reports/usbmux-connection.md).
 
 ## Read-only firmware analysis
 

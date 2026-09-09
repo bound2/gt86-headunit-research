@@ -201,12 +201,12 @@ that either reference supplies these guarantees. No device input is captured.
 
 ## Step 9 - Remaining integration
 
-Next add TCP connection/flow-control handling: route both ports, validate SYN
-and ACK/sequence ranges, respect bounded receive windows, and handle close/reset
-without mistaking a physical mux write for peer TCP acknowledgement. Then add
-the Lockdown/plist/TLS trust-pairing path and carkit byte-stream integration.
-The current packet host is not a USB backend or TCP connection, and does not
-make an iPhone accept identification, authenticate, or start CarPlay.
+The subsequent [connection-layer report](usbmux-connection.md) now records
+implemented TCP-style port routing, SYN/ACK/sequence validation, bounded windows
+and graceful/half-close behavior, including a simulation through this packet
+host. The host API itself remains packet-only. Production dispatch/byte-stream
+integration, Lockdown/plist/TLS trust pairing and carkit startup remain next.
+None of these layers is a USB backend or proof of iPhone acceptance/CarPlay.
 
 Real USB ownership/profile support, the existing authentication provider,
 network/media protocols, QNX display/audio integration and verified hardware

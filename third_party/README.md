@@ -171,3 +171,14 @@ generation rejection and no automatic fallback are independent local policies.
 The tests specify first-version/setup/SYN bytes independently and use synthetic
 completion events; no upstream function bodies, daemon, backend or real trust
 records are included. TCP connection/window/ACK behavior is not implemented here.
+
+`usbmux_connection.c`/`.h` and its synthetic tests select GPL-3.0-only using the
+same LIVI/usbmuxd pins. Their connection functions inform port routing, SYN/ACK
+packet fields, scaled windows and FIN/reset handling. Bounded flight records,
+ACK/sequence validation, arbitrary peer initial sequences, overlap suppression,
+receive-credit preservation, caller-buffer ownership and timing/generation
+contracts are independent local policies. No upstream implementation bodies or
+new reference fixtures are copied. The integrated `abc`/`ok` exchange is test
+data, not real Lockdown/TLS/carkit traffic or a captured phone session. See
+[usbmux-connection.md](../reports/usbmux-connection.md) for the intentionally
+limited reliable-transport profile and missing production integration.

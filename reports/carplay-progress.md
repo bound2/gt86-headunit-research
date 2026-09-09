@@ -31,11 +31,14 @@ authentication-first default remains available. See [startup-order.md](startup-o
 The new USBmux packet/stream layer adds 10 groups and seven independent wire
 vectors. Its bounded version/setup host adds 15 groups, actual-write completion
 barriers, explicit sequence conventions, deadlines and stale-generation rejection;
-it is not yet a TCP connection or physical USB backend.
-All twelve CTest suites pass, and all eight protocol suites pass under host
-address/undefined-behavior sanitizers. The ten C99
+the host remains packet-only. A separate bounded TCP-style connection engine
+now adds port routing, sequence/ACK/window handling and close behavior, with
+15 groups and a layered host/connection simulation. Physical USB, production
+dispatch and phone pairing remain absent.
+All thirteen CTest suites pass, and all nine protocol suites pass under host
+address/undefined-behavior sanitizers. The eleven C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-45 and [the USBmux report](usbmux-transport.md).
+Steps 22-46 and [the connection-layer report](usbmux-connection.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1648,6 +1651,33 @@ of these packet queues, before Lockdown/plist/TLS pairing and carkit integration
 READY means USBmux setup completed in the simulation, not an authenticated,
 paired or CarPlay-capable phone connection. No device or vehicle was accessed.
 
+## Step 46 - Add bounded TCP-style connections over USBmux
+
+Status: version/setup host committed/pushed as `b933ebf`.
+The new [usbmux-connection.md](usbmux-connection.md) records explicit port-pair
+opening, physical-write versus peer-ACK accounting, eight bounded data flights,
+scaled peer windows, owned RX rings and graceful/half-close behavior. It validates
+SYN/ACK and ACK ranges, suppresses duplicate/overlapping receive data, rejects
+over-credit input and retains previously granted receive credit despite window
+rounding. All timed APIs reject stale generations and enforce local deadlines.
+
+Fifteen groups pass, including initial sequence wrap through zero, both-port
+routing, partial ACKs, ring/flight wrap, deadline boundaries and maximum-sized
+packets. A layered simulation opens TCP through the actual packet-host code,
+exchanges synthetic length-prefixed service bytes with three-byte reads and
+five-byte writes, and only accounts TCP completion after physical mux completion.
+The bodies are not Lockdown/TLS/carkit messages; no phone participates.
+
+All 13 CTest suites, nine sanitized protocol suites, eleven-unit ARM check and
+19 Python tests pass. Connection state is 360 host bytes plus caller RX/TX;
+existing host/endpoint/pump storage is unchanged. The new files select GPL-3.0-only.
+This profile relies on ordered reliable mux transport and has no TCP retransmit,
+TIME-WAIT or production tuple dispatcher. Next connect the host/connection APIs
+with a bounded dispatcher/byte-stream adapter, then add Lockdown/plist/TLS
+pairing and carkit startup. Requested an already accessible read-only Go-module
+identifier from the owner; no vehicle access, disassembly or setting change was
+performed. Actual software-only CarPlay remains unverified and not installable.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1658,9 +1688,10 @@ paired or CarPlay-capable phone connection. No device or vehicle was accessed.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Add bounded USBmux TCP connection, routing and flow-control handling for the
-   wired carkit route; version/setup and packet queues are implemented in Step 45,
-   packet codecs and streaming in Step 44.
+3. Add bounded USBmux host/connection dispatch and byte-stream integration, then
+   Lockdown/plist/TLS pairing and carkit startup. TCP-style connection, routing and
+   flow control are implemented in Step 46; version/setup and packet queues in
+   Step 45, packet codecs and streaming in Step 44.
    Explicit supported-message/USB-host declarations are implemented
    in Step 43; typed PowerSourceUpdate and unsolicited output in Step 42. The packed SupportedLanguage defect is fixed
    in Step 41. Identification-first startup is implemented and tested; Steps 37-39
