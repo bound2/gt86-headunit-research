@@ -101,7 +101,8 @@ if(CARPLAY_MONOCYPHER_SOURCE)
   target_include_directories(carplay_monocypher PUBLIC "${CARPLAY_MONOCYPHER_SOURCE}/src"
     "${CARPLAY_MONOCYPHER_SOURCE}/src/optional")
   set_target_properties(carplay_monocypher PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
-  add_library(carplay_pairing STATIC src/carplay/pair_crypto.c src/carplay/pair_verify.c)
+  add_library(carplay_pairing STATIC src/carplay/pair_crypto.c src/carplay/pair_verify.c
+    src/carplay/control_cipher.c src/carplay/projection_control.c)
   set_target_properties(carplay_pairing PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
   target_link_libraries(carplay_pairing PUBLIC carplay_protocol carplay_monocypher)
   if(MSVC)
@@ -112,6 +113,12 @@ if(CARPLAY_MONOCYPHER_SOURCE)
   add_executable(pair_crypto_tests tests/pair_crypto_tests.cpp)
   target_link_libraries(pair_crypto_tests PRIVATE carplay_pairing)
   add_test(NAME pair_crypto_tests COMMAND pair_crypto_tests "${CMAKE_SOURCE_DIR}/tests/fixtures/pair-verify-vectors.txt")
+  add_executable(control_cipher_tests tests/control_cipher_tests.cpp)
+  target_link_libraries(control_cipher_tests PRIVATE carplay_pairing)
+  add_test(NAME control_cipher_tests COMMAND control_cipher_tests "${CMAKE_SOURCE_DIR}/tests/fixtures/control-cipher-vectors.txt")
+  add_executable(projection_control_tests tests/projection_control_tests.cpp)
+  target_link_libraries(projection_control_tests PRIVATE carplay_pairing)
+  add_test(NAME projection_control_tests COMMAND projection_control_tests "${CMAKE_SOURCE_DIR}/tests/fixtures/pair-verify-vectors.txt")
 endif()
 
 # Optional hosted cryptography; never silently replace the freestanding target.

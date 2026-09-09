@@ -403,12 +403,21 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayCry
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayCrypto.ps1
 ```
 
-The combined build passes 23 suites; new crypto tests use RFC vectors and a
+The combined build passes 25 suites; new crypto tests use RFC vectors and a
 PyCA-reproduced transcript. The crypto sanitizer includes Monocypher itself.
 Its separate ARM object check reports required runtime helpers and does not
-extend the core's import-free claim. Actual encrypted control-stream framing,
+extend the core's import-free claim. First-time enrollment,
 trust persistence, network/media and QNX execution remain incomplete. See
 [the identity/pair-verification report](reports/pair-verification.md).
+
+`control_cipher.h` and `projection_control.h` now add authenticated encrypted
+records and an owning pair-verify-to-RTSP handoff. M4 remains plaintext until
+explicit downstream-drain release; later requests/replies use real directional
+encryption with bounded counters, retained tails and absolute deadlines. Ten
+new test groups cover fragmentation, tampering, replay, counter exhaustion and
+the integrated lifecycle; twelve public control vectors reproduce independently
+with PyCA. No socket, first-time enrollment or media handler is implied. See
+[the step-by-step encrypted-control report](reports/encrypted-control.md).
 
 ## Read-only firmware analysis
 

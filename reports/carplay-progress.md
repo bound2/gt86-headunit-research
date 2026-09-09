@@ -53,17 +53,20 @@ framing/channel layer now adds nine groups, including 6,000 deterministic
 mutations, strict RTSP/HTTP framing, explicit responses and token/deadline/output
 handoff gates. Bounded TLV8 adds three groups; real receiver identity and
 known-controller pair verification add seven cryptographic groups with RFC and
-independent PyCA vectors. First-time enrollment, persistent trust, authenticated
-control-stream framing, network/media and hardware integration remain missing.
-Python regression checks total 25, plus the independent 21-vector checker.
+independent PyCA vectors. Authenticated control records and an owning
+pair-verification-to-encrypted-RTSP handoff now add ten groups, including retained
+tails, plaintext-M4 drain gating, replay/tampering and counter exhaustion.
+First-time enrollment, persistent trust, network/media and hardware integration
+remain missing. Python regression checks total 25, plus independent checkers
+for 21 pairing and 12 control-frame fixture values.
 Native USB and actual phone pairing remain absent.
-All nineteen ordinary, twenty-two TLS-only and twenty-three combined crypto/TLS
-CTest suites pass. All fifteen protocol suites, two new pairing suites and
+All nineteen ordinary, twenty-two TLS-only and twenty-five combined crypto/TLS
+CTest suites pass. All fifteen protocol suites, four pairing/control suites and
 three TLS/carkit/integration suites pass under host address/undefined-behavior
 sanitizers, including instrumentation of both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-55 and [the pair-verification report](pair-verification.md). Hosted TLS
+Steps 22-56 and [the encrypted-control report](encrypted-control.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate pairing crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
@@ -2077,6 +2080,67 @@ advertising remain necessary. Actual module identity, native USB-network access,
 authentication-chip interface and execution/recovery remain unresolved. No
 installable CarPlay update or head-unit/phone/firmware/USB change was made.
 
+## Step 56 - Own authenticated control records and the pairing handoff
+
+Added [encrypted-control.md](encrypted-control.md), a step-by-step record of the
+wire evidence, implementation, lifetime contract, independent tests and target
+limits. The new optional `control_cipher` implements bounded IETF
+ChaCha20-Poly1305 records with LE16 authenticated length, separate directional
+LE64 counters and one retained record per direction. Empty records, fragmented
+headers/tags, partial plaintext/ciphertext retirement and the 16 KiB maximum
+payload are handled explicitly. Counters never wrap; bad tags, replay,
+oversize, exhaustion, EOF and absolute phase deadlines fail closed and wipe.
+
+The new `projection_control` owns fresh pair-verification, RTSP and cipher
+children in one generation. Only exact plaintext POST /pair-verify with a
+unique expected content type reaches the known-controller handshake. It
+constructs correlated M2/M4 replies, leaves M4 plaintext, and requires complete
+output retirement plus explicit downstream-drain release before taking verified
+keys once. There is no unrelated-session attachment, raw-key bind or automatic
+success for an unknown controller/route. Physical drain remains a future
+transport owner's responsibility; copying output is not proof of it.
+
+After the handoff, authenticated RTSP requests are held for explicit application
+responses. A request can span records and a record can contain several requests;
+authenticated tails survive response/drain holds and external wire tails remain
+unconsumed. Responses split into bounded encrypted records without reencrypting
+partial writes or renewing the enclosing absolute output budget. Shared-secret
+and controller-ID state is retained only for this lifetime and cleared at close.
+No listener, capability/auth-setup route, first-time enrollment, trust write or
+media handler is introduced.
+
+Five record and five owner integration groups cover independent vectors, every
+split point and every-bit mutation of a sample record, one-byte retirement,
+empty/max-size frames, directional counters/byte order, replay, truncation,
+generation/token/clock/capacity failures, overflow, malformed/unexpected routes,
+real pairing proofs, final-plaintext drain gating, multi-message tails,
+multi-record binary replies and all phase budgets. Twelve public fixture values
+reproduce independently with the existing PyCA environment; no real keys or
+phone captures were used.
+
+All 25 combined crypto/TLS, 22 TLS-only and 19 standard CTest suites pass.
+Four fully instrumented pairing/control suites, fifteen protocol suites and
+three hosted TLS/carkit suites pass ASan/UBSan. All 25 Python regressions and
+both independent vector checkers pass. A fixture transcription error was fixed
+before validation. The first ARM build exposed an extra `__aeabi_memcpy8` from
+the large initializer copy; explicit byte copying removed it without widening
+the allowlist. Explicit key initialization removes an MSVC warning. The final
+build has no new compiler warnings; the dependency's pre-existing CMake
+compatibility warning remains.
+
+The twenty-unit core remains import-free on ARM. All nine optional pairing/
+control/crypto units compile and relocatable-link with the same four required
+runtime symbols as Step 55; they are not a QNX process. x64 cipher/owner objects
+are 240/1,952 bytes plus caller buffers and stack temporaries. Target runtime,
+stack, CSPRNG and side-channel suitability remain unverified.
+
+Next implement first-time pair-setup with explicit enrollment authorization and
+trust-commit ownership, then pre-session capability/auth routes and typed
+session/network/media integration. Native USB network access, actual Go-module
+identity, installed-version execution/recovery and the Apple-chip interface
+remain unresolved. No installable update, head-unit/phone operation, actual
+trust-record access or firmware/update-USB change occurred.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2087,9 +2151,11 @@ installable CarPlay update or head-unit/phone/firmware/USB change was made.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement authenticated control-frame streaming/counters and integrate its
-   verified key handoff with RTSP; then first-time pair-setup and explicit trust
-   persistence, typed session handlers and network/media with real listeners.
+3. Implement first-time pair-setup with explicit enrollment authorization and
+   trust-commit ownership, then pre-session capability/auth routes, typed session
+   handlers and network/media with real listeners. Authenticated control-frame
+   streaming/counters and the owned pairing-to-RTSP handoff are implemented in
+   Step 56, with explicit plaintext-M4 downstream-drain gating.
    TLV8, explicit receiver identity and real known-controller pair verification
    are implemented in Step 55, but no actual phone is enrolled or connected.
    Bounded RTSP/HTTP framing and explicit request/response ownership are now

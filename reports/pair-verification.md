@@ -239,3 +239,9 @@ chip. Native USB-network access, actual Go-module identity, installed-version
 execution/recovery and authentication-chip interface remain unresolved. No real
 phone, trust record, head unit, firmware image or update USB was accessed or
 changed. This is not yet software-only CarPlay running on the owner's hardware.
+
+Follow-up: [encrypted-control.md](encrypted-control.md), Step 56, now implements
+authenticated control records/counters and owns the actual pair-verify/RTSP
+handoff, including the plaintext-M4 downstream-drain barrier. The historical
+test counts above describe Step 55; the combined build now has 25 suites.
+First-time pair-setup/trust persistence and real network/media integration remain.

@@ -316,3 +316,14 @@ these packages retain their own installed notices and are not linked, bundled
 or required by the receiver. No actual credentials or captured phone traffic
 are used. See [the pair-verification report](../reports/pair-verification.md)
 for exact sources, commands, dependencies and the ARM runtime limitations.
+
+`control_cipher.c`/`.h`, `projection_control.c`/`.h`, shared test helpers, tests
+and the independent control-vector checker also select GPL-3.0-only. They use
+the same LIVI commit for record layout and plaintext-M4/encrypted-control order,
+and the same pinned Monocypher dependency. No upstream implementation bodies,
+device captures or actual credentials were copied. Bounded storage, explicit
+drain ownership, exact route matching, generation/token checks, deadlines and
+terminal counter exhaustion are local policies. Twelve public synthetic values
+are independently reproduced with the existing host-only PyCA environment.
+See [the encrypted-control report](../reports/encrypted-control.md) for Git blobs,
+wire evidence, validation commands and remaining target limitations.
