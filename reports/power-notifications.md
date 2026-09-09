@@ -81,6 +81,10 @@ python -B -m unittest discover -s tests -p test_*.py -v
 
 ## Step 5 - Continue with explicit wired identification
 
+Follow-up: power notifications are published as `52f1ec1`. The subsequent
+[wired profile implementation](wired-identification.md) provides the declaration
+proposed below and tightens the typed power helper to require its acceptance.
+
 Next add opt-in USB-host transport metadata and exact implemented-message lists,
 preserving the existing minimal encoder. Use explicit component identity/name,
 interface number and power capability; do not copy the reference's hardware

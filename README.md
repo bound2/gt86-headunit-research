@@ -165,7 +165,7 @@ atomically. Reserved authentication/identification replies cannot be injected
 through this API. See
 [CarPlay progress, Steps 25-27](reports/carplay-progress.md#step-25---connect-control-messages-to-the-authentication-sequencer).
 
-Thirty-five control test groups cover buffer limits, backpressure, teardown, deadlines
+Thirty-eight control test groups cover buffer limits, backpressure, teardown, deadlines
 and exchanges between two library endpoints with byte-fragmented transport
 and deliberate packet loss. Provider results are synthetic patterns, not real
 credentials. These are local stream/serialization choices, not an Apple
@@ -185,13 +185,13 @@ callbacks until identification acceptance. Both phases have independent total
 budgets, ACK barriers and reset behavior. See the new
 [startup-order report](reports/startup-order.md) for integration checks and limits.
 
-The encoder deliberately omits USB/Bluetooth/vehicle components, application
+The minimal encoder deliberately omits USB/Bluetooth/vehicle components, application
 protocols and CarPlay flags. Its fixed message lists contain only implemented
 authentication/identification IDs. This incomplete profile is for PC integration
 tests, not a claim of phone acceptance. Identifying the accessory to a phone
 does **not** read the existing Apple authentication chip's identity.
 
-Eight dedicated test groups compare common fields and accepted/rejected messages
+Eleven dedicated test groups compare common fields and accepted/rejected messages
 with the pinned vectors, enforce metadata/size limits, and check sequencing.
 The extended endpoint simulation verifies a fragmented identification response
 despite packet loss, followed by a synthetic application roundtrip. See
@@ -199,6 +199,14 @@ despite packet loss, followed by a synthetic application roundtrip. See
 The subsequent [payload audit](reports/identification-wire-audit.md) corrects
 multi-language encoding to one packed field, adds independent byte regressions
 and reduces the minimal encoder's maximum message size to 930 bytes.
+
+`iap2_control_enable_wired_identification` explicitly opts into a separate wired
+subset: caller-supplied USB-host component ID/name/interface, advanced-power
+capability and implemented CarPlay/power message IDs. Its USB-host field matches
+the pinned fixture exactly. Large combinations are rejected within the same
+1024-byte storage limit. Typed wired-start/power helpers now require this accepted
+profile; minimal identification cannot authorize them. See
+[the wired-identification report](reports/wired-identification.md).
 
 ### Bounded byte-stream transport pump
 
@@ -228,17 +236,19 @@ input, borrowed views and transactional output bounds.
 Three additional power-codec groups bring that suite to 12, with an exact pinned
 PowerSourceUpdate roundtrip. `iap2_control_notify` adds explicit unsolicited
 output without consuming held input. The typed power helper requires accepted
-identification/authentication and caller-supplied power policy; it supplies no
+explicit wired identification/authentication and caller-supplied power policy; it supplies no
 current-rating default and changes no hardware charging state. See
 [the power-notification report](reports/power-notifications.md).
 
 An explicit application helper can queue a wired-start reply only after both
-authentication and identification acceptance and a valid wired-available offer.
+authentication and explicit wired-identification acceptance and a valid wired-available offer.
 It requires caller-supplied receiver addresses, port and identity/key metadata.
 Three integration groups verify gating, fragmentation, ownership and lifecycle.
 Nothing automatically advertises CarPlay, opens a socket, pairs a phone or starts
 media. The minimal identification message lists still omit these new messages
-and transport capabilities; a real phone exchange is not established.
+and transport capabilities; the separate wired profile declares them only when
+explicitly enabled. The fragmented transport test now completes power and wired
+StartSession after reference-order startup, but a real phone exchange is not established.
 
 The pinned wired reference uses USBmux, trust pairing, the carkit service and a
 separate USB network path, not the traced stock iPod HID path. Its startup order

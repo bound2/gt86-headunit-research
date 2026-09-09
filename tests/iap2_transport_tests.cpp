@@ -2,6 +2,7 @@
 // Fake nonblocking byte streams and synthetic credentials only. No USB calls.
 #include "iap2_transport.h"
 #include "iap2_power.h"
+#include "iap2_carplay.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -321,9 +322,11 @@ static Bytes enable_test_identification(Fixture& f) {
     m.name = span("PC TEST ONLY"); m.model = span("SYNTHETIC"); m.manufacturer = span("Test fixture");
     m.serial = span("NOT-A-DEVICE-SERIAL"); m.firmware = span("test-1"); m.hardware = span("none");
     m.current_language = m.languages[0] = span("en"); m.languages[1] = span("de"); m.language_count = 2;
+    m.power_capability = 2;
+    const iap2_identification_wired wired{7, span("USB TEST ONLY"), 4};
     Bytes information(1024); size_t n;
-    check(iap2_identification_encode(&m, information.data(), information.size(), &n) == 0 &&
-          iap2_control_enable_identification(&f.endpoint, &m) == 0, "explicit pump test identity");
+    check(iap2_identification_encode_wired(&m, &wired, information.data(), information.size(), &n) == 0 &&
+          iap2_control_enable_wired_identification(&f.endpoint, &m, &wired) == 0, "explicit pump test wired identity");
     information.resize(n); return information;
 }
 static void identification_first_pump_deadline() {
@@ -354,7 +357,16 @@ static void full_authentication_exchange(bool identification_first = false) {
     f.start(); Bytes received; unsigned stage = 0;
     bool requested = false, accepted = false, app_queued = false, replied = false, power_queued = false;
     const Bytes cert(257, 0x37), signature(32, 0x52), challenge(16, 0x71);
-    const Bytes app_body(90, 0x24), app_request = csm(0x6807), app_reply = csm(0x6808, &app_body);
+    const Bytes app_body(90, 0x24); Bytes app_request = csm(0x6807), app_reply = csm(0x6808, &app_body);
+    iap2_carplay_wired_start start{}; start.address_count = 1; start.addresses[0] = {"fe80::1", 7};
+    start.has_port = 1; start.port = 5000; start.device_identifier = {"PC-TEST", 7};
+    start.public_key = {"00", 2}; start.source_version = {"test-1", 6}; // Synthetic, not a listening receiver/key pair.
+    if (identification_first) {
+        const Bytes available{0,5,0,0,1}; app_request = csm(0x4300, &available);
+        app_reply.resize(1024); size_t size;
+        check(iap2_carplay_wired_start_encode(&start, app_reply.data(), app_reply.size(), &size) == 0, "expected wired start bytes");
+        app_reply.resize(size);
+    }
     const Bytes power_bytes{0x40,0x40,0,17,0xae,3,0,6,0,0,0,0,0,5,0,1,0}; // Explicit zero current/charge intent.
     for (unsigned iteration = 0; iteration < 5000; ++iteration) {
         const int pump_status = f.poll(); check(pump_status >= 0, "pump exchange alive");
@@ -364,7 +376,9 @@ static void full_authentication_exchange(bool identification_first = false) {
         if (pump_status == IAP2_CONTROL_MESSAGE) {
             check(app_queued && !replied && f.held() == app_request, "application request held by pump");
             ++f.now; // Application can advance the shared clock between pump calls.
-            check(iap2_control_reply(&f.endpoint, app_reply.data(), app_reply.size(), f.now) == 0, "application reply accepted");
+            const auto reply_status = identification_first ? iap2_carplay_reply_wired_start(&f.endpoint, &start, f.now) :
+                iap2_control_reply(&f.endpoint, app_reply.data(), app_reply.size(), f.now);
+            check(reply_status == 0, "explicit application/wired-start reply accepted");
             check(iap2_transport_next_delay(&f.pump) == 0 &&
                   iap2_transport_poll(&f.pump, f.now - 1) == IAP2_ARGUMENT, "application clock advance requires fresh poll time");
             replied = true;
@@ -418,6 +432,7 @@ static void full_authentication_exchange(bool identification_first = false) {
     check(accepted && replied && f.certificates == 1 && f.signatures == 1 && f.signed_challenge == challenge,
           "full auth/application exchange over pump, exact challenge, provider exactly once");
     check(power_queued == identification_first, "power notification is explicit, not automatic auth side effect");
+    check((f.endpoint.identification.wired_carplay != 0) == identification_first, "wired exchange requires explicit declared profile");
     check(f.endpoint.identification.state == (identification_first ? IAP2_IDENTIFICATION_ACCEPTED : IAP2_IDENTIFICATION_DISABLED),
           "identification only accepted when explicitly configured and completed");
     iap2_transport_close(&f.pump);

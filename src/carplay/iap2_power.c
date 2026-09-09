@@ -45,6 +45,7 @@ int iap2_power_source_notify(iap2_control *c, const iap2_power_source *value, ui
     if (c->reason != IAP2_CONTROL_REASON_NONE) return IAP2_LINK_CLOSED;
     if (c->auth.state != IAP2_AUTH_ACCEPTED) return IAP2_AUTH_FAILED;
     if (c->identification.state != IAP2_IDENTIFICATION_ACCEPTED) return IAP2_LINK_BUSY;
+    if (!c->identification.wired_carplay) return IAP2_UNSUPPORTED;
     if (value->has_available_current != 1 || value->has_should_charge != 1) return IAP2_ARGUMENT;
     status = iap2_power_source_encode(value, out, sizeof out, &written); if (status) return status;
     return iap2_control_notify(c, out, written, now);

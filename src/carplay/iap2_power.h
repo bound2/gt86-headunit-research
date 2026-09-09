@@ -26,7 +26,8 @@ int iap2_power_source_decode(const uint8_t *, size_t, iap2_power_source *);
 int iap2_power_source_encode(const iap2_power_source *, uint8_t *, size_t, size_t *written);
 
 /* Explicit post-identification/authentication notification; both states must
- * be ACCEPTED. Requires both fields present, but zero current is valid and
+ * be ACCEPTED with explicit wired identification (minimal is UNSUPPORTED).
+ * Requires both fields present, but zero current is valid and
  * does not imply power is physically available. Caller must supply truthful
  * policy/current from an owned power path and declare 0xae03 in identification.
  * Never copies the fixture's current rating, changes hardware charging, reads

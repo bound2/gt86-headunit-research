@@ -201,6 +201,14 @@ static Bytes enable_identification(Endpoint& e) {
         iap2_control_enable_identification(&e.engine, &m) == IAP2_OK, "enable explicit synthetic identity");
     information.resize(n); return information;
 }
+static Bytes enable_wired_identification(Endpoint& e) {
+    auto m = test_identity(); m.power_capability = 2;
+    const iap2_identification_wired wired{7, {"USB TEST ONLY", 13}, 4};
+    Bytes information(1024); size_t n;
+    check(iap2_identification_encode_wired(&m, &wired, information.data(), information.size(), &n) == 0 &&
+          iap2_control_enable_wired_identification(&e.engine, &m, &wired) == 0, "enable explicit synthetic wired identity");
+    information.resize(n); return information;
+}
 static void application_replies() {
     Endpoint e;
     const auto request = csm(0x1234), small_reply = csm(0x1235);
@@ -660,7 +668,7 @@ static Bytes carplay_offer(unsigned mode = 0) {
 }
 static void prepare_carplay_endpoint(Endpoint& e, uint16_t packet = 1024, bool identification_first = false) {
     if (identification_first) { e.config.startup_order = IAP2_CONTROL_IDENTIFICATION_FIRST; e.init(); }
-    const auto info = enable_identification(e); e.handshake(0, packet);
+    const auto info = enable_wired_identification(e); e.handshake(0, packet);
     if (!identification_first) e.authenticate();
     e.payload(csm(0x1d00)); check(e.drain_reply() == info, "prepare identification information");
     e.payload(csm(0x1d02)); check(e.poll() == IAP2_MORE && e.engine.identification.state == IAP2_IDENTIFICATION_ACCEPTED,
@@ -955,6 +963,52 @@ static void power_source_notification() {
     ready.drain_reply(); iap2_control_close(&ready.engine);
     check(iap2_power_source_notify(&ready.engine, &power, 0) == IAP2_LINK_CLOSED, "no power notification after closure");
 }
+static void wired_enable_transaction() {
+    Endpoint e; auto m = test_identity(); m.power_capability = 2;
+    iap2_identification_wired wired{7, {"USB TEST ONLY", 13}, 4};
+    const auto minimal = enable_identification(e);
+    check(!e.engine.identification.wired_carplay, "minimal endpoint has no wired declaration");
+    const auto wired_bytes = enable_wired_identification(e);
+    check(e.engine.identification.wired_carplay && wired_bytes.size() > minimal.size(), "explicit wired endpoint owns richer declaration");
+    const auto before = e.engine.identification; auto invalid = wired; invalid.component_name = {};
+    check(iap2_control_enable_wired_identification(&e.engine, &m, &invalid) == IAP2_ARGUMENT &&
+          !std::memcmp(&before, &e.engine.identification, sizeof before), "invalid profile does not remove prior declaration");
+    check(iap2_control_enable_wired_identification(nullptr, &m, &wired) == IAP2_ARGUMENT &&
+          iap2_control_enable_wired_identification(&e.engine, &m, nullptr) == IAP2_ARGUMENT, "wired enable null checks");
+    enable_identification(e); check(!e.engine.identification.wired_carplay, "minimal enable removes wired declarations before start");
+    enable_wired_identification(e); e.handshake();
+    check(iap2_control_enable_wired_identification(&e.engine, &m, &wired) == IAP2_ARGUMENT && e.engine.identification.wired_carplay,
+          "live capability changes forbidden");
+    iap2_control_close(&e.engine); e.init();
+    check(!e.engine.identification.wired_carplay && e.engine.identification.state == IAP2_IDENTIFICATION_DISABLED,
+          "new endpoint clears wired advertisement as well as acceptance");
+}
+static void wired_reply_capacity() {
+    Endpoint probe; auto m = test_identity(); m.power_capability = 2;
+    const iap2_identification_wired wired{7, {"USB TEST ONLY", 13}, 4};
+    Bytes buffer(1024); size_t minimal_size;
+    check(iap2_identification_encode(&m, buffer.data(), buffer.size(), &minimal_size) == 0, "minimal profile size");
+    const auto wired_bytes = enable_wired_identification(probe);
+    Endpoint small(minimal_size);
+    check(iap2_control_enable_identification(&small.engine, &m) == 0, "minimal identity fits small reply buffer");
+    const auto before = small.engine.identification;
+    check(iap2_control_enable_wired_identification(&small.engine, &m, &wired) == IAP2_NO_SPACE &&
+          !std::memcmp(&before, &small.engine.identification, sizeof before), "wired enable preflights endpoint reply capacity");
+    Endpoint exact(wired_bytes.size()); exact.provider.certificate_size = 64; exact.provider.signature_size = 32;
+    enable_wired_identification(exact); exact.handshake(0, 29); exact.authenticate();
+    exact.payload(csm(0x1d00)); check(exact.drain_reply() == wired_bytes, "exact-size wired profile survives MTU fragmentation");
+    exact.canaries(); small.canaries();
+}
+static void minimal_profile_cannot_start_wired() {
+    Endpoint e; const auto information = enable_identification(e); e.handshake(); e.authenticate();
+    e.payload(csm(0x1d00)); check(e.drain_reply() == information, "minimal identification response");
+    e.payload(csm(0x1d02)); check(e.poll() == IAP2_MORE, "minimal identification accepted");
+    const auto offer = carplay_offer(); const auto start = carplay_profile(); const iap2_power_source power{1, 0, 1, 0};
+    e.payload(offer); check(e.poll() == IAP2_CONTROL_MESSAGE, "minimal endpoint can inspect unsolicited offer");
+    check(iap2_carplay_reply_wired_start(&e.engine, &start, 0) == IAP2_UNSUPPORTED &&
+          iap2_power_source_notify(&e.engine, &power, 0) == IAP2_UNSUPPORTED && e.held() == offer && !e.engine.reply_size,
+          "typed wired helpers cannot use accepted identity lacking declared capabilities");
+}
 int main() {
     try {
         // Indirect iteration keeps independent large fixture lifetimes out of
@@ -970,7 +1024,8 @@ int main() {
             identification_first_ack_barrier, identification_first_reset_and_provider_failure,
             [] { two_endpoint_exchange(true, true); }, [] { carplay_start_reply(true); },
             notification_ownership_and_hold, notification_validation, notification_deadlines_and_reset,
-            notification_partial_receive, power_source_notification
+            notification_partial_receive, power_source_notification,
+            wired_enable_transaction, wired_reply_capacity, minimal_profile_cannot_start_wired
         };
         for (const auto group : groups) group();
         std::cout << "PASS: " << sizeof groups / sizeof groups[0] << " control adapter test groups (synthetic providers/transport only).\n";

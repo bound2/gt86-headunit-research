@@ -181,6 +181,84 @@ static void arguments_and_disabled() {
         id.state == IAP2_IDENTIFICATION_DISABLED, "disabled identification does not invent identity");
     iap2_identification_reset(nullptr);
 }
+static Bytes encode_wired(const iap2_identification_metadata& m, const iap2_identification_wired& wired) {
+    Bytes out(1024); size_t n;
+    check(iap2_identification_encode_wired(&m, &wired, out.data(), out.size(), &n) == 0, "encode explicit wired identity");
+    out.resize(n); return out;
+}
+static void wired_pinned_fields(const std::map<std::string, Bytes>& vectors) {
+    const auto m = metadata(); const iap2_identification_wired wired{2, text("usbhost"), 0};
+    const auto actual = fields(encode_wired(m, wired)), golden = fields(vectors.at("IdentificationInformation"));
+    check(actual.at(16) == golden.at(16) && actual.at(16).size() == 1, "exact pinned USB-host component payload");
+    for (uint16_t p : {0,1,2,3,4,5,8,9,12,13}) check(actual.at(p) == golden.at(p), "wired profile retains pinned common fields");
+    check(actual.at(6) == std::vector<Bytes>{hex("aa01aa031d014301ae03")} &&
+          actual.at(7) == std::vector<Bytes>{hex("aa00aa02aa04aa051d001d021d0343004e0d4e0e")} && actual.size() == 13,
+          "wired message lists contain only implemented startup, CarPlay and power IDs");
+    for (uint16_t p : {10,11,14,15,17,20,21,22,24,30}) check(!actual.contains(p), "wired subset invents no extra transport/vehicle/subscription");
+    check(!fields(encode(m)).contains(16), "minimal encoder remains opt-out");
+}
+static void wired_boundaries() {
+    auto m = metadata(); const std::string identity(127, 'x');
+    const std::array<std::string,4> languages{std::string(16, 'a'), std::string(16, 'b'), std::string(16, 'c'), std::string(16, 'd')};
+    m.name = m.model = m.manufacturer = m.serial = m.firmware = m.hardware = {identity.data(), identity.size()};
+    m.language_count = 4;
+    for (size_t i = 0; i < 4; ++i) m.languages[i] = {languages[i].data(), languages[i].size()};
+    m.current_language = m.languages[0];
+    const std::string name(52, 'u'); iap2_identification_wired wired{65535, {name.data(), name.size()}, 255};
+    const auto expected = encode_wired(m, wired); check(expected.size() == 1024, "exact wired profile storage boundary");
+    for (size_t capacity = 0; capacity <= 1024; ++capacity) {
+        Bytes output(1026, 0xa5); size_t n = 999;
+        const auto status = iap2_identification_encode_wired(&m, &wired, output.data() + 1, capacity, &n);
+        if (capacity < 1024) check(status == IAP2_NO_SPACE && !n && output == Bytes(1026, 0xa5), "all short wired outputs unchanged");
+        else check(status == 0 && n == 1024 && output.front() == 0xa5 && output.back() == 0xa5 &&
+                   std::equal(expected.begin(), expected.end(), output.begin() + 1), "exact wired capacity canaries");
+    }
+    const std::string too_large(53, 'u'); wired.component_name = {too_large.data(), too_large.size()};
+    Bytes output(2048, 0xa5); size_t n = 999;
+    check(iap2_identification_encode_wired(&m, &wired, output.data(), output.size(), &n) == IAP2_NO_SPACE && !n &&
+          output == Bytes(2048, 0xa5), "aggregate profile limit enforced even with large caller output");
+    m = metadata();
+    const std::string max_name(127, 'u'); wired.component_name = {max_name.data(), max_name.size()};
+    for (uint16_t id : {0, 65535}) for (uint8_t iface : {0, 255}) {
+        wired.component_id = id; wired.carplay_interface_number = iface;
+        const auto outer = fields(encode_wired(m, wired));
+        const auto& group = outer.at(16).at(0);
+        Bytes wrapped{0x40,0x40, static_cast<uint8_t>((group.size() + 6) >> 8), static_cast<uint8_t>(group.size() + 6),0x1d,1};
+        wrapped.insert(wrapped.end(), group.begin(), group.end()); const auto nested = fields(wrapped);
+        check(nested.at(0) == std::vector<Bytes>{Bytes{static_cast<uint8_t>(id >> 8), static_cast<uint8_t>(id)}} &&
+              nested.at(3) == std::vector<Bytes>{Bytes{iface}} && nested.at(2) == std::vector<Bytes>{Bytes{}} &&
+              nested.at(4) == std::vector<Bytes>{Bytes{}} && nested.at(5) == std::vector<Bytes>{Bytes{}} && nested.size() == 6,
+              "full-width explicit component/interface and exact pinned flag fields");
+    }
+}
+static void wired_validation_and_snapshot() {
+    auto m = metadata(); std::string name = "USB TEST ONLY";
+    iap2_identification_wired wired{7, {name.data(), name.size()}, 4};
+    iap2_identification id{}; const auto expected = encode_wired(m, wired);
+    check(iap2_identification_init_wired(&id, &m, &wired) == 0 && id.wired_carplay == 1, "wired sequencer stores profile declaration");
+    name.assign(name.size(), 'z'); iap2_identification_reset(&id);
+    Bytes out(1024); size_t n;
+    check(id.wired_carplay == 1 && handle(id, csm(0x1d00), out, n) == 0 &&
+          Bytes(out.begin(), out.begin() + n) == expected, "wired metadata owned across caller mutation and reset");
+    const std::string long_name(128, 'u');
+    for (unsigned choice = 0; choice < 6; ++choice) {
+        auto invalid = wired; auto invalid_m = m;
+        if (choice == 0) invalid.component_name = {};
+        if (choice == 1) invalid.component_name = {long_name.data(), long_name.size()};
+        if (choice == 2) invalid.component_name = {"a\0b", 3};
+        if (choice == 3) invalid.component_name = {"\xc3\xa9", 2};
+        if (choice == 4) invalid_m.power_capability = 0;
+        if (choice == 5) invalid_m.name = {};
+        const auto before = id; out.assign(1024, 0xa5); n = 999;
+        check(iap2_identification_encode_wired(&invalid_m, &invalid, out.data(), out.size(), &n) == IAP2_ARGUMENT && !n &&
+              out == Bytes(1024, 0xa5) && iap2_identification_init_wired(&id, &invalid_m, &invalid) == IAP2_ARGUMENT &&
+              !std::memcmp(&id, &before, sizeof id), "invalid wired metadata leaves output and sequencer unchanged");
+    }
+    check(iap2_identification_encode_wired(&m, nullptr, out.data(), out.size(), &n) == IAP2_ARGUMENT && !n &&
+          iap2_identification_init_wired(nullptr, &m, &wired) == IAP2_ARGUMENT, "wired API null profile/sequencer");
+    check(iap2_identification_init(&id, &m) == 0 && !id.wired_carplay && !fields(Bytes(id.information, id.information + id.information_size)).contains(16),
+          "minimal initialization removes previously wired capability declaration");
+}
 int main(int argc, char **argv) {
     try {
         check(argc == 2, "provide pinned CSM vectors path"); std::ifstream input(argv[1]); check(bool(input), "open vectors");
@@ -189,7 +267,8 @@ int main(int argc, char **argv) {
         check(vectors.size() == 33, "pinned vector count");
         pinned_fields(vectors); metadata_validation(); packed_supported_languages(); maximum_and_capacity(); sequence_and_snapshot();
         malformed_sequences(); rejection_boundaries(); arguments_and_disabled();
-        std::cout << "PASS: 8 minimal identification test groups; pinned fields and packed languages, no real identity or CarPlay advertisement.\n";
+        wired_pinned_fields(vectors); wired_boundaries(); wired_validation_and_snapshot();
+        std::cout << "PASS: 11 identification test groups; explicit synthetic wired profile, no device I/O.\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

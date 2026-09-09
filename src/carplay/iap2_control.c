@@ -86,15 +86,25 @@ int iap2_control_init(iap2_control *c, const iap2_control_config *config,
     discard(c);
     return status; /* Cannot fail after the preflight above. */
 }
-int iap2_control_enable_identification(iap2_control *c, const iap2_identification_metadata *metadata) {
+static int enable_identification(iap2_control *c, const iap2_identification_metadata *metadata,
+                                 const iap2_identification_wired *wired) {
     iap2_identification candidate;
     int status;
     if (!c || c->reason != IAP2_CONTROL_REASON_NONE || c->link.state != IAP2_LINK_IDLE) return IAP2_ARGUMENT;
     clear((uint8_t *)&candidate, sizeof candidate);
-    status = iap2_identification_init(&candidate, metadata); if (status) return status;
+    status = wired ? iap2_identification_init_wired(&candidate, metadata, wired) : iap2_identification_init(&candidate, metadata);
+    if (status) return status;
     if (candidate.information_size > c->buffers.reply_capacity) return IAP2_NO_SPACE;
     copy((uint8_t *)&c->identification, (const uint8_t *)&candidate, sizeof candidate);
     return IAP2_OK;
+}
+int iap2_control_enable_identification(iap2_control *c, const iap2_identification_metadata *metadata) {
+    return enable_identification(c, metadata, NULL);
+}
+int iap2_control_enable_wired_identification(iap2_control *c, const iap2_identification_metadata *metadata,
+                                           const iap2_identification_wired *wired) {
+    if (!wired) return IAP2_ARGUMENT;
+    return enable_identification(c, metadata, wired);
 }
 int iap2_control_start(iap2_control *c, uint64_t now) {
     int status;

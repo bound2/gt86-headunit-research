@@ -76,6 +76,13 @@ int iap2_control_init(iap2_control *, const iap2_control_config *,
  * identification. No automatic fallback or phase restart after failure.
  * No transport components or CarPlay flags are advertised. */
 int iap2_control_enable_identification(iap2_control *, const iap2_identification_metadata *);
+/* Explicit wired-capability variant, only before start. Owns encoded metadata,
+ * preflights reply capacity and advertises only the implemented wired subset.
+ * See encode_wired's hardware/application obligations. Either configured order
+ * remains explicit; identification-first matches the pinned runtime. Init
+ * disables this profile again. Minimal enable replaces it without CarPlay. */
+int iap2_control_enable_wired_identification(iap2_control *, const iap2_identification_metadata *,
+                                           const iap2_identification_wired *);
 /* IDENTIFICATION_FIRST without enabled metadata returns ARGUMENT without
  * starting the link or accepting the clock. Phase one starts at NORMAL; phase
  * two starts when poll processes phase-one acceptance, not when bytes arrive.

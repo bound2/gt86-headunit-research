@@ -120,3 +120,14 @@ hardware default. The explicit notification API shares the local control
 queue/deadline policies, informed by wired `livi-runtime/src/bringup.rs` sending
 this message without a request. No power-control, USB or networking code is
 copied, and actual electrical capabilities are not inferred from the fixture.
+
+The opt-in wired identification extension uses the pinned
+`iap2-csm/src/messages/identification.rs` USBHostTransportComponent fields and
+the runtime's wired profile as references. It reproduces the fixture's entire
+USB-host payload, including the transport macro's repeated empty iAP2 flag in
+field 5. Explicit ID/name/interface values replace upstream runtime fallbacks;
+only implemented CarPlay/power messages are added to the local message lists.
+Aggregate bounds, profile activation/ownership/reset and typed-helper declaration
+gates are local policies. No hardware configuration, broader subscriptions or
+media support is inferred or copied. See
+[wired-identification.md](../reports/wired-identification.md).

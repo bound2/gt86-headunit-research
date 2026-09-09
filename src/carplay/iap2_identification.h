@@ -31,6 +31,17 @@ typedef struct iap2_identification_metadata {
     uint16_t maximum_current_ma;
 } iap2_identification_metadata;
 
+/* Explicit assertion of a wired receiver's USB-host component. No defaults:
+ * name is printable ASCII 1..127 bytes, ID is u16 and interface number u8
+ * (zero is a valid explicit value). The library cannot verify device wiring,
+ * descriptors, power supply or a working receiver; caller must establish them.
+ */
+typedef struct iap2_identification_wired {
+    uint16_t component_id;
+    iap2_identification_text component_name;
+    uint8_t carplay_interface_number;
+} iap2_identification_wired;
+
 /* Encodes fields 0..9,12,13 only. Fixed message lists advertise only this
  * library's auth/identification IDs, not application protocols. No transport
  * components or CarPlay flags emitted. Not a claim a phone accepts this subset.
@@ -40,9 +51,20 @@ typedef struct iap2_identification_metadata {
  * metadata/output/storage, mutable concurrent input, heap allocation or I/O.
  */
 int iap2_identification_encode(const iap2_identification_metadata *, uint8_t *, size_t, size_t *written);
+/* Opt-in wired subset: same base identity plus USB-host field 16 and additional
+ * sent IDs 4301/ae03, received IDs 4300/4e0d/4e0e. Requires explicit advanced
+ * power capability (2); no guessed current rating. Emits pinned iAP2 flags
+ * 2/5, interface 3 and CarPlay flag 4 in the USB group. No other transport,
+ * subscription, vehicle or media capability is implied. Maximum 1024 bytes;
+ * large combinations are rejected transactionally, not truncated. Caller must
+ * implement/enable handling of the declared application messages.
+ */
+int iap2_identification_encode_wired(const iap2_identification_metadata *, const iap2_identification_wired *,
+                                   uint8_t *, size_t, size_t *written);
 typedef struct iap2_identification {
     enum iap2_identification_state state;
     uint32_t rejected_fields; /* Peer rejection flag IDs 0..31, no text parsing. */
+    uint8_t wired_carplay; /* Read-only: encoded profile declares wired CarPlay/power. Reset retains metadata. */
     size_t information_size;
     uint8_t information[IAP2_IDENTIFICATION_LIMIT];
 } iap2_identification;
@@ -52,6 +74,8 @@ typedef struct iap2_identification {
  * Treat fields as read-only. Reset retains metadata but clears result state.
  */
 int iap2_identification_init(iap2_identification *, const iap2_identification_metadata *);
+int iap2_identification_init_wired(iap2_identification *, const iap2_identification_metadata *,
+                                 const iap2_identification_wired *);
 void iap2_identification_reset(iap2_identification *);
 /* Exactly one full CSM in, at most one reply out. Start (1D00) only in IDLE;
  * Information (1D01) is outbound; Accepted/Rejected only in WAIT_RESULT.

@@ -229,6 +229,7 @@ int iap2_carplay_reply_wired_start(iap2_control *c, const iap2_carplay_wired_sta
     status = iap2_control_message(c, &held, &size); if (status) return status;
     if (c->auth.state != IAP2_AUTH_ACCEPTED) return IAP2_AUTH_FAILED;
     if (c->identification.state != IAP2_IDENTIFICATION_ACCEPTED) return IAP2_LINK_BUSY;
+    if (!c->identification.wired_carplay) return IAP2_UNSUPPORTED;
     status = iap2_carplay_availability_decode(held, size, &offer); if (status) return status;
     if (!offer.wired.present || !offer.wired.has_available || !offer.wired.available) return IAP2_UNSUPPORTED;
     if (!value->address_count || !value->has_port || !value->port || value->port > 65535 ||

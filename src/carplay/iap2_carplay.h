@@ -61,7 +61,8 @@ int iap2_carplay_wired_start_encode(const iap2_carplay_wired_start *, uint8_t *,
 
 /* Explicit application action, not called automatically by control/transport.
  * Reply to a held, valid 0x4300 only when its wired.available is explicitly true
- * and the endpoint has accepted authentication AND enabled identification.
+ * and the endpoint has accepted authentication AND explicit wired identification.
+ * Accepted minimal identification is UNSUPPORTED: it declares no CarPlay.
  * Requires 1..4 addresses, port 1..65535 and all three identity strings. Caller
  * MUST supply actual receiver/network/key metadata and ensure the receiver is
  * listening on an owned, usable path; this function cannot verify that.

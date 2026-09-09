@@ -16,20 +16,22 @@ link profile adds negotiation, ACKs, retransmission and bounded queues with
 16 link test groups. A bounded control-session adapter now connects link payloads
 to authentication, including split/coalesced messages and larger replies. It
 now also supports atomic application replies and opt-in minimal accessory
-identification, with 35 control and eight dedicated identification test groups.
+identification, with 38 control and 11 dedicated identification test groups.
 The new bounded byte-stream transport pump retains partial writes, accounts for
 receive tails and closes failed/stale connections, with 17 dedicated test groups.
 CarPlay/power codecs now round-trip five pinned fixtures, with 12 dedicated
 groups, an explicit wired-start reply and unsolicited power notifications that
-preserve held input. No capability is
-automatically advertised and no network/media session is opened. The pinned
+preserve held input. A separate explicit wired identity now declares the
+implemented message IDs and a caller-supplied USB-host component; typed wired
+helpers require that accepted profile. The minimal default remains unchanged.
+No capability is automatically advertised and no network/media session is opened. The pinned
 runtime's identification-first order is now supported through explicit opt-in
 configuration, with independent phase budgets and provider gating. The original
 authentication-first default remains available. See [startup-order.md](startup-order.md).
 All ten CTest suites pass, and all six protocol suites pass under host
 address/undefined-behavior sanitizers. The eight C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-42 and [the session-start report](carplay-session-start.md).
+Steps 22-43 and [the wired-identification report](wired-identification.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1571,6 +1573,29 @@ ARM check and 19 Python tests pass. Native charging/USB behavior is unchanged.
 Next add explicit USB-host identification and implemented-message declarations;
 the minimal default still declares neither CarPlay nor power-source messages.
 
+## Step 43 - Declare explicit wired receiver capabilities
+
+Status: power-notification work committed/pushed as `52f1ec1`.
+The new [wired-identification.md](wired-identification.md) documents the pinned
+USB-host fields, explicit metadata APIs, exact implemented-message lists and
+profile lifetime. The minimal default is unchanged. The opt-in wired profile
+matches the pinned USB-host component payload and requires caller-provided
+component/name/interface and advanced-power metadata, not copied hardware defaults.
+
+Three new identification and three control groups bring those suites to 11 and
+38. Typed CarPlay/power helpers now reject accepted minimal identification as
+unsupported without queueing bytes. Invalid/oversized profile activation is
+transactional; reinitialization clears the wired declaration. The full pump
+simulation now performs identification, authentication, unsolicited power,
+CarPlay availability and the wired-start response over partial reads/writes.
+
+All ten CTest suites, six sanitized suites and the eight-unit ARM check pass.
+Endpoint storage is now 19,968 host bytes, pump 2,184 bytes plus caller buffers.
+These tests use synthetic credentials/network values; no physical USB, phone
+pairing or media connection occurs. Next trace and implement the USBmux framing
+dependency below the iAP2 byte stream, then continue toward carkit pairing/TLS,
+network/media and QNX integration. Hardware execution/recovery remains unresolved.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1581,11 +1606,12 @@ the minimal default still declares neither CarPlay nor power-source messages.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Extend explicit supported-message/USB-host declarations. Typed wired
-   PowerSourceUpdate and unsolicited output are implemented in Step 42. The packed SupportedLanguage defect is fixed
+3. Trace and implement bounded USBmux framing/stream handling for the wired
+   carkit route. Explicit supported-message/USB-host declarations are implemented
+   in Step 43; typed PowerSourceUpdate and unsolicited output in Step 42. The packed SupportedLanguage defect is fixed
    in Step 41. Identification-first startup is implemented and tested; Steps 37-39
-   trace session startup and implement a bounded message subset. Missing CarPlay
-   message/transport declarations remain a compatibility gap. The bounded host
+   trace session startup and implement a bounded message subset. Real native
+   transport and broader runtime interoperability remain missing. The bounded host
    transport pump passes simulated transfers and authentication (Steps 34-35).
    The pinned corpus's stock USB/HID path and service coordination are traced
    (Steps 31-32), but physical ownership and a usable iAP2 profile are unknown.

@@ -24,16 +24,23 @@ static size_t string_param(uint8_t *out, uint16_t id, const iap2_identification_
     put16(out, s->size + 5); put16(out + 2, id);
     copy(out + 4, (const uint8_t *)s->data, s->size); out[s->size + 4] = 0; return s->size + 5;
 }
-int iap2_identification_encode(const iap2_identification_metadata *m, uint8_t *out, size_t capacity, size_t *written) {
+static int encode(const iap2_identification_metadata *m, const iap2_identification_wired *wired,
+                  uint8_t *out, size_t capacity, size_t *written) {
     const iap2_identification_text *identity[6];
     static const uint8_t sent[] = {0xaa,0x01,0xaa,0x03,0x1d,0x01};
     static const uint8_t received[] = {0xaa,0x00,0xaa,0x02,0xaa,0x04,0xaa,0x05,0x1d,0x00,0x1d,0x02,0x1d,0x03};
+    static const uint8_t wired_sent[] = {0xaa,0x01,0xaa,0x03,0x1d,0x01,0x43,0x01,0xae,0x03};
+    static const uint8_t wired_received[] = {0xaa,0x00,0xaa,0x02,0xaa,0x04,0xaa,0x05,0x1d,0x00,0x1d,0x02,0x1d,0x03,0x43,0x00,0x4e,0x0d,0x4e,0x0e};
     size_t i, j, total = 6 + 4 + sizeof sent + 4 + sizeof received + 5 + 6, offset, language_bytes = 0;
     unsigned matches = 0;
     uint8_t current[2];
     if (written) *written = 0;
     if (!m || !out || !written || m->language_count < 1 || m->language_count > IAP2_IDENTIFICATION_LANGUAGES ||
         (m->power_capability != 0 && m->power_capability != 2) || !valid_text(&m->current_language, 16)) return IAP2_ARGUMENT;
+    if (wired) {
+        if (!valid_text(&wired->component_name, 127) || m->power_capability != 2) return IAP2_ARGUMENT;
+        total += sizeof wired_sent - sizeof sent + sizeof wired_received - sizeof received + wired->component_name.size + 32;
+    }
     identity[0] = &m->name; identity[1] = &m->model; identity[2] = &m->manufacturer;
     identity[3] = &m->serial; identity[4] = &m->firmware; identity[5] = &m->hardware;
     for (i = 0; i < 6; ++i) {
@@ -52,8 +59,8 @@ int iap2_identification_encode(const iap2_identification_metadata *m, uint8_t *o
     if (total > capacity || total > IAP2_IDENTIFICATION_LIMIT) return IAP2_NO_SPACE;
     out[0] = out[1] = 0x40; put16(out + 2, total); put16(out + 4, 0x1d01); offset = 6;
     for (i = 0; i < 6; ++i) offset += string_param(out + offset, (uint16_t)i, identity[i]);
-    offset += param(out + offset, 6, sent, sizeof sent);
-    offset += param(out + offset, 7, received, sizeof received);
+    offset += param(out + offset, 6, wired ? wired_sent : sent, wired ? sizeof wired_sent : sizeof sent);
+    offset += param(out + offset, 7, wired ? wired_received : received, wired ? sizeof wired_received : sizeof received);
     offset += param(out + offset, 8, &m->power_capability, 1);
     put16(current, m->maximum_current_ma); offset += param(out + offset, 9, current, sizeof current);
     offset += string_param(out + offset, 12, &m->current_language);
@@ -62,7 +69,24 @@ int iap2_identification_encode(const iap2_identification_metadata *m, uint8_t *o
         copy(out + offset, (const uint8_t *)m->languages[i].data, m->languages[i].size);
         offset += m->languages[i].size; out[offset++] = 0;
     }
+    if (wired) {
+        put16(out + offset, wired->component_name.size + 32); put16(out + offset + 2, 16); offset += 4;
+        put16(current, wired->component_id); offset += param(out + offset, 0, current, 2);
+        offset += string_param(out + offset, 1, &wired->component_name);
+        offset += param(out + offset, 2, NULL, 0);
+        offset += param(out + offset, 3, &wired->carplay_interface_number, 1);
+        offset += param(out + offset, 4, NULL, 0);
+        offset += param(out + offset, 5, NULL, 0); /* Pinned transport macro repeats the iAP2 flag here. */
+    }
     *written = offset; return IAP2_OK;
+}
+int iap2_identification_encode(const iap2_identification_metadata *m, uint8_t *out, size_t capacity, size_t *written) {
+    return encode(m, NULL, out, capacity, written);
+}
+int iap2_identification_encode_wired(const iap2_identification_metadata *m, const iap2_identification_wired *wired,
+                                    uint8_t *out, size_t capacity, size_t *written) {
+    if (!wired) { if (written) *written = 0; return IAP2_ARGUMENT; }
+    return encode(m, wired, out, capacity, written);
 }
 void iap2_identification_reset(iap2_identification *id) {
     if (!id) return;
@@ -75,7 +99,15 @@ int iap2_identification_init(iap2_identification *id, const iap2_identification_
     if (!id) return IAP2_ARGUMENT;
     status = iap2_identification_encode(metadata, id->information, sizeof id->information, &n);
     if (status) return status;
-    id->information_size = n; iap2_identification_reset(id); return IAP2_OK;
+    id->information_size = n; id->wired_carplay = 0; iap2_identification_reset(id); return IAP2_OK;
+}
+int iap2_identification_init_wired(iap2_identification *id, const iap2_identification_metadata *metadata,
+                                 const iap2_identification_wired *wired) {
+    size_t n; int status;
+    if (!id) return IAP2_ARGUMENT;
+    status = iap2_identification_encode_wired(metadata, wired, id->information, sizeof id->information, &n);
+    if (status) return status;
+    id->information_size = n; id->wired_carplay = 1; iap2_identification_reset(id); return IAP2_OK;
 }
 static int reject(iap2_identification *id, int status) { id->state = IAP2_IDENTIFICATION_REJECTED; return status; }
 int iap2_identification_handle(iap2_identification *id, const uint8_t *data, size_t size,
