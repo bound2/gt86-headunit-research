@@ -1,4 +1,4 @@
-"""Read-only inspection of SHA256-pinned Toyota Apple-authentication/media modules.
+"""Read-only inspection of pinned Toyota Apple-authentication/media/USB modules.
 
 No vendor program is loaded by the host OS. Optional LLVM disassembly receives
 an in-memory copy with the stripped section-directory fields cleared, allowing
@@ -17,6 +17,7 @@ PINS = {
     "i2c": ("lib/dll/iofs-i2c-ipod.so", "f7791854a0fd94a9eaa85159291007ffb49c07ea49a7e66253c5aa07df8919e6"),
     "ipod": ("lib/dll/iofs-ipod.so", "f0598ab13b10ad77fca2a309a484453512c0c9094ff726de77d54416c74cf629"),
     "media": ("usr/sbin/io-fs-media", "92c92ef5a41c1a4ed15ab7bc89167b94def45a31d526afe5ca6c6f4214f4a6c5"),
+    "usb": ("lib/dll/iofs-usb-ipod.so", "45c140270c8e168ecfbca426fb86e0bf5780bc40010b2ee313117a00e4b2a1f8"),
 }
 LLVM = Path("C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/llvm-objdump.exe")
 
@@ -110,7 +111,7 @@ def main():
     elf = PinnedElf(args.module)
     if args.disassemble:
         defaults = {"i2c": (0x600, 0xABC), "ipod": (0x2F58, 0x41A0),
-                    "media": (0x115870, 0x115930)}[args.module]
+                    "media": (0x115870, 0x115930), "usb": (0x11CC, 0x1920)}[args.module]
         rendered = elf.disassemble(args.llvm, defaults[0] if args.start is None else args.start,
                                   defaults[1] if args.stop is None else args.stop)
     else:
@@ -133,6 +134,14 @@ def main():
                 "interface_name": elf.string(elf.uint(0x38A20)),
                 "describe_slot": "0x38a5c", "describe": hex(elf.uint(0x38A5C)),
                 "cached_auth_description": "0x2f90",
+            }
+        elif args.module == "usb":
+            evidence["transport_descriptor"] = {
+                "module": "0x4920", "name": elf.string(elf.uint(0x4920)),
+                "interface": hex(elf.uint(0x4944)),
+                "interface_name": elf.string(elf.uint(0x4BF0)),
+                "write_slot": "0x4c1c", "write": hex(elf.uint(0x4C1C)),
+                "read_slot": "0x4c20", "read": hex(elf.uint(0x4C20)),
             }
         elif args.module == "media":
             names = {"mount_create", "mount_info_io", "node_get", "hier_build", "iface_find", "attr_attach"}

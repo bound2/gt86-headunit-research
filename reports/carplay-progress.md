@@ -48,6 +48,13 @@ but forwards product/vendor names, not chip fields. Ten modeled MCD paths,
 seven mocked stock Lua scenarios and five new safety/regression tests pass;
 see Steps 19-21. No diagnostic trigger was activated.
 
+The later corpus's USB ownership configuration and stock HID read/write paths
+are now traced. Seventeen simulated USB scenarios and six new tool-safety tests
+pass (19 Python tests total); see Steps 31-33 and the new
+[USB transport report](usb-transport.md). The host-only USB driver description
+does not establish the silicon's complete capabilities or the physical port's
+ownership in the owner's car. No usable iAP2 USB backend is established yet.
+
 ## Step 1 - Establish the target and limits
 
 Status: complete for the information already available.
@@ -1314,6 +1321,65 @@ stalls and disconnects. Do not guess a USB device path or open/reconfigure a
 physical device. An actual native provider/transport, execution access and a
 recovery route remain prerequisites for any car-side work.
 
+## Step 31 - Pin and trace stock USB ownership
+
+Status: preceding identification/reply work committed as `78cebe7`.
+Continued with read-only inspection of the later 6.17.0WL navigation corpus.
+Full step-by-step evidence is in [usb-transport.md](usb-transport.md).
+
+The primary boot image carries `io-usb` / `dm816x-mg` launch arguments. Its host
+driver describes its implementation as host-only. Apple configuration selection
+feeds a HID rule for `io-fs-media`'s USB iPod transport and a separate rule for
+`io-audio` capture. Pre-media startup explicitly orders the base sound service
+before USB enumeration to avoid selecting the wrong sound card.
+
+The existing external-accessory protocol is configured for Aha, while early
+tunnel services and connection-manager rules refer to Entune. A legacy Bluetooth
+iPhone rule is commented out, not active. These findings do not demonstrate
+CarPlay transport. Static accessory defaults are not the owner's real serial
+or hardware revision. Physical wiring/multiplexer ownership remains unresolved.
+
+## Step 32 - Replay bounded stock USB transfers
+
+Status: 12 inputs SHA256-verified; 17 synthetic USB scenarios pass. The ELF
+inspector now supports the pinned `iofs-usb-ipod.so`, and the new
+`scripts/probe_usb_transport.py` exercises only its read/write routines with
+mocked URBs, status, timing, locks and logging. No device attachment, initializer,
+real USB call or stock-service change occurs.
+
+Outgoing data uses HID output SET_REPORT control transfers; incoming data uses
+interrupt requests and cached report payloads. Tests cover padding, fragmentation,
+partial returns, inactive handles, submission errors, stalls, busy status,
+input caching/continuation and read timeout. A perpetual busy response is stopped
+by the harness budget, not a demonstrated stock retry limit. Injecting a success
+with short actual length shows a write-path assumption; it is not proof that
+the real stack produces that combination. A read stall can be hidden by a
+successful requeue, so raw return counts alone are not a complete lifecycle API.
+
+All 19 Python tool tests and all eight CTest suites pass. Six Python tests are
+new and cover pins, changed-input rejection, execution/import/interrupt limits,
+memory/event bounds, all 17 scenarios and refusing an existing output file.
+See the new report for reproduction commands and primary USB/QNX references.
+
+## Step 33 - Specify the portable transport pump
+
+Status: design contract documented in
+[USB transport, Step 6](usb-transport.md#step-6---define-the-next-bounded-adapter);
+implementation is the next bounded task.
+
+The pump must retain a complete pending frame, track partial progress without
+interleaving, bound polling/deadlines, respect receive consumed counts, and clear
+all connection state on failure. A future native backend needs explicit
+ownership, validated descriptors, correct DMA-buffer lifetimes and completion
+validation. HID framing is a separate profile, not automatically the required
+iAP2 transport. Stock-service resets or shutdowns are not an access strategy.
+
+Next implement the portable pump against a fake nonblocking byte-stream backend
+and test partial/zero transfers, backpressure, stalls, disconnects and deadlines.
+Keep it independent of any guessed QNX device path or unverified role switch.
+Actual transport/profile selection, installed-version matching, authentication
+compatibility and execution/recovery access remain separate gates.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1324,11 +1390,11 @@ recovery route remain prerequisites for any car-side work.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Trace QNX USB transport ownership, roles/endpoints and stock iPod service
-   coordination in the pinned corpus (Step 30), then define/test a bounded host
-   transport adapter. Application replies and minimal opt-in identification now
-   pass simulated exchanges (Steps 28-30); actual QNX USB transport remains
-   separate. Establish the
+3. Implement/test the bounded host transport pump specified in Step 33.
+   The pinned corpus's stock USB/HID path and service coordination are traced
+   (Steps 31-32), but physical ownership and a usable iAP2 profile are unknown.
+   Application replies and minimal opt-in identification pass simulated
+   exchanges (Steps 28-30); actual QNX USB transport remains separate. Establish the
    existing Apple authentication chip's identity
    and usable interface. The register operations and cached `authcoproc`
    relative export path are now traced. The first diagnostic-route inspection

@@ -255,6 +255,27 @@ the existing Win32 Lua host and `C:/Windows/System32/tar.exe` to read one pinned
 ISO member into memory; no vendor shell script runs and no trigger file is
 created. Optional `--output` must name a new file.
 
+### Stock USB transport investigation
+
+The later corpus configures QNX USB host ownership, an iPod HID data path and
+separate audio capture. Seventeen bounded native scenarios now reproduce stock
+report framing, partial transfers, stalls and disconnect behavior using mocked
+USB only. Six new tool tests bring the Python suite to 19 passing tests.
+
+```powershell
+python -B scripts/inspect_ipod_auth.py --module usb
+python -B scripts/probe_usb_transport.py
+python -B -m unittest discover -s tests -p test_usb_transport_tools.py -v
+```
+
+The probe verifies 12 inputs and refuses modified files or existing output
+targets. It neither opens USB nor runs attachment/initialization code. Findings,
+source references and the next portable-adapter contract are in the new
+[step-by-step USB transport report](reports/usb-transport.md) and
+[CarPlay progress, Steps 31-33](reports/carplay-progress.md#step-31---pin-and-trace-stock-usb-ownership).
+This does not establish an iAP2 USB backend, installed-version compatibility or
+physical port ownership on the car. No installable CarPlay update exists yet.
+
 ### C++ binary analyzer
 
 ```powershell

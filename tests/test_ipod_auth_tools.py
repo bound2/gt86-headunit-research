@@ -21,7 +21,7 @@ class AnalysisToolTests(unittest.TestCase):
         self.assertEqual(elf.metadata()["sha256"], hashlib.sha256(elf.data).hexdigest())
 
     def test_changed_vendor_input_refused(self):
-        for module in ("i2c", "ipod", "media"):
+        for module in ("i2c", "ipod", "media", "usb"):
             original = PinnedElf(module).data
             changed = original[:-1] + bytes([original[-1] ^ 1])
             with self.subTest(module=module), patch.object(Path, "read_bytes", return_value=changed):
