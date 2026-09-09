@@ -191,7 +191,7 @@ static iap2_identification_metadata test_identity() {
     iap2_identification_metadata m{};
     m.name = span("PC TEST ONLY"); m.model = span("SYNTHETIC"); m.manufacturer = span("Test fixture");
     m.serial = span("NOT-A-DEVICE-SERIAL"); m.firmware = span("test-1"); m.hardware = span("none");
-    m.current_language = m.languages[0] = span("en"); m.language_count = 1;
+    m.current_language = m.languages[0] = span("en"); m.languages[1] = span("de"); m.language_count = 2;
     m.power_capability = 0; m.maximum_current_ma = 0; return m;
 }
 static Bytes enable_identification(Endpoint& e) {

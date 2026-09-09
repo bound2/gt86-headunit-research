@@ -28,7 +28,7 @@ int iap2_identification_encode(const iap2_identification_metadata *m, uint8_t *o
     const iap2_identification_text *identity[6];
     static const uint8_t sent[] = {0xaa,0x01,0xaa,0x03,0x1d,0x01};
     static const uint8_t received[] = {0xaa,0x00,0xaa,0x02,0xaa,0x04,0xaa,0x05,0x1d,0x00,0x1d,0x02,0x1d,0x03};
-    size_t i, j, total = 6 + 4 + sizeof sent + 4 + sizeof received + 5 + 6, offset;
+    size_t i, j, total = 6 + 4 + sizeof sent + 4 + sizeof received + 5 + 6, offset, language_bytes = 0;
     unsigned matches = 0;
     uint8_t current[2];
     if (written) *written = 0;
@@ -45,9 +45,10 @@ int iap2_identification_encode(const iap2_identification_metadata *m, uint8_t *o
         if (!valid_text(&m->languages[i], 16)) return IAP2_ARGUMENT;
         for (j = 0; j < i; ++j) if (equal(&m->languages[i], &m->languages[j])) return IAP2_ARGUMENT;
         if (equal(&m->current_language, &m->languages[i])) ++matches;
-        total += m->languages[i].size + 5;
+        language_bytes += m->languages[i].size + 1;
     }
     if (matches != 1) return IAP2_ARGUMENT;
+    total += 4 + language_bytes; /* One parameter contains all NUL-terminated list elements. */
     if (total > capacity || total > IAP2_IDENTIFICATION_LIMIT) return IAP2_NO_SPACE;
     out[0] = out[1] = 0x40; put16(out + 2, total); put16(out + 4, 0x1d01); offset = 6;
     for (i = 0; i < 6; ++i) offset += string_param(out + offset, (uint16_t)i, identity[i]);
@@ -56,7 +57,11 @@ int iap2_identification_encode(const iap2_identification_metadata *m, uint8_t *o
     offset += param(out + offset, 8, &m->power_capability, 1);
     put16(current, m->maximum_current_ma); offset += param(out + offset, 9, current, sizeof current);
     offset += string_param(out + offset, 12, &m->current_language);
-    for (i = 0; i < m->language_count; ++i) offset += string_param(out + offset, 13, &m->languages[i]);
+    put16(out + offset, language_bytes + 4); put16(out + offset + 2, 13); offset += 4;
+    for (i = 0; i < m->language_count; ++i) {
+        copy(out + offset, (const uint8_t *)m->languages[i].data, m->languages[i].size);
+        offset += m->languages[i].size; out[offset++] = 0;
+    }
     *written = offset; return IAP2_OK;
 }
 void iap2_identification_reset(iap2_identification *id) {

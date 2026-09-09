@@ -114,6 +114,10 @@ plus caller-owned buffers. This is not QNX linking or an iPhone test.
 
 ## Step 5 - Audit the remaining identification payload
 
+Follow-up: startup-order support was committed and pushed as `5fb094d`; the
+[subsequent payload correction](identification-wire-audit.md) resolves the
+language-list defect described below with a failing-then-passing regression.
+
 Review found another concrete compatibility defect: the current identification
 encoder emits one SupportedLanguage parameter per language. The pinned CSM
 encoder concatenates all language strings inside one parameter. Our existing

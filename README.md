@@ -191,11 +191,14 @@ authentication/identification IDs. This incomplete profile is for PC integration
 tests, not a claim of phone acceptance. Identifying the accessory to a phone
 does **not** read the existing Apple authentication chip's identity.
 
-Seven dedicated test groups compare common fields and accepted/rejected messages
+Eight dedicated test groups compare common fields and accepted/rejected messages
 with the pinned vectors, enforce metadata/size limits, and check sequencing.
 The extended endpoint simulation verifies a fragmented identification response
 despite packet loss, followed by a synthetic application roundtrip. See
 [CarPlay progress, Steps 28-30](reports/carplay-progress.md#step-28---add-an-atomic-application-reply-path).
+The subsequent [payload audit](reports/identification-wire-audit.md) corrects
+multi-language encoding to one packed field, adds independent byte regressions
+and reduces the minimal encoder's maximum message size to 930 bytes.
 
 ### Bounded byte-stream transport pump
 

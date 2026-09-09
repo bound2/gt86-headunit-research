@@ -34,6 +34,8 @@ typedef struct iap2_identification_metadata {
 /* Encodes fields 0..9,12,13 only. Fixed message lists advertise only this
  * library's auth/identification IDs, not application protocols. No transport
  * components or CarPlay flags emitted. Not a claim a phone accepts this subset.
+ * Supported languages share ONE field 13, with concatenated NUL-terminated
+ * strings; current language remains field 12. Maximum encoded size: 930 bytes.
  * Preflight errors leave output untouched and written=0. No overlapping
  * metadata/output/storage, mutable concurrent input, heap allocation or I/O.
  */

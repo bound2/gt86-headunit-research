@@ -319,7 +319,7 @@ static Bytes enable_test_identification(Fixture& f) {
     iap2_identification_metadata m{};
     m.name = span("PC TEST ONLY"); m.model = span("SYNTHETIC"); m.manufacturer = span("Test fixture");
     m.serial = span("NOT-A-DEVICE-SERIAL"); m.firmware = span("test-1"); m.hardware = span("none");
-    m.current_language = m.languages[0] = span("en"); m.language_count = 1;
+    m.current_language = m.languages[0] = span("en"); m.languages[1] = span("de"); m.language_count = 2;
     Bytes information(1024); size_t n;
     check(iap2_identification_encode(&m, information.data(), information.size(), &n) == 0 &&
           iap2_control_enable_identification(&f.endpoint, &m) == 0, "explicit pump test identity");

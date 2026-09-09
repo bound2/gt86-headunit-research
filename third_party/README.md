@@ -105,3 +105,10 @@ rejection and the absence of automatic fallback are local policies. New tests
 use synthetic peers with both orders and deliberately lost packets; no new
 upstream source or credentials are copied. See
 [startup-order.md](../reports/startup-order.md).
+
+The later identification payload audit applies the same pinned `[list str]`
+encoding rule to SupportedLanguage: field 13 contains all NUL-terminated
+elements, not repeated parameters. The new multi-language expected bytes are
+independently specified test data derived from that rule; the original upstream
+single-language fixture remains unchanged. This corrects a local implementation
+and test error, and does not add an upstream dependency or capability claim.

@@ -16,7 +16,7 @@ link profile adds negotiation, ACKs, retransmission and bounded queues with
 16 link test groups. A bounded control-session adapter now connects link payloads
 to authentication, including split/coalesced messages and larger replies. It
 now also supports atomic application replies and opt-in minimal accessory
-identification, with 30 control and seven dedicated identification test groups.
+identification, with 30 control and eight dedicated identification test groups.
 The new bounded byte-stream transport pump retains partial writes, accounts for
 receive tails and closes failed/stale connections, with 17 dedicated test groups.
 CarPlay startup codecs now round-trip four pinned fixtures, with nine dedicated
@@ -28,7 +28,7 @@ authentication-first default remains available. See [startup-order.md](startup-o
 All ten CTest suites pass, and all six protocol suites pass under host
 address/undefined-behavior sanitizers. The seven C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-40 and [the session-start report](carplay-session-start.md).
+Steps 22-41 and [the session-start report](carplay-session-start.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1252,7 +1252,8 @@ Implementation sequence:
    Existing Bluetooth/wired Apple audio support does not establish these values
    for a custom QNX endpoint. The resulting subset may be rejected by a phone.
 4. Pre-encode and copy metadata into 1024 bytes of owned storage. The maximum
-   permitted profile occupies 942 wire bytes. Invalid metadata or insufficient
+   permitted profile at this checkpoint occupied 942 wire bytes (the packed-list
+   correction in Step 41 reduces it to 930). Invalid metadata or insufficient
    endpoint reply capacity leaves the previous configuration unchanged. Source
    metadata spans need not remain alive after successful enablement.
 5. Keep identification disabled by default. `iap2_control_enable_identification`
@@ -1533,6 +1534,23 @@ single-language fixture did not expose it. Correct that payload/test next, then
 extend truthful supported-message/USB-host declarations. None of these host
 checks establishes a real QNX transport, authentication acceptance or media.
 
+## Step 41 - Correct multi-language identification encoding
+
+Status: identification-first startup committed and pushed as `5fb094d`.
+The [identification payload audit](identification-wire-audit.md) documents the
+packed-language discrepancy, failing regression and fix. Field 13 now occurs
+once with concatenated NUL-terminated language strings, matching the pinned
+encoder rule. Single-language bytes are unchanged; the maximum minimal profile
+is 930 rather than 942 bytes. No additional capability is advertised.
+
+Eight identification groups now include independently specified one-to-four-
+language payloads, every undersized output capacity, exact bounds and caller-
+storage ownership. Control and pump integration fixtures now use two languages.
+All ten CTest suites, six sanitized suites and the seven-unit ARM check pass
+after the correction. Next extend explicit supported-message/USB-host metadata
+and the referenced power-source message, before building the remaining real
+pairing/network/media receiver path. Actual car compatibility remains unproven.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1543,9 +1561,9 @@ checks establishes a real QNX transport, authentication acceptance or media.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Correct the packed SupportedLanguage field found during the Step 40 payload
-   audit, then extend explicit supported-message/transport declarations.
-   Identification-first startup is now implemented and tested; Steps 37-39
+3. Extend explicit supported-message/USB-host declarations and typed wired
+   PowerSourceUpdate handling. The packed SupportedLanguage defect is fixed
+   in Step 41. Identification-first startup is implemented and tested; Steps 37-39
    trace session startup and implement a bounded message subset. Missing CarPlay
    message/transport declarations remain a compatibility gap. The bounded host
    transport pump passes simulated transfers and authentication (Steps 34-35).
