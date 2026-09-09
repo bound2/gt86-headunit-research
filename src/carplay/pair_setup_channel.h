@@ -53,6 +53,13 @@ int pair_setup_channel_release(pair_setup_channel *,rtsp_channel_key,uint64_t no
  */
 int pair_setup_channel_take(pair_setup_channel *,rtsp_channel_key,projection_control *,const projection_control_config *,
                              const projection_control_storage *,uint64_t next_generation,uint64_t now_ms);
+struct projection_auth;struct projection_auth_config;struct mfi_sap_provider;
+/* Same committed-M6/ownership boundary, initializing the fresh known-controller
+ * pairing + encrypted MFiSAP owner. Actual MFi provider is explicit and remains
+ * dormant through transfer/pair-verify. Neither transfer marks MFi accepted.
+ */
+int pair_setup_channel_take_auth(pair_setup_channel *,rtsp_channel_key,struct projection_auth *,const struct projection_auth_config *,
+                                  const projection_control_storage *,const struct mfi_sap_provider *,uint64_t next_generation,uint64_t now_ms);
 int pair_setup_channel_eof(pair_setup_channel *,uint64_t generation,uint64_t now_ms);
 void pair_setup_channel_close(pair_setup_channel *);
 uint32_t pair_setup_channel_next_delay(const pair_setup_channel *);

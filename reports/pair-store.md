@@ -284,9 +284,11 @@ data was removed.
 
 ## Step 7 - Continue implementation without claiming installation readiness
 
-Next connect explicit enrollment policy and first-request mode selection to the
-pre-session capability/auth routes, then typed session handlers and real network/
-media endpoints. Storage still needs a reviewed QNX backend, explicit revocation/
+Step 59 adds [encrypted MFiSAP and enrollment handoff](mfi-sap.md); authentication
+runs after pair verification, not on an unauthenticated plaintext route. Next
+connect explicit enrollment policy/first-request selection, capability declarations,
+typed session handlers and real network/media endpoints. Storage still needs a
+reviewed QNX backend, explicit revocation/
 recovery policy and a genuine approval/provisioning frontend before production use.
 
 Actual Go-module identity, native USB-network ownership, usable Apple authentication

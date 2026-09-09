@@ -60,23 +60,30 @@ Real first-time SRP/setup, explicit enrollment/candidate approval, trust-commit
 handling and an owning RTSP-to-pair-verify transfer now add nine groups. A portable
 identity/trust snapshot and real private Windows file store now persist approved
 enrollment through reopen/process restart, with corruption/uncertain-write tests
-and encrypted-control integration. Target QNX storage, approval/revocation UI,
-network/media and hardware integration remain missing. Python regression checks
-total 25, plus independent checkers for 21
-pair-verification, 12 control-frame and 51 setup fixture values.
+and encrypted-control integration. MFiSAP response calculation and an owning
+encrypted `/auth-setup` route now add seven groups, including same-transport
+enrollment-to-verification-to-MFi handoff. Cryptography is real; the explicit
+certificate/signature test providers are synthetic, not Apple credentials or
+proof of handset acceptance. Target QNX storage, approval/revocation UI,
+initial route selection, capability/session handling, network/media and hardware
+integration remain missing. Python regression checks total 25, plus independent
+checkers for 21 pair-verification, 12 control-frame, 51 setup and 39 combined
+MFi/pair-verification fixture values.
 Native USB and actual phone pairing remain absent.
-All nineteen ordinary, twenty-two TLS-only and twenty-nine combined crypto/TLS
+All nineteen ordinary, twenty-two TLS-only and thirty combined crypto/TLS
 CTest suites pass. All fifteen protocol suites, five pairing/control/store suites,
-the enrollment and real-file suites and three TLS/carkit/integration suites pass under host
+the enrollment, real-file and MFiSAP suites and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-58 and [the persistent-store report](pair-store.md). Hosted TLS
+Steps 22-59, [the persistent-store report](pair-store.md) and
+[the encrypted MFi report](mfi-sap.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
-not included in either ARM claim. The Windows-only filesystem backend is also
+not included in either ARM claim. The new hosted MFi/AES target and
+Windows-only filesystem backend are also
 excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -2285,6 +2292,75 @@ execution/recovery remain unresolved. No real trust record, phone, head unit,
 firmware image or update USB was read or modified; no installable CarPlay update
 has been produced.
 
+## Step 59 - Own encrypted MFi authentication after verification
+
+Date: 2026-09-10. Added [mfi-sap.md](mfi-sap.md) with pinned primary sources,
+the exact response calculation, provider contract, ownership rules, independent
+vectors and remaining integration limits. The selected reference places this
+exchange inside encrypted control after pair verification; it is not an
+unauthenticated plaintext authentication route.
+
+New hosted `mfi_sap` performs fresh X25519, the protocol's SHA1 AES key/IV
+derivations, SHA1 or SHA256 transcript hashing for explicit protocol majors 2/3,
+and AES128-CTR signature encryption. It requires a supplied certificate/signing
+provider with a stable identity and bounded operations. Unknown chip protocol
+majors, malformed requests, invalid ECDH and failed/empty/overreported provider
+outputs fail closed. There is no default credential, emulated MFi private key,
+actual chip driver or claim that opaque certificate length checks validate an
+Apple certificate chain. Ephemeral secrets and crypto temporaries are wiped.
+
+New `projection_auth` owns fresh verification/control and MFi children. Only
+exact encrypted `POST /auth-setup` with a unique octet-stream content type can
+invoke the provider. Plaintext requests, failed controller verification and
+cipher tampering never reach it. The bounded reply uses the existing correlated
+encrypted output, fragmentation and retained-tail handling. Partial writes do
+not re-sign. Only complete matching downstream drain releases the MFi reply;
+`MFI_SAP_DRAINED` means local output drained, not phone acceptance or active media.
+Generation/token, monotonic-time and independent absolute reply budgets remain
+enforced. Synchronous provider I/O must itself be bounded.
+
+`pair_setup_channel_take_auth` extends the committed-M6 transfer into this fresh
+owner with a new generation. It supports reuse of the same cleared RX/TX buffers,
+preserves following external wire, and leaves the destination/source unchanged
+on argument rejection. Old-source teardown or repeated transfer cannot erase
+the receiving owner. The old control-only handoff remains available. The new
+integration test uses a memory-only trust-provider simulation; actual Windows
+file persistence remains independently tested by Step 58.
+
+Seven test groups cover both protocol majors, independent crypto/transcript
+bytes, AES partial blocks, maximum response, malformed/short requests, provider
+failures, zero/low-order ECDH, deadlines, stale ownership, clearing and no retry.
+Integrated tests cover real verification, byte-fragmented encrypted requests,
+multi-record/partial replies, same-record next-request tails, explicit application
+501 responses, replayed auth, premature/lost drain and EOF. Approved SRP setup,
+commit/M6 gating, same-connection transfer, verification and encrypted MFi reply
+also run end to end with public synthetic credentials. The independent PyCA/
+hashlib checker reproduces 39 public values, not real MFi licensing signatures.
+
+All 30 combined CTest, 19 ordinary, 22 TLS-only and 25 Python regressions pass.
+The new suite, enrollment, actual-file and three TLS/carkit suites pass ASan/UBSan
+with both crypto dependencies instrumented, as do the five existing pairing/
+control/store suites. Latest MFi test additions were rebuilt and rerun against
+the instrumented objects. New/changed C99 modules and tests pass strict Clang
+warnings; static analysis reports no finding in the changed C99 modules. Nine
+prepared AES/SHA source/header files match the pinned Mbed TLS tag after newline
+normalization; this is not a revalidation of its entire extracted source tree.
+
+The new hosted target is excluded from both ARM claims. The unchanged optional
+ten-unit ARM check still passes its four-helper policy. MFiSAP occupies 4,744
+bytes and the owning wrapper 6,728 bytes on x64, plus caller buffers and stack
+temporaries. Target runtime, side-channel and performance suitability remain
+unverified. No actual phone, authentication chip, head unit, real trust record,
+firmware image or update USB was accessed or modified.
+
+Next implement initial route/mode selection and explicit capability encoding
+tied to available display/audio/input resources, followed by typed session
+handling and actual endpoints. Unknown application requests remain held for
+explicit policy, not automatically acknowledged; no unsupported capabilities
+are advertised. A compatible factory-chip provider, target execution/recovery,
+USB-network ownership and actual media integration remain unresolved. Software-
+only CarPlay on the factory unit is still unproven and not installable.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2295,8 +2371,12 @@ has been produced.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Connect enrollment policy/initial-mode selection, pre-session capability/auth
-   routes, typed session handlers and network/media with real listeners.
+3. Connect enrollment policy/initial-mode selection, explicit capability
+   encoding, typed session handlers and network/media with real listeners.
+   Step 59 implements the post-verification encrypted MFiSAP route and same-
+   transport enrollment handoff using real crypto and explicit synthetic test
+   providers. The actual factory authentication-chip provider remains absent;
+   local reply drain does not establish phone acceptance or usable media.
    Step 58 implements a portable identity/controller snapshot and actual private
    Windows store with strict journal/flush/uncertainty handling. Target QNX storage,
    real provisioning/approval and explicit revocation/recovery remain necessary.

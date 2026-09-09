@@ -341,3 +341,16 @@ Music Assistant's Apache-2.0 AirPlay source was inspected only to cross-check
 integer serialization; no bodies or permissive verification behavior were
 copied. Python integer/PyCA fixtures are public synthetic data, not phone
 captures. See [pair-setup.md](../reports/pair-setup.md) for source pins and limits.
+
+`mfi_sap.c`/`.h`, `projection_auth.c`/`.h`, their tests and the independent MFiSAP
+checker select GPL-3.0-only. The same pinned LIVI `authSetup.ts`, `mfiSigner.ts`,
+`crypto.ts` and `cpStack.ts` are protocol references; no implementation bodies
+were copied. The optional `carplay_projection_auth` target uses the already
+pinned Monocypher and Mbed TLS SHA/AES APIs with the license selections above.
+Enrollment also links that target for its explicit same-transport transfer.
+No new dependency, real MFi certificate, private key, signature capture or default
+signer is distributed. Opaque synthetic provider results are test-only; independent
+PyCA/hashlib values validate actual ECDH/hash/AES/framing, not Apple licensing.
+Unknown-major rejection, exact routing, output/drain ownership, deadlines and
+bounded provider output are local policies. See [mfi-sap.md](../reports/mfi-sap.md)
+for source blobs, validation commands and the remaining hardware/provider boundary.

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #include "pair_setup_channel.h"
+#include "projection_auth.h"
 static void copy(uint8_t *d,const uint8_t *s,size_t n) { while(n--) *d++=*s++; }
 static rtsp_slice literal(const char *p) { rtsp_slice s;s.data=(const uint8_t *)p;s.size=0;while(p[s.size]) ++s.size;return s; }
 static int equals(rtsp_slice a,const char *b) { size_t i;for(i=0;i<a.size;++i) if(!b[i]||a.data[i]!=(uint8_t)b[i]) return 0;return !b[a.size]; }
@@ -108,6 +109,17 @@ int pair_setup_channel_take(pair_setup_channel *c,rtsp_channel_key key,projectio
 }
 int pair_setup_channel_eof(pair_setup_channel *c,uint64_t gen,uint64_t now) {
     int r=pair_setup_channel_check(c,gen,now);return r==IAP2_OK?stop(c,PAIR_SETUP_CHANNEL_REASON_EOF,IAP2_END):r;
+}
+int pair_setup_channel_take_auth(pair_setup_channel *c,rtsp_channel_key key,projection_auth *out,const projection_auth_config *cfg,
+                                  const projection_control_storage *storage,const mfi_sap_provider *provider,uint64_t gen,uint64_t now) {
+    projection_auth fresh;int r=keyed(c,key);if(r!=IAP2_OK) return r;
+    if(!out||!cfg||!storage||!provider||!gen||gen==c->generation) return IAP2_ARGUMENT;
+    if(c->state!=PAIR_SETUP_CHANNEL_DRAINED) return PAIR_SETUP_BUSY;if(now<c->now) return IAP2_ARGUMENT;
+    r=projection_auth_init(&fresh,c->identity,c->random,c->random_context,c->lookup,c->lookup_context,provider,cfg,storage,gen,now);
+    if(r!=IAP2_OK) { pair_crypto_wipe(&fresh,sizeof(fresh));return r; }
+    r=pair_setup_channel_check(c,key.generation,now);if(r==IAP2_OK) copy((uint8_t *)out,(const uint8_t *)&fresh,sizeof(fresh));
+    pair_crypto_wipe(&fresh,sizeof(fresh));if(r!=IAP2_OK) return r;
+    rtsp_channel_close(&c->rtsp);providers_clear(c);c->state=PAIR_SETUP_CHANNEL_DETACHED;return IAP2_OK;
 }
 void pair_setup_channel_close(pair_setup_channel *c) { if(c&&c->generation) (void)stop(c,PAIR_SETUP_CHANNEL_REASON_LOCAL,IAP2_OK); }
 uint32_t pair_setup_channel_next_delay(const pair_setup_channel *c) {

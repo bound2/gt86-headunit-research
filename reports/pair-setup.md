@@ -245,10 +245,13 @@ head-unit memory/timing suitability or a linked/executed QNX enrollment process.
 Step 58 now implements a portable snapshot and actual explicit Windows identity/
 controller store, with strict journal/flush behavior and corruption/conflict/
 interruption tests. See [the persistence follow-up](pair-store.md); target QNX
-storage, revocation/recovery policy and provisioning remain separate. Next connect enrollment approval and first-request
-mode selection to pre-session capability/auth routes, typed session handlers
-and real endpoint listeners. MFi auth-setup, native USB networking, video/audio/
-input and target execution/recovery still require implementation or verification.
+storage, revocation/recovery policy and provisioning remain separate. Step 59
+adds [encrypted MFiSAP](mfi-sap.md) and `pair_setup_channel_take_auth`, transferring
+this owner after M6 drain into fresh verification/encrypted authentication on the
+same transport. Real chip access is not supplied. Next connect enrollment policy/
+first-request mode selection, capability declarations, typed session handlers
+and real endpoints. Native USB networking, video/audio/input and target execution/
+recovery still require implementation or verification.
 
 Actual Go-module identity, installed-version compatibility, authentication-chip
 access and a safe recovery path remain unresolved. No real trust record, phone,

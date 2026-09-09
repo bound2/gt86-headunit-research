@@ -403,7 +403,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayCry
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayCrypto.ps1
 ```
 
-The combined build passes 29 suites; new crypto tests use RFC vectors and a
+The combined build passes 30 suites; new crypto tests use RFC vectors and a
 PyCA-reproduced transcript. The crypto sanitizer includes Monocypher itself.
 Its separate ARM object check reports required runtime helpers and does not
 extend the core's import-free claim. Target trust persistence, approval UI,
@@ -445,6 +445,17 @@ and fault-instrumented backends are tested separately. The format is plaintext,
 ACL-protected, not encrypted or rollback-resistant; no QNX backend, revocation
 UI or target power-loss guarantee is supplied. See
 [the step-by-step storage report](reports/pair-store.md).
+
+`mfi_sap.h` and `projection_auth.h` add the MFiSAP v1 response calculation and
+an owning encrypted `/auth-setup` route after real pair verification. The
+certificate/signing provider is explicit; unknown chip protocol majors and
+failed/malformed replies cannot silently succeed. The enrollment owner can
+transfer into this receiver on the same transport after committed M6 drains.
+Seven groups and 39 independent public values verify actual X25519/SHA/AES,
+encrypted output/drain, failure handling and enrollment transfer. Synthetic
+provider bytes do not prove real MFi licensing or chip compatibility. Initial
+route selection, capability/media handlers and actual hardware integration
+remain incomplete. See [the MFiSAP report](reports/mfi-sap.md).
 
 ## Read-only firmware analysis
 
