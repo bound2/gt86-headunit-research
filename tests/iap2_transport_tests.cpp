@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Fake nonblocking byte streams and synthetic credentials only. No USB calls.
 #include "iap2_transport.h"
+#include "iap2_power.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -351,9 +352,10 @@ static void full_authentication_exchange(bool identification_first = false) {
     iap2_link peer{}; auto peer_config = f.control_config.link; peer_config.initial_sequence = 42;
     check(iap2_link_init(&peer, &peer_config) == 0 && iap2_link_start(&peer, 0) == 0, "peer start");
     f.start(); Bytes received; unsigned stage = 0;
-    bool requested = false, accepted = false, app_queued = false, replied = false;
+    bool requested = false, accepted = false, app_queued = false, replied = false, power_queued = false;
     const Bytes cert(257, 0x37), signature(32, 0x52), challenge(16, 0x71);
     const Bytes app_body(90, 0x24), app_request = csm(0x6807), app_reply = csm(0x6808, &app_body);
+    const Bytes power_bytes{0x40,0x40,0,17,0xae,3,0,6,0,0,0,0,0,5,0,1,0}; // Explicit zero current/charge intent.
     for (unsigned iteration = 0; iteration < 5000; ++iteration) {
         const int pump_status = f.poll(); check(pump_status >= 0, "pump exchange alive");
         if (identification_first && f.endpoint.identification.state != IAP2_IDENTIFICATION_ACCEPTED)
@@ -387,27 +389,35 @@ static void full_authentication_exchange(bool identification_first = false) {
                 check(iap2_link_send(&peer, 10, next.data(), next.size(), f.now) == 0, "peer coalesces identification acceptance and auth request");
             } else {
                 const unsigned auth_stage = stage - (identification_first ? 1u : 0u);
-                check(received == (auth_stage == 0 ? csm(0xaa01, &cert) : auth_stage == 1 ? csm(0xaa03, &signature) : app_reply),
+                check(received == (auth_stage == 0 ? csm(0xaa01, &cert) : auth_stage == 1 ? csm(0xaa03, &signature) :
+                      (identification_first && auth_stage == 2) ? power_bytes : app_reply),
                       "peer sees complete synthetic reply");
                 if (auth_stage < 2) {
                     const auto next = auth_stage == 0 ? csm(0xaa02, &challenge) : csm(0xaa05);
                     check(iap2_link_send(&peer, 10, next.data(), next.size(), f.now) == 0, "peer queues next auth step");
                 }
             }
-            check(++stage <= (identification_first ? 4u : 3u), "no duplicate replies"); received.clear();
+            check(++stage <= (identification_first ? 5u : 3u), "no duplicate replies/notifications"); received.clear();
         }
-        if (stage == (identification_first ? 3u : 2u) && f.endpoint.auth.state == IAP2_AUTH_ACCEPTED && !app_queued) {
+        if (identification_first && stage == 3 && f.endpoint.auth.state == IAP2_AUTH_ACCEPTED && !power_queued) {
+            const iap2_power_source power{1, 0, 1, 0};
+            check(iap2_power_source_notify(&f.endpoint, &power, f.now) == 0 && !f.endpoint.ready,
+                  "explicit unsolicited power notification after both startup phases");
+            power_queued = true;
+        }
+        if (stage == (identification_first ? 4u : 2u) && f.endpoint.auth.state == IAP2_AUTH_ACCEPTED && !app_queued) {
             check(iap2_link_send(&peer, 10, app_request.data(), app_request.size(), f.now) == 0, "peer application request");
             app_queued = true;
         }
         const int status = iap2_link_output(&peer, bytes, sizeof bytes, &n, f.now);
         check(status == IAP2_OK || status == IAP2_MORE, "peer output live");
         if (n) f.backend.input.insert(f.backend.input.end(), bytes, bytes + n);
-        if (stage == (identification_first ? 4u : 3u) && f.endpoint.auth.state == IAP2_AUTH_ACCEPTED && !peer.tx_count && !f.pump.tx_size &&
+        if (stage == (identification_first ? 5u : 3u) && f.endpoint.auth.state == IAP2_AUTH_ACCEPTED && !peer.tx_count && !f.pump.tx_size &&
             !f.endpoint.reply_size && !f.endpoint.link.tx_count) { accepted = true; break; }
     }
     check(accepted && replied && f.certificates == 1 && f.signatures == 1 && f.signed_challenge == challenge,
           "full auth/application exchange over pump, exact challenge, provider exactly once");
+    check(power_queued == identification_first, "power notification is explicit, not automatic auth side effect");
     check(f.endpoint.identification.state == (identification_first ? IAP2_IDENTIFICATION_ACCEPTED : IAP2_IDENTIFICATION_DISABLED),
           "identification only accepted when explicitly configured and completed");
     iap2_transport_close(&f.pump);

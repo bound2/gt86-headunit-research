@@ -16,19 +16,20 @@ link profile adds negotiation, ACKs, retransmission and bounded queues with
 16 link test groups. A bounded control-session adapter now connects link payloads
 to authentication, including split/coalesced messages and larger replies. It
 now also supports atomic application replies and opt-in minimal accessory
-identification, with 30 control and eight dedicated identification test groups.
+identification, with 35 control and eight dedicated identification test groups.
 The new bounded byte-stream transport pump retains partial writes, accounts for
 receive tails and closes failed/stale connections, with 17 dedicated test groups.
-CarPlay startup codecs now round-trip four pinned fixtures, with nine dedicated
-groups and an explicit, gated wired-start reply helper. No capability is
+CarPlay/power codecs now round-trip five pinned fixtures, with 12 dedicated
+groups, an explicit wired-start reply and unsolicited power notifications that
+preserve held input. No capability is
 automatically advertised and no network/media session is opened. The pinned
 runtime's identification-first order is now supported through explicit opt-in
 configuration, with independent phase budgets and provider gating. The original
 authentication-first default remains available. See [startup-order.md](startup-order.md).
 All ten CTest suites pass, and all six protocol suites pass under host
-address/undefined-behavior sanitizers. The seven C99
+address/undefined-behavior sanitizers. The eight C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-41 and [the session-start report](carplay-session-start.md).
+Steps 22-42 and [the session-start report](carplay-session-start.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1551,6 +1552,25 @@ after the correction. Next extend explicit supported-message/USB-host metadata
 and the referenced power-source message, before building the remaining real
 pairing/network/media receiver path. Actual car compatibility remains unproven.
 
+## Step 42 - Add unsolicited wired power-source notifications
+
+Status: preceding language fix committed/pushed as `8dae42e`.
+The new [power-notifications.md](power-notifications.md) traces the reference's
+post-authentication `0xae03`, implements its typed fields and adds explicit
+unsolicited application output. Notifications retain held/partial/coalesced
+input without extending its deadline, use the same bounded TX/ACK queue as
+replies, and cannot inject reserved startup messages. No provider is invoked.
+
+The typed helper requires accepted identification/authentication and explicit
+current/charge policy. Zero current is valid; no reference rating is assumed.
+Three new codec and five control groups bring those suites to 12 and 35.
+The fragmented pump simulation now includes unsolicited power before an
+application exchange. All ten CTest suites, six sanitized suites, eight-unit
+ARM check and 19 Python tests pass. Native charging/USB behavior is unchanged.
+
+Next add explicit USB-host identification and implemented-message declarations;
+the minimal default still declares neither CarPlay nor power-source messages.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1561,8 +1581,8 @@ pairing/network/media receiver path. Actual car compatibility remains unproven.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Extend explicit supported-message/USB-host declarations and typed wired
-   PowerSourceUpdate handling. The packed SupportedLanguage defect is fixed
+3. Extend explicit supported-message/USB-host declarations. Typed wired
+   PowerSourceUpdate and unsolicited output are implemented in Step 42. The packed SupportedLanguage defect is fixed
    in Step 41. Identification-first startup is implemented and tested; Steps 37-39
    trace session startup and implement a bounded message subset. Missing CarPlay
    message/transport declarations remain a compatibility gap. The bounded host

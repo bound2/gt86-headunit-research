@@ -143,7 +143,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySan
 
 This builds/runs the six protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all seven C99
+or car access is required. The ARM portability check now covers all eight C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -165,7 +165,7 @@ atomically. Reserved authentication/identification replies cannot be injected
 through this API. See
 [CarPlay progress, Steps 25-27](reports/carplay-progress.md#step-25---connect-control-messages-to-the-authentication-sequencer).
 
-Thirty control test groups cover buffer limits, backpressure, teardown, deadlines
+Thirty-five control test groups cover buffer limits, backpressure, teardown, deadlines
 and exchanges between two library endpoints with byte-fragmented transport
 and deliberate packet loss. Provider results are synthetic patterns, not real
 credentials. These are local stream/serialization choices, not an Apple
@@ -224,6 +224,13 @@ wireless availability, CarPlay availability and wired StartSession. Four pinned
 fixtures round-trip exactly; a wireless StartSession is explicitly unsupported.
 Nine codec test groups cover nested fields, packed address lists, malformed
 input, borrowed views and transactional output bounds.
+
+Three additional power-codec groups bring that suite to 12, with an exact pinned
+PowerSourceUpdate roundtrip. `iap2_control_notify` adds explicit unsolicited
+output without consuming held input. The typed power helper requires accepted
+identification/authentication and caller-supplied power policy; it supplies no
+current-rating default and changes no hardware charging state. See
+[the power-notification report](reports/power-notifications.md).
 
 An explicit application helper can queue a wired-start reply only after both
 authentication and identification acceptance and a valid wired-available offer.

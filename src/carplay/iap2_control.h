@@ -24,7 +24,7 @@ enum iap2_control_startup_order {
 
 typedef struct iap2_control_config {
     iap2_link_config link; /* Exactly one control session, kind 0/version 1. */
-    uint32_t message_ms; /* Assembly + hold per CSM; also separate app reply-to-ACK budget. */
+    uint32_t message_ms; /* Assembly + hold per CSM; also separate application TX-to-ACK budget. */
     uint32_t authentication_ms; /* Eligible phase start to accepted, including backpressure. */
     uint32_t identification_ms; /* Eligible phase start to accepted, if enabled. */
     enum iap2_control_startup_order startup_order;
@@ -57,7 +57,7 @@ typedef struct iap2_control {
     uint64_t message_at, authentication_at, identification_at, reply_at;
     size_t receive_used, receive_expected, reply_size, reply_offset;
     size_t fragment_size, fragment_offset;
-    uint8_t ready, authentication_timer, identification_timer, application_reply, work_pending;
+    uint8_t ready, authentication_timer, identification_timer, application_reply, work_pending; /* application_reply covers notifications too. */
     uint8_t fragment[IAP2_LINK_PAYLOAD_LIMIT];
 } iap2_control;
 
@@ -117,7 +117,7 @@ int iap2_control_message(const iap2_control *, const uint8_t **data, size_t *siz
 int iap2_control_release_message(iap2_control *);
 /* Atomically copy one complete non-auth/non-identification CSM reply and release
  * the held application request. Requires NORMAL, auth ACCEPTED, and (if enabled)
- * identification ACCEPTED. No unsolicited-send API and no implied app handler.
+ * identification ACCEPTED. No implied application handler.
  * IDLE returns ARGUMENT (call start first). BUSY: negotiation, prior reply or
  * identification pending; MORE: no held request.
  * Invalid/oversize/reserved messages leave the request and reply queue intact.
@@ -126,6 +126,14 @@ int iap2_control_release_message(iap2_control *);
  * transport. Continue output/poll and check next_delay; OK is not peer receipt.
  * Timed call rules apply; input must not overlap endpoint/buffer storage. */
 int iap2_control_reply(iap2_control *, const uint8_t *, size_t, uint64_t now_ms);
+/* Explicit unsolicited application CSM. Same gates, validation, owned-copy,
+ * queue/backpressure and TX-to-ACK deadline as reply, but no request is needed
+ * and any held/partially assembled input is preserved. Never resets its hold
+ * deadline. Reserved auth/identification messages cannot bypass the sequencers.
+ * No automatic send, capability advertisement or provider callback. Caller
+ * must declare supported messages in its actual identification profile.
+ * Call between pump polls; OK means queued, not received or acted upon. */
+int iap2_control_notify(iap2_control *, const uint8_t *, size_t, uint64_t now_ms);
 /* Minimum link/adapter timer or immediate runnable work, from last supplied
  * time. A held MESSAGE is a caller event, not a perpetual zero-delay timer.
  * Always service output for link retry exhaustion as well as poll for CSMs. */

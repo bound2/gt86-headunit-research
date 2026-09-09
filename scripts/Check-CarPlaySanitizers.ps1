@@ -12,7 +12,7 @@ $headunitOutput = Join-Path $headunitRoot 'build/carplay-sanitized'
 New-Item -ItemType Directory -Path $headunitOutput -Force | Out-Null
 $headunitFlags = @('-g', '-O1', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-Wall', '-Wextra', '-Werror')
 $headunitObjects = @()
-foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link', 'iap2_control', 'iap2_identification', 'iap2_transport', 'iap2_carplay')) {
+foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link', 'iap2_control', 'iap2_identification', 'iap2_transport', 'iap2_carplay', 'iap2_power')) {
     $headunitObject = Join-Path $headunitOutput "$headunitName.obj"
     & $headunitClang -std=c99 @headunitFlags -c (Join-Path $headunitRoot "src/carplay/$headunitName.c") -o $headunitObject
     if ($LASTEXITCODE -ne 0) { throw "Sanitized compilation failed: $headunitName" }

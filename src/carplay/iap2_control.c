@@ -217,7 +217,7 @@ int iap2_control_release_message(iap2_control *c) {
     c->ready = 0; c->receive_used = c->receive_expected = 0; c->work_pending = 1;
     return IAP2_OK;
 }
-int iap2_control_reply(iap2_control *c, const uint8_t *data, size_t size, uint64_t now) {
+static int queue_application(iap2_control *c, const uint8_t *data, size_t size, uint64_t now, int reply) {
     iap2_message message;
     size_t used;
     int status;
@@ -229,7 +229,7 @@ int iap2_control_reply(iap2_control *c, const uint8_t *data, size_t size, uint64
     if (c->auth.state != IAP2_AUTH_ACCEPTED) return IAP2_AUTH_FAILED;
     if (c->identification.state != IAP2_IDENTIFICATION_DISABLED &&
         c->identification.state != IAP2_IDENTIFICATION_ACCEPTED) return IAP2_LINK_BUSY;
-    if (!c->ready) return IAP2_MORE;
+    if (reply && !c->ready) return IAP2_MORE;
     status = iap2_message_decode(data, size, &message, &used);
     if (status != IAP2_OK || used != size) return IAP2_INVALID;
     if ((message.id >= 0xaa00 && message.id <= 0xaa05) ||
@@ -237,8 +237,15 @@ int iap2_control_reply(iap2_control *c, const uint8_t *data, size_t size, uint64
     if (size > c->buffers.reply_capacity) return IAP2_NO_SPACE;
     copy(c->buffers.reply, data, size); c->reply_size = size; c->reply_offset = 0;
     c->application_reply = 1; c->reply_at = now;
-    (void)iap2_control_release_message(c);
+    if (reply) (void)iap2_control_release_message(c);
+    else c->work_pending = 1;
     return IAP2_OK;
+}
+int iap2_control_reply(iap2_control *c, const uint8_t *data, size_t size, uint64_t now) {
+    return queue_application(c, data, size, now, 1);
+}
+int iap2_control_notify(iap2_control *c, const uint8_t *data, size_t size, uint64_t now) {
+    return queue_application(c, data, size, now, 0);
 }
 static uint32_t remaining(uint64_t now, uint64_t at, uint32_t interval) {
     uint64_t age = now - at;

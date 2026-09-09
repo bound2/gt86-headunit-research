@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Pinned public CSM vectors and synthetic metadata; never hardware/network I/O.
 #include "iap2_carplay.h"
+#include "iap2_power.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -214,6 +215,77 @@ static void borrowed_views_and_arguments(const Vectors& vectors) {
           iap2_carplay_wired_start_decode(bytes.data(), bytes.size(), nullptr) == IAP2_ARGUMENT, "null decode");
     check(iap2_carplay_reply_wired_start(nullptr, &v, 0) == IAP2_ARGUMENT, "null endpoint helper");
 }
+static void power_source_fields(const Vectors& vectors) {
+    const auto& golden = vectors.at("PowerSourceUpdate"); iap2_power_source decoded{};
+    check(iap2_power_source_decode(golden.data(), golden.size(), &decoded) == 0 &&
+          decoded.has_available_current && decoded.available_current_ma == 2400 && decoded.has_should_charge && decoded.should_charge,
+          "pinned power source fields, fixture rating is not a hardware default");
+    check(encode(decoded, iap2_power_source_encode) == golden, "exact pinned power-source roundtrip");
+    for (unsigned mask = 0; mask < 4; ++mask) for (uint16_t current : {0, 1, 65535}) for (uint8_t charge : {0, 1}) {
+        iap2_power_source value{static_cast<uint8_t>(mask & 1), static_cast<uint16_t>((mask & 1) ? current : 0),
+            static_cast<uint8_t>((mask >> 1) & 1), static_cast<uint8_t>((mask & 2) ? charge : 0)};
+        Bytes params;
+        if (mask & 1) append(params, tlv(0, {static_cast<uint8_t>(current >> 8), static_cast<uint8_t>(current)}));
+        if (mask & 2) append(params, tlv(1, {charge}));
+        const auto bytes = encode(value, iap2_power_source_encode);
+        check(bytes == csm(0xae03, params) && iap2_power_source_decode(bytes.data(), bytes.size(), &decoded) == 0 &&
+              decoded.has_available_current == value.has_available_current && decoded.available_current_ma == value.available_current_ma &&
+              decoded.has_should_charge == value.has_should_charge && decoded.should_charge == value.should_charge,
+              "power optional presence and explicit zero values preserved");
+    }
+}
+static void power_source_rejections(const Vectors& vectors) {
+    for (const auto& bytes : {Bytes{}, Bytes{1}, Bytes{0, 1, 2}})
+        reject<iap2_power_source>(csm(0xae03, tlv(0, bytes)), iap2_power_source_decode, IAP2_INVALID);
+    for (const auto& bytes : {Bytes{}, Bytes{2}, Bytes{0, 1}})
+        reject<iap2_power_source>(csm(0xae03, tlv(1, bytes)), iap2_power_source_decode, IAP2_INVALID);
+    for (unsigned field = 0; field < 2; ++field) {
+        const auto field_bytes = tlv(static_cast<uint16_t>(field), field ? Bytes{1} : Bytes{0, 1});
+        auto params = field_bytes; append(params, field_bytes);
+        reject<iap2_power_source>(csm(0xae03, params), iap2_power_source_decode, IAP2_INVALID);
+    }
+    reject<iap2_power_source>(csm(0xae03, tlv(2, {})), iap2_power_source_decode, IAP2_UNSUPPORTED);
+    reject<iap2_power_source>(csm(0xae01), iap2_power_source_decode, IAP2_UNSUPPORTED);
+    reject<iap2_power_source>(csm(0xae03, {0, 8, 0, 0, 1}), iap2_power_source_decode, IAP2_INVALID);
+    const auto& golden = vectors.at("PowerSourceUpdate");
+    for (size_t size = 0; size < golden.size(); ++size) {
+        iap2_power_source value{1, 9, 1, 0}; std::array<uint8_t, sizeof value> before;
+        std::memcpy(before.data(), &value, sizeof value);
+        check(iap2_power_source_decode(golden.data(), size, &value) == IAP2_INVALID &&
+              !std::memcmp(&value, before.data(), sizeof value), "every truncated power CSM rejected transactionally");
+    }
+    auto trailing = golden; trailing.push_back(0); reject<iap2_power_source>(trailing, iap2_power_source_decode, IAP2_INVALID);
+    auto wrong = golden; wrong[0] = 0; reject<iap2_power_source>(wrong, iap2_power_source_decode, IAP2_INVALID);
+    reject<iap2_power_source>(Bytes(1025), iap2_power_source_decode, IAP2_NO_SPACE);
+}
+static void power_source_output_bounds() {
+    iap2_power_source value{1, 65535, 1, 0}; const auto expected = encode(value, iap2_power_source_encode);
+    for (size_t capacity = 0; capacity <= 17; ++capacity) {
+        Bytes output(19, 0xa5); size_t n = 999;
+        const int status = iap2_power_source_encode(&value, output.data() + 1, capacity, &n);
+        if (capacity < 17) check(status == IAP2_NO_SPACE && !n && output == Bytes(19, 0xa5), "power output capacity transaction");
+        else check(status == 0 && n == 17 && output.front() == 0xa5 && output.back() == 0xa5 &&
+                   Bytes(output.begin() + 1, output.end() - 1) == expected, "power exact output capacity");
+    }
+    for (unsigned variant = 0; variant < 5; ++variant) {
+        auto invalid = value;
+        if (variant == 0) invalid.has_available_current = 2;
+        if (variant == 1) invalid.has_should_charge = 2;
+        if (variant == 2) invalid.should_charge = 2;
+        if (variant == 3) invalid.has_available_current = 0;
+        if (variant == 4) { invalid.has_should_charge = 0; invalid.should_charge = 1; }
+        Bytes output(17, 0xa5); size_t n = 999;
+        check(iap2_power_source_encode(&invalid, output.data(), output.size(), &n) == IAP2_ARGUMENT && !n && output == Bytes(17, 0xa5),
+              "power invalid metadata output transaction");
+    }
+    uint8_t out[17]; size_t n = 999;
+    check(iap2_power_source_encode(nullptr, out, sizeof out, &n) == IAP2_ARGUMENT && !n &&
+          iap2_power_source_encode(&value, nullptr, 17, &n) == IAP2_ARGUMENT &&
+          iap2_power_source_encode(&value, out, 17, nullptr) == IAP2_ARGUMENT, "power encode null checks");
+    check(iap2_power_source_decode(nullptr, 0, &value) == IAP2_ARGUMENT &&
+          iap2_power_source_decode(expected.data(), expected.size(), nullptr) == IAP2_ARGUMENT &&
+          iap2_power_source_notify(nullptr, &value, 0) == IAP2_ARGUMENT, "power decode/helper null checks");
+}
 int main(int argc, char **argv) {
     try {
         check(argc == 2, "provide pinned vectors path"); std::ifstream input(argv[1]); check(bool(input), "open vectors");
@@ -222,7 +294,8 @@ int main(int argc, char **argv) {
         pinned_roundtrips(vectors); presence_and_scalar_width(); text_and_address_rules(); duplicates_unknown_and_mixed();
         malformed_scalars_and_groups(); exact_frame_boundaries(vectors); maximum_and_capacity(); invalid_encoder_inputs();
         borrowed_views_and_arguments(vectors);
-        std::cout << "PASS: 9 bounded CarPlay CSM codec groups; four exact pinned roundtrips, no hardware/network I/O.\n";
+        power_source_fields(vectors); power_source_rejections(vectors); power_source_output_bounds();
+        std::cout << "PASS: 12 bounded CarPlay/power CSM codec groups; five exact pinned roundtrips, no hardware/network I/O.\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL: " << error.what() << '\n'; return 1; }
 }

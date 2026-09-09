@@ -2,6 +2,7 @@
 // Synthetic transport/provider integration, NOT an iPhone/auth-chip test.
 #include "iap2_control.h"
 #include "iap2_carplay.h"
+#include "iap2_power.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -857,6 +858,103 @@ static void identification_first_reset_and_provider_failure() {
           e.engine.reason == IAP2_CONTROL_REASON_AUTH && !e.engine.identification_timer && !e.engine.authentication_timer &&
           e.engine.identification.state == IAP2_IDENTIFICATION_IDLE, "provider failure after identification tears down both phases");
 }
+static void notification_ownership_and_hold() {
+    for (bool hold : {false, true}) {
+        Endpoint e; e.handshake(0, 29); e.authenticate();
+        const auto request = csm(0x6800), body = pattern(700, 0x20), expected = csm(0x6801, &body);
+        if (hold) { e.payload(request); check(e.poll() == IAP2_CONTROL_MESSAGE, "notification test held request"); }
+        auto bytes = expected;
+        check(iap2_control_notify(&e.engine, bytes.data(), bytes.size(), 0) == 0 && e.engine.application_reply &&
+              (e.engine.ready != 0) == hold, "unsolicited notification queued without consuming request");
+        std::fill(bytes.begin(), bytes.end(), 0);
+        check(iap2_control_notify(&e.engine, expected.data(), expected.size(), 0) == IAP2_LINK_BUSY, "notification uses single application TX queue");
+        check(e.drain_reply() == expected, "owned notification bytes survive mutation and MTU fragmentation");
+        if (hold) check(e.held() == request && !e.engine.message_at, "held view and hold deadline preserved after notification ACK");
+        else check(!e.engine.ready, "notification requires no synthetic request");
+        check(e.provider.certificates == 1 && e.provider.signatures == 1, "notifications never repeat provider calls");
+        e.canaries();
+    }
+}
+static void notification_validation() {
+    const auto bytes = csm(0x6801); Endpoint e;
+    check(iap2_control_notify(nullptr, bytes.data(), bytes.size(), 0) == IAP2_ARGUMENT &&
+          iap2_control_notify(&e.engine, nullptr, 0, 0) == IAP2_ARGUMENT &&
+          iap2_control_notify(&e.engine, bytes.data(), bytes.size(), 0) == IAP2_ARGUMENT, "notification prestart/null gates");
+    e.handshake();
+    check(iap2_control_notify(&e.engine, bytes.data(), bytes.size(), 0) == IAP2_AUTH_FAILED, "notification requires accepted auth");
+    e.authenticate(); const auto request = csm(0x6800); e.payload(request); e.poll();
+    for (uint16_t id : {0xaa00, 0xaa01, 0xaa02, 0xaa03, 0xaa04, 0xaa05, 0x1d00, 0x1d01, 0x1d02, 0x1d03}) {
+        const auto reserved = csm(id);
+        check(iap2_control_notify(&e.engine, reserved.data(), reserved.size(), 0) == IAP2_UNSUPPORTED &&
+              !e.engine.reply_size && e.held() == request, "notification cannot bypass reserved sequencers");
+    }
+    for (const auto& malformed : {Bytes{0}, Bytes{0x40,0x40,0,6,0x68,1,0}, Bytes{0x40,0x40,0,5,0x68,1}})
+        check(iap2_control_notify(&e.engine, malformed.data(), malformed.size(), 0) == IAP2_INVALID &&
+              !e.engine.reply_size && e.held() == request, "malformed notification preserves held input");
+    const auto body = pattern(8192, 0x20), oversized = csm(0x6801, &body);
+    check(iap2_control_notify(&e.engine, oversized.data(), oversized.size(), 0) == IAP2_NO_SPACE && e.held() == request,
+          "notification capacity rejection preserves input");
+    e.poll(10); check(iap2_control_notify(&e.engine, bytes.data(), bytes.size(), 9) == IAP2_ARGUMENT && !e.engine.reply_size,
+                     "notification backward time rejected");
+    Endpoint identifying; enable_identification(identifying); identifying.handshake(); identifying.authenticate();
+    check(iap2_control_notify(&identifying.engine, bytes.data(), bytes.size(), 0) == IAP2_LINK_BUSY,
+          "notification also gated by enabled identification");
+}
+static void notification_deadlines_and_reset() {
+    const auto notification = csm(0x6801), request = csm(0x6800);
+    Endpoint timeout; timeout.config.message_ms = 100; timeout.init(); timeout.handshake(); timeout.authenticate();
+    check(iap2_control_notify(&timeout.engine, notification.data(), notification.size(), 10) == 0 &&
+          timeout.poll(109) == IAP2_LINK_BUSY && timeout.poll(110) == IAP2_LINK_CLOSED &&
+          timeout.engine.reason == IAP2_CONTROL_REASON_TIMEOUT, "unsolicited TX-to-ACK deadline includes unsent output");
+    Endpoint acked; acked.config.message_ms = 100; acked.init(); acked.handshake(); acked.authenticate();
+    check(iap2_control_notify(&acked.engine, notification.data(), notification.size(), 10) == 0, "notification for ACK deadline test");
+    acked.poll(10); acked.output(109); acked.feed(frame(0x40, acked.peer_sequence, acked.engine.link.tx_sequence), 109);
+    check(!acked.engine.application_reply && acked.poll(110) == IAP2_MORE, "ACK before notification deadline cancels timer immediately");
+    Endpoint held; held.config.message_ms = 100; held.init(); held.handshake(); held.authenticate(); held.payload(request); held.poll();
+    check(iap2_control_notify(&held.engine, notification.data(), notification.size(), 90) == 0 && !held.engine.message_at &&
+          held.poll(100) == IAP2_LINK_CLOSED, "notification cannot extend earlier held-request deadline");
+    Endpoint reset; reset.handshake(); reset.authenticate();
+    check(iap2_control_notify(&reset.engine, notification.data(), notification.size(), 0) == 0, "notification before disconnect");
+    iap2_control_close(&reset.engine);
+    check(!reset.engine.reply_size && !reset.engine.application_reply &&
+          iap2_control_notify(&reset.engine, notification.data(), notification.size(), 0) == IAP2_LINK_CLOSED,
+          "disconnect discards pending notification");
+    reset.init(); reset.handshake();
+    check(iap2_control_notify(&reset.engine, notification.data(), notification.size(), 0) == IAP2_AUTH_FAILED,
+          "reconnect requires authentication again");
+}
+static void notification_partial_receive() {
+    Endpoint e; e.handshake(); e.authenticate();
+    const auto request = csm(0x6800), notification = csm(0x6801);
+    e.payload(Bytes(request.begin(), request.begin() + 3), 10); check(e.poll(10) == IAP2_MORE, "partial request before notification");
+    check(iap2_control_notify(&e.engine, notification.data(), notification.size(), 20) == 0 &&
+          e.engine.receive_used == 3 && e.engine.message_at == 10, "notification preserves partial assembly and age");
+    auto tail = Bytes(request.begin() + 3, request.end()); tail.insert(tail.end(), request.begin(), request.end()); e.payload(tail, 20);
+    check(e.drain_reply(20) == notification && e.held() == request, "coalesced input resumes after notification ACK");
+    check(iap2_control_release_message(&e.engine) == 0 && e.poll(20) == IAP2_CONTROL_MESSAGE && e.held() == request,
+          "notification never consumes a coalesced request");
+}
+static void power_source_notification() {
+    const iap2_power_source power{1, 0, 1, 0}; uint8_t out[17]; size_t n;
+    check(iap2_power_source_encode(&power, out, sizeof out, &n) == 0, "zero-current source encoding");
+    Endpoint e; check(iap2_power_source_notify(&e.engine, &power, 0) == IAP2_AUTH_FAILED, "power requires auth");
+    e.handshake(); e.authenticate();
+    check(iap2_power_source_notify(&e.engine, &power, 0) == IAP2_LINK_BUSY, "power requires explicit accepted identification");
+    Endpoint ready; prepare_carplay_endpoint(ready, 29, true);
+    auto invalid = power; invalid.has_should_charge = 0;
+    check(iap2_power_source_notify(&ready.engine, &invalid, 0) == IAP2_ARGUMENT && !ready.engine.reply_size,
+          "power policy requires both fields explicitly supplied");
+    check(iap2_power_source_notify(&ready.engine, nullptr, 0) == IAP2_ARGUMENT, "power null source");
+    check(iap2_power_source_notify(&ready.engine, &power, 0) == 0 && ready.drain_reply() == Bytes(out, out + n),
+          "explicit power notification after reference-order startup without a request");
+    const auto offer = carplay_offer(); ready.payload(offer); ready.poll();
+    check(iap2_power_source_notify(&ready.engine, &power, 0) == 0 && ready.drain_reply() == Bytes(out, out + n) &&
+          ready.held() == offer, "power notification preserves held CarPlay availability");
+    const auto start = carplay_profile();
+    check(iap2_carplay_reply_wired_start(&ready.engine, &start, 0) == 0, "held availability can still receive its actual start reply");
+    ready.drain_reply(); iap2_control_close(&ready.engine);
+    check(iap2_power_source_notify(&ready.engine, &power, 0) == IAP2_LINK_CLOSED, "no power notification after closure");
+}
 int main() {
     try {
         // Indirect iteration keeps independent large fixture lifetimes out of
@@ -870,7 +968,9 @@ int main() {
             [] { two_endpoint_exchange(true); }, [] { carplay_start_reply(); }, carplay_start_gates, carplay_start_capacity_and_lifecycle,
             startup_order_configuration, identification_first_phase_gates, identification_first_deadlines,
             identification_first_ack_barrier, identification_first_reset_and_provider_failure,
-            [] { two_endpoint_exchange(true, true); }, [] { carplay_start_reply(true); }
+            [] { two_endpoint_exchange(true, true); }, [] { carplay_start_reply(true); },
+            notification_ownership_and_hold, notification_validation, notification_deadlines_and_reset,
+            notification_partial_receive, power_source_notification
         };
         for (const auto group : groups) group();
         std::cout << "PASS: " << sizeof groups / sizeof groups[0] << " control adapter test groups (synthetic providers/transport only).\n";

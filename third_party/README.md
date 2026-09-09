@@ -112,3 +112,11 @@ elements, not repeated parameters. The new multi-language expected bytes are
 independently specified test data derived from that rule; the original upstream
 single-language fixture remains unchanged. This corrects a local implementation
 and test error, and does not add an upstream dependency or capability claim.
+
+`iap2_power.c`/`.h` use the same GPL-3.0-or-later license and pinned
+`iap2-csm/src/messages/power.rs` PowerSourceUpdate schema. Tests reuse the
+existing `PowerSourceUpdate` vector unchanged; its 2400 mA example is not a
+hardware default. The explicit notification API shares the local control
+queue/deadline policies, informed by wired `livi-runtime/src/bringup.rs` sending
+this message without a request. No power-control, USB or networking code is
+copied, and actual electrical capabilities are not inferred from the fixture.
