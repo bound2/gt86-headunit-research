@@ -136,7 +136,7 @@ The control-session adapter below now connects this engine to authentication;
 actual device transport and a real provider remain separate work. See
 [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
 
-Fourteen CTest suites pass, including 16 link test groups and a simulated two-endpoint
+Eighteen standard CTest suites pass, including 16 link test groups and a simulated two-endpoint
 exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
 checks use the installed LLVM and Visual Studio toolchain:
 
@@ -144,9 +144,9 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the thirteen protocol test executables with AddressSanitizer and
+This builds/runs the fourteen protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all seventeen C99
+or car access is required. The ARM portability check now covers all nineteen C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -220,8 +220,8 @@ reject stale results after reconnect; cancellation clears transport and endpoint
 state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
 
 Seventeen test groups exercise a fake backend, including complete synthetic
-exchanges in both startup orders over fragmented reads/writes. All seventeen CTest suites and
-thirteen sanitized protocol suites pass. Details and callback lifetime requirements
+exchanges in both startup orders over fragmented reads/writes. All eighteen standard CTest suites and
+fourteen sanitized protocol suites pass. Details and callback lifetime requirements
 are in the
 [step-by-step transport adapter report](reports/transport-adapter.md) and
 [CarPlay progress, Steps 34-36](reports/carplay-progress.md#step-34---implement-the-bounded-byte-stream-pump).
@@ -359,8 +359,8 @@ CA trust and an exact device-certificate pin, with bounded app/BIO buffers and
 handshake/write/hold deadlines. Seven groups exercise EC/RSA mutual handshakes,
 encrypted service fixture bytes and failure cases over simulated USBmux.
 `scripts/Build-CarPlayTls.ps1` prepares the verified dependency archive and runs
-20 CTest suites; `scripts/Check-CarPlayTlsSanitizers.ps1` instruments the crypto
-dependency as well as the adapter. The ordinary build still has 17 suites.
+21 CTest suites; `scripts/Check-CarPlayTlsSanitizers.ps1` instruments the crypto
+dependency as well as the adapter. The ordinary build has 18 suites.
 TLS uses heap/platform services and is not included in the freestanding ARM
 claim. No actual pairing records, phone or head unit are accessed. See
 [the TLS report](reports/lockdown-tls.md).
@@ -380,6 +380,15 @@ Six integrated test groups cover dual TLS, identification, synthetic accessory
 authentication, explicit wired-start replies, partial writes and disconnects.
 The projection network/media server and native transport are still missing;
 see [the integrated iAP2 report](reports/carkit-iap2.md).
+
+The separate projection-control path now has `rtsp_wire.h`/`rtsp_channel.h`:
+bounded RTSP/HTTP framing, binary bodies, explicit token-bound responses and
+absolute receive/reply/output deadlines. It preserves unread bytes across
+request boundaries and waits for explicit output release before receiving
+another message, allowing a future verified cipher handoff. Nine test groups
+include 6,000 deterministic mutations. This is not a socket listener, identity,
+pairing implementation or media handler; no command is automatically accepted.
+See [the projection-control report](reports/projection-control.md).
 
 ## Read-only firmware analysis
 

@@ -280,3 +280,12 @@ upstream bodies or credentials were copied. Drain accounting, ownership checks
 and pre-I/O deadline integration are local policies. The accessory-auth provider
 in tests remains explicitly synthetic, unlike the real TLS cryptography. See
 [the integrated iAP2 report](../reports/carkit-iap2.md).
+
+The separate `rtsp_wire.c`/`.h`, `rtsp_channel.c`/`.h` and synthetic tests select
+GPL-3.0-only. They use the same pinned LIVI tree for projection framing/sequence
+reference and RFC 2326 for RTSP length/CSeq cross-checks. No upstream code bodies
+or device captures were copied. Strict ASCII/length/header limits, transactional
+encoding, serial tokens, caller-owned plaintext retirement, explicit handoff and
+deadline policies are local implementation choices. No new dependency or actual
+credential was introduced. See [the projection-control report](../reports/projection-control.md)
+for source links and exact Git blobs.

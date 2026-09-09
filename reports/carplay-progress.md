@@ -48,15 +48,18 @@ validated service ports, explicit SSL policy, a separate service connection,
 real dual TLS and raw iAP2 round trips over simulated USBmux. A new owning bridge
 now connects that stream to the existing iAP2 session engine, with six integrated
 groups covering identification, synthetic accessory authentication, explicit
-wired-start replies and completion/lifetime gates. Projection network/media
-and actual hardware integration remain missing. Python checks total 25.
+wired-start replies and completion/lifetime gates. A separate projection-control
+framing/channel layer now adds nine groups, including 6,000 deterministic
+mutations, strict RTSP/HTTP framing, explicit responses and token/deadline/output
+handoff gates. Actual projection pairing/encryption, network/media and hardware
+integration remain missing. Python checks total 25.
 Native USB and phone pairing remain absent.
-All seventeen ordinary CTest suites and twenty TLS-enabled suites pass.
-All thirteen original protocol suites and all three TLS/carkit/integration suites pass under host
+All eighteen ordinary CTest suites and twenty-one TLS-enabled suites pass.
+All fourteen protocol suites and all three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including instrumentation of Mbed TLS.
-The seventeen freestanding C99
+The nineteen freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-53 and [the integrated iAP2 report](carkit-iap2.md). Hosted TLS uses heap/platform
+Steps 22-54 and [the projection-control report](projection-control.md). Hosted TLS uses heap/platform
 services and is not included in that ARM claim.
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -1957,6 +1960,58 @@ fixture is not a working projection server. Native transport, actual pairing
 and authentication-chip access, exact Go identity and verified execution/recovery
 remain unresolved. No installable software-only CarPlay update was produced.
 
+## Step 54 - Frame and own projection-control requests
+
+Status: carkit/iAP2 integration committed/pushed as `27db539`.
+The new [projection-control.md](projection-control.md) records a separate
+RTSP/HTTP wire codec and serial plaintext request/response channel. They do not
+put projection AV into the carkit stream or pretend a request frame is an
+authenticated session. The pinned reference's connection/handler code shows a
+separate control connection and a plaintext-to-cipher transition after its
+pair-verify response; receiver identity is separate from Lockdown TLS identity.
+
+The new codec parses one bounded message, supports opaque binary bodies and
+builds explicit responses with request protocol/CSeq and generated length.
+Strict CRLF/ASCII, decimal lengths/CSeq, duplicate framing-header rejection and
+8,192-byte header/65,536-byte body/32-header caps prevent ambiguous framing.
+The caller-buffer stream stops exactly at the message boundary and never reads
+ahead into a following request or possible ciphertext. Unknown headers remain
+ordered; ambiguous lookups reject. Unsupported framing errors are terminal.
+
+The owning channel exposes a held request and generation/token key. Only an
+explicit application response or close handles it; no unknown command receives
+an automatic success. Stale keys/generations and invalid response/count/capacity
+arguments cannot advance the clock or consume future work. Absolute idle,
+receive, reply and output/release budgets do not renew on partial progress.
+Closing/EOF/error clears retained bytes and invalidates tokens without I/O.
+
+Output retirement means only that the caller's downstream owner accepted those
+plaintext bytes, not physical completion or peer acceptance. The channel stays
+SENT until explicit release, allowing the future owner to drain output and
+perform a cryptographically verified layer handoff first. This step has no
+socket, cipher, pairing store, identity generator or route/media handler.
+
+Nine groups exercise exact bytes, fragmentation, coalesced tails, length/count
+limits, malformed/injected/ambiguous headers, transactional capacity failures,
+serial responses, stale tokens, token exhaustion, monotonic clocks, all absolute
+budgets, output clearing and EOF. A deterministic 6,000-input campaign compares
+fragmented and stateless results. No phone capture or actual key is a fixture.
+
+All 18 ordinary/21 TLS-enabled CTest suites, fourteen protocol sanitizer suites,
+three fully instrumented hosted suites and 25 Python tests pass. An unused test
+helper initially failed the strict warning build; it was removed without
+relaxing checks. Both new C99 units join the nineteen-unit freestanding ARM
+check and import-free relocatable link. Measured x64 message/stream/channel
+sizes are 1,112/48/152 bytes, with caller buffers and transient views additional.
+This is not a QNX executable, measured target process or iPhone acceptance test.
+
+Next add bounded TLV8 and real receiver identity/pairing cryptography, then an
+authenticated control-frame handoff and typed session handlers. Verify required
+crypto primitives and trust/provisioning before advertising any receiver key.
+USB-network/listener/media integration, real pairing/authentication-chip access,
+actual Go identity and verified execution/recovery remain unresolved. No
+installable software-only CarPlay update or vehicle change was produced.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1967,9 +2022,12 @@ remain unresolved. No installable software-only CarPlay update was produced.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement the separate projection-session request path and actual receiver
-   identity/address/key provision, then network/media integration and explicit
-   trust-pairing provision. The iAP2 transport/link/control engine is connected
+3. Implement actual receiver identity/pairing cryptography and bounded TLV8,
+   authenticated control encryption/handoff, then typed projection-session
+   handlers and network/media integration with real address/listener provision.
+   Bounded RTSP/HTTP framing and explicit request/response ownership are now
+   implemented in Step 54; they do not authenticate or handle session commands.
+   The iAP2 transport/link/control engine is connected
    to carkit with completion/cancellation/ownership accounting in Step 53.
    Protected framed RPC ownership, StartService/port/SSL policy and carkit stream
    startup are implemented in Step 52. The real TLS

@@ -164,3 +164,7 @@ video/audio/input delivery and native QNX integration still need implementation
 and verification. Actual module identity, USB/network ownership, existing Apple
 authentication-chip access and execution/recovery remain unresolved. No phone
 trust records, head unit, firmware image or USB update were accessed or changed.
+
+Follow-up: [projection-control.md](projection-control.md) now implements bounded
+RTSP/HTTP framing and explicit request/response ownership. Actual identity,
+pairing/control encryption, network listeners and media handlers remain separate.

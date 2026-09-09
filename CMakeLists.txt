@@ -24,6 +24,7 @@ set_target_properties(carplay_protocol PROPERTIES C_STANDARD 99 C_STANDARD_REQUI
 target_sources(carplay_protocol PRIVATE src/carplay/lockdown_wire.c src/carplay/lockdown_channel.c)
 target_sources(carplay_protocol PRIVATE src/carplay/service_plist.c src/carplay/lockdown_reply.c)
 target_sources(carplay_protocol PRIVATE src/carplay/lockdown_bootstrap.c)
+target_sources(carplay_protocol PRIVATE src/carplay/rtsp_wire.c src/carplay/rtsp_channel.c)
 target_include_directories(carplay_protocol PUBLIC src/carplay)
 if(MSVC)
   target_compile_options(carplay_protocol PRIVATE /W4)
@@ -69,6 +70,9 @@ add_test(NAME service_plist_tests COMMAND service_plist_tests "${CMAKE_SOURCE_DI
 add_executable(lockdown_bootstrap_tests tests/lockdown_bootstrap_tests.cpp)
 target_link_libraries(lockdown_bootstrap_tests PRIVATE carplay_protocol)
 add_test(NAME lockdown_bootstrap_tests COMMAND lockdown_bootstrap_tests "${CMAKE_SOURCE_DIR}/tests/fixtures/lockdown")
+add_executable(rtsp_tests tests/rtsp_tests.cpp)
+target_link_libraries(rtsp_tests PRIVATE carplay_protocol)
+add_test(NAME rtsp_tests COMMAND rtsp_tests)
 
 # Optional hosted cryptography; never silently replace the freestanding target.
 set(CARPLAY_MBEDTLS_SOURCE "" CACHE PATH "Pinned Mbed TLS 3.6.7 release source (see scripts/Prepare-CarPlayTls.ps1)")
