@@ -51,17 +51,23 @@ groups covering identification, synthetic accessory authentication, explicit
 wired-start replies and completion/lifetime gates. A separate projection-control
 framing/channel layer now adds nine groups, including 6,000 deterministic
 mutations, strict RTSP/HTTP framing, explicit responses and token/deadline/output
-handoff gates. Actual projection pairing/encryption, network/media and hardware
-integration remain missing. Python checks total 25.
-Native USB and phone pairing remain absent.
-All eighteen ordinary CTest suites and twenty-one TLS-enabled suites pass.
-All fourteen protocol suites and all three TLS/carkit/integration suites pass under host
-address/undefined-behavior sanitizers, including instrumentation of Mbed TLS.
-The nineteen freestanding C99
+handoff gates. Bounded TLV8 adds three groups; real receiver identity and
+known-controller pair verification add seven cryptographic groups with RFC and
+independent PyCA vectors. First-time enrollment, persistent trust, authenticated
+control-stream framing, network/media and hardware integration remain missing.
+Python regression checks total 25, plus the independent 21-vector checker.
+Native USB and actual phone pairing remain absent.
+All nineteen ordinary, twenty-two TLS-only and twenty-three combined crypto/TLS
+CTest suites pass. All fifteen protocol suites, two new pairing suites and
+three TLS/carkit/integration suites pass under host address/undefined-behavior
+sanitizers, including instrumentation of both crypto dependencies.
+The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-54 and [the projection-control report](projection-control.md). Hosted TLS uses heap/platform
-services and is not included in that ARM claim.
-No real authentication provider or device transport is connected.
+Steps 22-55 and [the pair-verification report](pair-verification.md). Hosted TLS
+uses heap/platform services and is not included in that ARM claim. The new
+separate pairing crypto object compiles/links for ARM but needs four runtime
+helpers; it is not an import-free target or verified QNX port.
+No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
 All 13 earlier host-side
@@ -2012,6 +2018,65 @@ USB-network/listener/media integration, real pairing/authentication-chip access,
 actual Go identity and verified execution/recovery remain unresolved. No
 installable software-only CarPlay update or vehicle change was produced.
 
+## Step 55 - Add receiver identity and real known-controller pair verification
+
+Status: projection-control framing committed/pushed as `68f7c83`.
+The new [pair-verification.md](pair-verification.md) records bounded TLV8,
+explicit Ed25519 identity, real crypto primitives and a one-shot known-controller
+pair-verify responder. This is not first-time enrollment, persistent trust or
+Apple-chip authentication, and no real phone/CarPlay session was established.
+
+The selected Mbed TLS source lacked usable Ed25519 signing/verification, so the
+new optional target uses pinned Monocypher 4.0.3, whose release fixes a signing
+timing leak in earlier versions. The archive, all used files and configure-time
+source/header hashes are checked. Release files match the official pinned tag
+apart from the version marker. Preparation extracts an exact source/licence
+allowlist after documentation symlinks failed in a trial full extraction.
+No dependency source/binary is committed and the existing TLS target is retained.
+
+TLV8 validates before writing, preserves distinct repeated fields and rejects
+ambiguous lookups. The handshake further rejects duplicate logical fields and
+separators. Explicit identity import derives a complete signing key from a raw
+seed and can validate the expected public key. Generation requires a caller
+CSPRNG; there is no default key/identifier, file store or automatic replacement.
+Primitive wrappers bound data/KDF sizes, reject all-zero X25519 shared secrets,
+add canonical/low-order checks to Ed25519 verification and authenticate AEAD
+before exposing plaintext. Secret material is cleared at failure/teardown.
+
+M1 produces a fresh ephemeral key and signed/encrypted accessory proof. M3 must
+authenticate its inner data, identify a controller in the read-only trusted-key
+provider and pass real Ed25519 proof verification before directional keys are
+derived. Output stays held through explicit M2/M4 release. Only a token-bound
+one-time handoff after M4 release exports keys; it then clears/detaches state.
+Absolute exchange/hold budgets, generations and stale-token guards prevent
+restarts, reused output or unbounded holds. Release is an explicit downstream-
+drain assertion by the integration owner, not a physical-I/O claim.
+
+Three TLV8 groups include 6,000 mutations. Seven crypto groups cover RFC Ed25519,
+X25519 and AEAD vectors, independent HKDF/transcript results, every-byte forgery
+checks, malformed/duplicate fields, unknown/wrong controller keys, provider
+failure, deadlines/clock edges, secret clearing and a fragmented RTSP handoff
+simulation. All 21 public fixture values independently reproduce with PyCA
+cryptography 50.0.1 in an ignored venv. They are never production credentials.
+Initial missing-include/vector-count/hex-literal test issues were fixed without
+relaxing validation, sanitizers or expected cryptographic results.
+
+All 23 combined, 22 TLS-only and 19 standard CTest suites pass, as do fifteen
+protocol sanitizer executables, both fully instrumented pairing suites, three
+hosted TLS suites and 25 Python regressions. TLV8 joins the twenty-unit import-
+free ARM core. The separate seven-unit crypto object compiles/relocatable-links
+but reports `__aeabi_memclr8`, `__aeabi_uidiv`, `__aeabi_uidivmod` and
+`__aeabi_uldivmod`; a target runtime is required. x64 identity/responder/exported-
+key sizes are 176/1,400/168 bytes plus stack temporaries. No target CSPRNG, stack,
+side-channel behavior, QNX process or recovery procedure is proven.
+
+Next implement authenticated control-frame counters/streaming and connect this
+handoff to the RTSP owner, then first-time pair-setup with explicit trust/store
+policy. Typed session/media, MFi auth-setup, network listeners and real endpoint
+advertising remain necessary. Actual module identity, native USB-network access,
+authentication-chip interface and execution/recovery remain unresolved. No
+installable CarPlay update or head-unit/phone/firmware/USB change was made.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2022,9 +2087,11 @@ installable software-only CarPlay update or vehicle change was produced.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement actual receiver identity/pairing cryptography and bounded TLV8,
-   authenticated control encryption/handoff, then typed projection-session
-   handlers and network/media integration with real address/listener provision.
+3. Implement authenticated control-frame streaming/counters and integrate its
+   verified key handoff with RTSP; then first-time pair-setup and explicit trust
+   persistence, typed session handlers and network/media with real listeners.
+   TLV8, explicit receiver identity and real known-controller pair verification
+   are implemented in Step 55, but no actual phone is enrolled or connected.
    Bounded RTSP/HTTP framing and explicit request/response ownership are now
    implemented in Step 54; they do not authenticate or handle session commands.
    The iAP2 transport/link/control engine is connected

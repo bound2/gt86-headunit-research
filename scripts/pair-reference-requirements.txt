@@ -1,0 +1,4 @@
+# Optional host-only independent vector checker; not linked into the receiver.
+cryptography==50.0.1
+cffi==2.1.1
+pycparser==3.0

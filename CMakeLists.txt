@@ -25,6 +25,7 @@ target_sources(carplay_protocol PRIVATE src/carplay/lockdown_wire.c src/carplay/
 target_sources(carplay_protocol PRIVATE src/carplay/service_plist.c src/carplay/lockdown_reply.c)
 target_sources(carplay_protocol PRIVATE src/carplay/lockdown_bootstrap.c)
 target_sources(carplay_protocol PRIVATE src/carplay/rtsp_wire.c src/carplay/rtsp_channel.c)
+target_sources(carplay_protocol PRIVATE src/carplay/pair_tlv.c)
 target_include_directories(carplay_protocol PUBLIC src/carplay)
 if(MSVC)
   target_compile_options(carplay_protocol PRIVATE /W4)
@@ -73,6 +74,45 @@ add_test(NAME lockdown_bootstrap_tests COMMAND lockdown_bootstrap_tests "${CMAKE
 add_executable(rtsp_tests tests/rtsp_tests.cpp)
 target_link_libraries(rtsp_tests PRIVATE carplay_protocol)
 add_test(NAME rtsp_tests COMMAND rtsp_tests)
+add_executable(pair_tlv_tests tests/pair_tlv_tests.cpp)
+target_link_libraries(pair_tlv_tests PRIVATE carplay_protocol)
+add_test(NAME pair_tlv_tests COMMAND pair_tlv_tests)
+
+# Optional, separately pinned pairing primitives; no TLS or OS RNG dependency.
+set(CARPLAY_MONOCYPHER_SOURCE "" CACHE PATH "Pinned Monocypher 4.0.3 source (scripts/Prepare-CarPlayCrypto.ps1)")
+if(CARPLAY_MONOCYPHER_SOURCE)
+  # Verify even when configuring directly instead of using the preparation script.
+  set(_pair_source_pins
+    "src/monocypher.c|57eb914fc88136119bd41655cccb8c250048bf54d470540625186f8ab16f64be"
+    "src/monocypher.h|c494da712122da7ff679fdcf318a5317e84972b6c950fe9d896212947797facd"
+    "src/optional/monocypher-ed25519.c|60fce3578fb00b00da96490653d993c4cb427b1e1be38183285c66e04d22cc18"
+    "src/optional/monocypher-ed25519.h|abc4fad381879f5c29176ebe014b9189956b3dfe0a3e36459b6990bc57212380")
+  foreach(_pair_pin IN LISTS _pair_source_pins)
+    string(REPLACE "|" ";" _pair_parts "${_pair_pin}")
+    list(GET _pair_parts 0 _pair_file)
+    list(GET _pair_parts 1 _pair_expected)
+    file(SHA256 "${CARPLAY_MONOCYPHER_SOURCE}/${_pair_file}" _pair_actual)
+    if(NOT _pair_actual STREQUAL _pair_expected)
+      message(FATAL_ERROR "Monocypher 4.0.3 source mismatch: ${_pair_file}")
+    endif()
+  endforeach()
+  add_library(carplay_monocypher STATIC "${CARPLAY_MONOCYPHER_SOURCE}/src/monocypher.c"
+    "${CARPLAY_MONOCYPHER_SOURCE}/src/optional/monocypher-ed25519.c")
+  target_include_directories(carplay_monocypher PUBLIC "${CARPLAY_MONOCYPHER_SOURCE}/src"
+    "${CARPLAY_MONOCYPHER_SOURCE}/src/optional")
+  set_target_properties(carplay_monocypher PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+  add_library(carplay_pairing STATIC src/carplay/pair_crypto.c src/carplay/pair_verify.c)
+  set_target_properties(carplay_pairing PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+  target_link_libraries(carplay_pairing PUBLIC carplay_protocol carplay_monocypher)
+  if(MSVC)
+    target_compile_options(carplay_pairing PRIVATE /W4)
+  else()
+    target_compile_options(carplay_pairing PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
+  add_executable(pair_crypto_tests tests/pair_crypto_tests.cpp)
+  target_link_libraries(pair_crypto_tests PRIVATE carplay_pairing)
+  add_test(NAME pair_crypto_tests COMMAND pair_crypto_tests "${CMAKE_SOURCE_DIR}/tests/fixtures/pair-verify-vectors.txt")
+endif()
 
 # Optional hosted cryptography; never silently replace the freestanding target.
 set(CARPLAY_MBEDTLS_SOURCE "" CACHE PATH "Pinned Mbed TLS 3.6.7 release source (see scripts/Prepare-CarPlayTls.ps1)")

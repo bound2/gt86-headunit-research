@@ -289,3 +289,30 @@ encoding, serial tokens, caller-owned plaintext retirement, explicit handoff and
 deadline policies are local implementation choices. No new dependency or actual
 credential was introduced. See [the projection-control report](../reports/projection-control.md)
 for source links and exact Git blobs.
+
+### Optional identity/pair-verification crypto
+
+`pair_tlv.c`/`.h`, `pair_crypto.c`/`.h`, `pair_verify.c`/`.h`, tests and the
+independent vector checker select GPL-3.0-only. The same pinned LIVI source is
+the protocol reference; no implementation bodies were copied. The optional
+`carplay_pairing` target uses [Monocypher 4.0.3](https://github.com/LoupVaillant/Monocypher/releases/tag/4.0.3),
+commit `ab2b16dd619ad5f6979a4fbe69cfa324a6fcc35f`, selecting BSD-2-Clause from
+its dual BSD-2-Clause / CC0-1.0 offer. Original source notices and the release's
+full `LICENCE.md` / `AUTHORS.md` are retained in ignored prepared storage.
+Any distribution must retain the applicable dependency notices; no source
+archive or compiled crypto binary is currently committed.
+
+The archive SHA256 is
+`8cc9bc341a66249016db9bd70e9142d8d0aef9945973744b1ac05dbc55d8ee66`.
+Preparation checks the archive and six used files without overwriting existing
+files; CMake checks the four compiled source/header hashes. Release/tag source
+comparison differs only in the release version marker. Local validation,
+lifetime, trust lookup and key-handoff policies are not supplied by Monocypher.
+
+Public RFC 8032/7748/8439 vectors and an independently specified synthetic
+pairing transcript exercise actual cryptography. The optional PyCA checker
+uses cryptography 50.0.1 with cffi 2.1.1 / pycparser 3.0 in an ignored host venv;
+these packages retain their own installed notices and are not linked, bundled
+or required by the receiver. No actual credentials or captured phone traffic
+are used. See [the pair-verification report](../reports/pair-verification.md)
+for exact sources, commands, dependencies and the ARM runtime limitations.

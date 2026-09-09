@@ -199,3 +199,7 @@ any advertised projection endpoint. The existing wired-start fixture is still
 synthetic. Native USB-network access, head-unit execution/recovery, actual Go
 module identity and usable authentication-chip access remain unresolved. No
 head unit, phone, actual trust record, firmware image or update USB was changed.
+
+Follow-up: [pair-verification.md](pair-verification.md) now implements TLV8,
+explicit receiver identity and real verification of an already known controller.
+First-time enrollment, persistent trust and control-stream encryption remain work.
