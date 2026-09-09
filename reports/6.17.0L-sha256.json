@@ -1,0 +1,22 @@
+﻿[
+    {
+        "File":  "KaliSWDL.log",
+        "Hash":  "CD5A3D1FA50AC53C1675723DBC7F8167BBA4760BC99E556E1663393CCB06D45E"
+    },
+    {
+        "File":  "swdl.iso",
+        "Hash":  "8B87658C8963A88245FEE68E471ADA1C3FB922C1FE636089089415CE0FBA9082"
+    },
+    {
+        "File":  "swdl.iso.md5",
+        "Hash":  "5403A013F0E2BAFDD16D5B1898EE18308FE65B160CAF92839ACAF176F47EF6E1"
+    },
+    {
+        "File":  "swdlInstall.iso",
+        "Hash":  "06BDC5C05B889AE68BD372DD060502226EA911FC0715A646072C59B1832BF30D"
+    },
+    {
+        "File":  "swdlInstall.iso.md5",
+        "Hash":  "85D3740F0888293B4211274ADA4C22DD609C3010EA37F8A07C6AF2D8193F3C20"
+    }
+]
