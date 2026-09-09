@@ -78,12 +78,18 @@ Diagnostic access is conditional:
   `/fs/etfs/ALLOW_SVC_ACCESS` flag changes that.
 - USB serial and `pgetty` support are present, but a compatible adapter and an
   enabled console configuration are not established.
-- `ACPClientON` triggers an internal logging client; it is not a general shell
-  or native-code loader.
+- `ACPClientON` relates to the logging client, not a general shell or native-code
+  loader. Later analysis found a separate media-detection trigger in addition
+  to the internal boot flag; see CarPlay progress Steps 19-20. Neither is a
+  demonstrated read-only chip-information export.
 
 These flags are on the unit’s writable internal filesystem. A debug menu or
 photographed information screen does not establish that any flag exists or can
 be changed.
+
+This statement describes the internal boot flags, not the separately discovered
+USB media marker. The latter can request logging startup and may involve data
+upload; it must not be presented as a harmless identity query.
 
 ## Practical repair conclusion
 

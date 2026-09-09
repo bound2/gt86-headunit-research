@@ -29,7 +29,8 @@ project files or vendor firmware.
 Reference commit: `a76553fc941dcf378dd55c04da56aaf3d6911e08`.
 
 - `native/livi-helperd/crates/iap2-link/src/lib.rs`: link header, detection
-  marker and checksum format.
+  marker, checksum and synchronization payload format; reference link behavior
+  for the new bounded `iap2_link.c` engine.
 - `native/livi-helperd/crates/iap2-link/tests/engine.rs`: golden ACK/SYN frames
   and synchronization payload used by `tests/iap2_tests.cpp`.
 - `native/livi-helperd/crates/iap2-csm/src/lib.rs` and
@@ -45,3 +46,12 @@ Only the vectors and license text are copied verbatim. The C implementation
 uses caller-owned buffers and explicit size/error handling, and rejects malformed
 parameter tails and out-of-sequence authentication. It is not a port of the
 complete LIVI receiver. No upstream installer or service was executed.
+
+The reliable-link implementation keeps fixed queues and an exact send-window
+bound, validates acknowledgement ranges and negotiated session/size limits,
+and uses monotonic caller-supplied time. It deliberately does not reproduce all
+upstream engine behavior: EAK and zero-ACK modes are unsupported, retries count
+retransmissions after the initial send, and pure ACK frames do not trigger ACKs.
+The new tests retain the pinned LSP golden bytes but independently exercise
+these bounded-state choices. No private Apple specification is bundled or
+claimed as a conformance reference; real-device interoperability is untested.

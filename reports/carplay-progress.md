@@ -11,8 +11,12 @@ receiver modules and replacement head units are outside the selected approach.
 
 No installable CarPlay update exists in this project yet. Portable C99 receiver
 components now implement iAP2 framing, control messages and authentication
-sequencing, validated against 33 upstream vectors. All five CTest suites pass.
-The components also compile to 32-bit ARM objects. All 13 earlier host-side
+sequencing, validated against 33 upstream vectors. A new experimental reliable-
+link profile adds negotiation, ACKs, retransmission and bounded queues with
+16 link test groups. All six CTest suites pass, and both protocol suites pass
+under host address/undefined-behavior sanitizers. The three C99 components also
+compile to 32-bit ARM objects without runtime imports; see Steps 22-24.
+All 13 earlier host-side
 manifest/dispatch/authentication checks pass. They confirm additional weaknesses
 in resident update control flow, with explicit mock assumptions. Adobe AIR also
 contains H.264 decoder class references worth investigating. Neither result
@@ -28,6 +32,14 @@ corpus, with 19 additional native media-information checks and eight tool-safety
 tests passing. This is a filesystem export, not an established means of reaching
 the unit. The actual mountpoint, real chip identity, installed-version behavior
 and iPhone acceptance remain unknown; see Steps 16-18.
+
+The first diagnostic/export investigation is complete for the candidates
+examined: none establishes a read-only collection route to the PC. Insight
+logging has a separate USB-trigger path and configured uploads; the stock
+snapshot is only a screenshot. A stock Apple script reads the information file
+but forwards product/vendor names, not chip fields. Ten modeled MCD paths,
+seven mocked stock Lua scenarios and five new safety/regression tests pass;
+see Steps 19-21. No diagnostic trigger was activated.
 
 ## Step 1 - Establish the target and limits
 
@@ -691,6 +703,309 @@ This completes the planned cached-export trace on the PC, not the software-only
 CarPlay receiver. No diagnostic payload, modified firmware, update USB or car
 change has been created.
 
+## Step 19 - Inspect existing diagnostics without activating them
+
+Status: candidate inspection completed on the PC for the later 6.17.0WL corpus;
+no read-only export to the owner's PC established.
+
+The preceding cached-export state was committed as `90d26f1`,
+`Trace cached Apple chip metadata through media information export`, before
+this investigation. Findings below are subsequent working-tree work.
+
+Searches covered the extracted boot/configuration files, Lua services, media
+consumers and diagnostic binaries. A referenced script missing from the earlier
+selective extraction was read directly from the checksum-pinned installation
+ISO. This does not constitute a complete audit of every HMI/diagnostic path.
+
+| Candidate | Evidence examined | Result and constraint |
+| --- | --- | --- |
+| Insight snapshot | `etc/acp-toyota.conf` and ISO member `usr/share/MMC_PROG_DATA/usr/share/scripts/snapshot.sh` | The script copies a screen bitmap to `/tmp/ScreenShot.bmp` and prints success/failure. It does not collect `info.xml`. It was read, not executed. |
+| Insight/ACP logging | `insightDetect.lua`, `mcd.conf`, `mcdLossless.conf`, `runacpclient.sh`, `secondary-boot.sh`, `acp-toyota.conf` | A separate media trigger can request logging startup. The configuration includes HTTPS uploads, database storage, attachments and periodic location/CPU/memory events. This is not a read-only identity query; see Step 20. No server was contacted. |
+| Crash dumping | `misc.sh`, `dumper.sh`; supporting strings in `fdumper` | The boot path is conditional on internal `START_DUMPER`. The shell script launches a process dumper and creates an output directory on USB or internal MMC. It does not select the chip-information file. `fdumper` references process-death notifications and a DBus ring-buffer log. Do not provoke a crash or enable dumping to identify the chip. |
+| Telnet and service gateways | `misc.sh`, `inetd.conf`, `pre-hmi.sh` | Telnet startup remains gated by internal `ENABLE_TELNET`; DBus/Trace gateways default to `--localonly` unless internal `ALLOW_SVC_ACCESS` exists. Neither flag has been observed on this unit. No network probe or flag change was attempted. |
+| USB serial login | `misc.sh`, `etc/system/config/pgetty.cfg` | The stock configuration names `serusb1` and `/bin/login`. This establishes a configuration entry, not a working connection, credentials or an owner-accessible console. It is not a software-only collection route already available to us. |
+| Existing Apple metadata consumer | `usr/share/connmgr/AppleAppIns.lua` | Reads the derived information-file path using the mountpoint in a session record. It updates connection-manager product/vendor labels and emits an insertion event; it does not forward `authcoproc`. Running the whole script is not a read-only export operation. |
+
+The snapshot member was read using **Windows'**
+`C:/Windows/System32/tar.exe -xOf`, after validating the ISO's SHA256. The
+unqualified `tar.exe` in this environment resolves to a GNU tar that rejected
+the ISO; its failed list operation did not alter anything. No further firmware
+download or persistent vendor-file extraction was needed.
+
+## Step 20 - Distinguish logging triggers from chip-information collection
+
+Status: boot/media paths distinguished statically; stock Lua callbacks reproduced
+with mocks. Earlier reports' internal-flag-only emphasis is incomplete.
+
+1. **Internal boot path.** `secondary-boot.sh` checks
+   `/fs/etfs/ACPClientON` and a variant condition before requesting the logging
+   script. The subsequent `NO_INSIGHT` condition guards additional startup
+   commands, not every possible logging launch.
+2. **Separate media path.** `misc.sh` also starts the `insightDetect` Lua
+   service. That service registers for the `ACPClient_ON` MCD rule. Both
+   extracted MCD configurations contain that rule and look for the
+   `ACPClientON` marker on media. Its matched notification calls
+   `runacpclient.sh` without a Lua-side check for the internal boot flag.
+   This is a traced candidate in the later corpus, not an on-car test or a
+   recommendation to create that marker.
+3. **Conditional reachability.** The stock USB decision graph reaches this
+   rule only after earlier application/audio/picture branches fail to take
+   their matching exits. Consequently its behavior cannot be inferred from
+   marker presence alone. The new model supplies synthetic callout results;
+   it does not emulate native filesystem matching, mount events or timing.
+4. **Side effects.** The called shell script uses a session lock, starts
+   `acpmonitor`, a DBus ring buffer, and `fdumper`. The Insight configuration
+   provides storage and upload settings. Actual upload availability or
+   transmission is untested, but enabling this stack cannot be described as
+   merely reading chip identity. Do not activate it as this investigation's
+   collection method.
+
+QNX documents MCD as a branching content classifier: clients are notified for
+matched rules, and filename tests operate against the media filesystem. That
+supports interpreting this configuration graph; it does not establish the
+owner's installed daemon behavior or active configuration.
+[QNX MCD reference](https://www.qnx.com/developers/docs/6.4.1/neutrino/utilities/m/mcd.html).
+
+The Insight script's long header discusses software updating, but its actual
+executable body only registers the logging callback. The source comments were
+not treated as evidence of an updater or arbitrary-code loader in this path.
+With the shell call mocked, the callback requests launch for both success and
+failure return values and can request it again on another notification. The
+external shell script's lock is not emulated by those tests.
+
+The separate `AppleAppIns.lua` consumer provides a useful cross-check of the
+information path. Its stock bytecode:
+
+- Reads a session record, takes element 3 as the mountpoint, and opens
+  `<mountpoint>/.FS_info./info.xml` for reading, with up to five attempts.
+- Converts the XML and selects `info/device/transport/usb` product and
+  manufacturer fields, optionally appending a media name to the product label.
+- Sends only `dev.product_str` and `dev.vendor_str` through connection-manager
+  `setProperties`, then emits an insertion proxy event. The tested synthetic
+  `authcoproc` subtree is not forwarded.
+
+This is positive evidence that the file has a stock reader, but negative
+evidence for using **this particular consumer** to obtain chip details remotely.
+It does not prove that every other media API or HMI route lacks such a feature.
+The native `MediaService` also contains the information-file path; its complete
+XML/API handling has not been audited in this step.
+
+## Step 21 - Preserve the diagnostic checks and choose the next software task
+
+Status: 10 modeled MCD cases, seven mocked stock Lua cases and five additional
+safety/regression tests pass on 2026-09-09.
+
+New reproduction files:
+
+- `scripts/probe_diagnostic_routes.py`: verifies 11 extracted input hashes,
+  follows both MCD graphs with synthetic callout outcomes, runs the bounded
+  Lua harness, and reads the snapshot member into memory from the pinned ISO.
+  The JSON record includes input hashes and explicit scope limits.
+- `tests/diagnostic_routes_probe.lua`: executes the original Insight plaintext
+  and Apple consumer bytecode in restricted guest environments. All file I/O,
+  commands, services, XML/JSON conversion and delays are mocked. Each run or
+  callback has an instruction budget below 200,000; the host subprocess also
+  has a 20-second timeout. No vendor shell script is executed.
+- `tests/test_diagnostic_routes.py`: verifies the complete probe, changed-input
+  and changed-ISO refusal, existing-output protection, and failure on cyclic
+  graphs or missing mock results.
+
+The MCD model checks marker match/no match and application/audio/picture
+preemption in both configurations. The Lua checks cover Insight launch requests
+with two mocked return statuses, and Apple metadata forwarding, delayed file
+availability, missing information file, failed XML conversion and missing
+session file. These test control flow, not actual XML parsing, phone data,
+native MCD events, network services or access permissions.
+
+```powershell
+python -B scripts/probe_diagnostic_routes.py
+python -B -m unittest discover -s tests -p test_diagnostic_routes.py -v
+```
+
+The first saved evidence is `extracted/diagnostic-routes-probe.json`, ignored
+by Git. `--output NEW_PATH` refuses existing files. The existing Win32 Lua
+5.1.5 host and Windows tar are required; Unicorn is not used by this probe.
+The earlier 17 authentication and 19 media-information native checks, eight
+auth/media tool-safety tests and five CTest suites were rerun successfully.
+
+**Outcome:** no read-only chip-information collection route to the PC has been
+established among the inspected candidates. No USB marker was created, no
+logging setting changed, no screenshot/crash dump requested and no remote
+service contacted. The actual chip identity and CarPlay acceptance remain
+unknown. The installed 6.9.0WL and exact Go hardware are still not available
+for comparison.
+
+The next productive implementation task is hardware-independent: add a bounded
+iAP2 reliable-link state machine around the portable framing code, with host
+tests for negotiation, sequence/ACK handling, retransmission and disconnects.
+Use deterministic caller-supplied time and simulated transport; do not bind it
+to the car yet. This can progress while identity/access/recovery remain open,
+but cannot validate Apple authentication or make an installable receiver by
+itself. The remaining native `MediaService` XML/API trace is another local
+read-only investigation option; neither path authorizes enabling diagnostics.
+
+## Step 22 - Implement a bounded iAP2 reliable-link profile
+
+Status: implemented and tested on the PC; no native transport or iPhone test.
+
+New `src/carplay/iap2_link.h` and `iap2_link.c` wrap the existing frame/stream
+codec with an explicit state machine. They are part of the GPL-3.0-or-later
+`carplay_protocol` library. The pinned LIVI source supplies public protocol
+format/behavior reference, not a claim of Apple conformance.
+[Pinned link reference](https://github.com/f-io/LIVI/blob/a76553fc941dcf378dd55c04da56aaf3d6911e08/native/livi-helperd/crates/iap2-link/src/lib.rs),
+[pinned upstream tests](https://github.com/f-io/LIVI/blob/a76553fc941dcf378dd55c04da56aaf3d6911e08/native/livi-helperd/crates/iap2-link/tests/engine.rs).
+
+The implemented progression is:
+
+```text
+IDLE -> DETECT (marker exchange) -> SYNCHRONIZE -> NORMAL
+                                      |             |
+                         timeout/reset/restart/EOF -> DEAD
+```
+
+1. **Detection and negotiation.** The marker can arrive in fragments. Marker
+   and SYN retries are scheduled at 1000 ms and 500 ms respectively, within
+   a total configurable handshake deadline (default 10 seconds). Reaching
+   `NORMAL` requires a valid peer SYN, acknowledgement of the local SYN's
+   exact sequence number, and handing the peer-SYN ACK to the transport caller.
+   ACK-only traffic cannot open the link. An identical repeated peer SYN is
+   re-ACKed; a changed accepted SYN terminates the old link as a restart.
+2. **Strict synchronization payloads.** The version-1 codec checks complete
+   session triplets, unique nonzero IDs, positive window/timer/retry values
+   and compatible ACK timing. The engine accepts peer-selected window/packet
+   limits only within its offer, retains the offered control session, and
+   rejects unoffered session IDs/types/versions. There is no counterproposal
+   algorithm or broader compatibility fallback yet.
+3. **Bounded sending.** Eight fixed queue slots store copies of accepted
+   payloads. The default in-flight window is four packets; filling that window
+   does not send an extra packet. Sequence numbers are assigned when output
+   is handed to the caller, not when data is queued. A full queue returns
+   `BUSY` without accepting another message. Future ACKs cannot free unsent
+   data; stale ACKs leave retained packets unchanged.
+4. **Reliable receiving.** In-order delivery is separate from receipt/ACK
+   tracking. Eight receive slots retain accepted payloads, including bounded
+   out-of-order data, until the application reads them. Duplicates are not
+   delivered twice. If storage fills, a new packet is dropped without
+   advancing its cumulative ACK and `BUSY` is returned; recovery depends on
+   the peer retransmitting after the application drains the queue.
+5. **Timers and teardown.** Delayed ACKs can become cumulative or piggyback
+   ACKs. Pure ACKs do not cause ACK traffic. Each sent packet keeps its own
+   timer, so newer sends cannot postpone an older packet's timeout. The
+   configured retry count means retransmissions **after** the initial send.
+   Retry exhaustion, reset, changed accepted SYN, invalid marker, oversized
+   receive frame or caller close ends the link and discards queue occupancy.
+   Reconnection requires explicit reinitialization and resetting upper-layer
+   authentication/session state. This is not secure erasure of buffer bytes.
+
+Default profile and storage:
+
+| Setting | Implemented default / bound |
+| --- | --- |
+| In-flight window | 4 by default; configured at most 8, sequence space kept below 128. |
+| Frame size | At most 1024 bytes, including the header and optional body checksum. A default payload is at most 1014 bytes. |
+| Queues | 8 TX and 8 RX slots, fixed memory; 17,688 bytes for the complete state on the tested Windows host ABI. Target ABI size is not asserted. |
+| Data retransmission | 1000 ms; 3 retries after the initial transmission by default. |
+| ACK policy | 100 ms or 2 accepted contiguous payloads by default; an outgoing data frame can acknowledge sooner. |
+| Sessions | Control ID 10, type 0/version 1 by default. Up to 3 explicit offers; additional application protocols are not implemented by merely offering their IDs. |
+
+Time is supplied as monotonically nondecreasing 64-bit milliseconds. Timer
+arithmetic uses elapsed intervals, avoiding overflowing absolute deadlines near
+the clock's upper limit. No engine operation allocates memory, sleeps, opens a
+file, performs a USB/network write or invokes an application callback.
+
+This is a deliberately limited profile. EAK controls, zero-ACK operation and
+forced negotiation without marker exchange are unsupported. Gaps recover by
+ordinary cumulative ACKs and packet timeouts, not EAK. The bounded queue/window,
+ACK validation and retry semantics are local implementation choices, not a
+byte-for-byte port of every behavior in the reference engine. No Apple-private
+protocol documentation or certification has been used to establish conformance.
+
+## Step 23 - Validate the link engine, memory behavior and ARM build
+
+Status: six CTest suites pass; 16 link test groups, both sanitized protocol
+suites and the expanded ARM portability check pass on 2026-09-09.
+
+`tests/iap2_link_tests.cpp` is a new CTest executable. Coverage includes:
+
+- Exact pinned synchronization-payload bytes and strict malformed-LSP rejection.
+- Fragmented marker/frame input, garbage resynchronization, bad body checksums,
+  coalesced-input consumption and oversized-header termination.
+- Detection/negotiation deadlines, combined SYN/ACK, rejected ACK-only or wrong-
+  sequence opening, duplicate SYN handling and peer restart/reset termination.
+- Exact window limits, queue-full backpressure, cumulative prefix removal,
+  all 256 ACK distances across sequence wrap, and 300 send/receive iterations.
+- Retry timing/exhaustion, timers starting at output, oldest-packet deadlines,
+  delayed/cumulative/piggyback ACKs and suppression of ACK-only response loops.
+- Out-of-order receive, duplicate suppression, full RX queue with later retry,
+  maximum/empty payloads, negotiated session/packet limits and session routing.
+- Short marker/SYN/final-ACK/data/retry output buffers without consuming pending
+  state, short application receive buffers, backward time, near-`UINT64_MAX`
+  time arithmetic, disconnect and explicit reinitialization.
+- Two independent engine instances connected by a synthetic byte transport.
+  One data frame and one cumulative ACK are deliberately lost. All eight
+  queued payloads eventually arrive exactly once and in order, and the sender
+  releases every acknowledged packet. This is a self-interoperability test,
+  not an iPhone or upstream-runtime comparison.
+
+An early receive-capacity test used the wrong next sequence number; correcting
+the fixture made it exercise actual queue saturation. The first ARM build also
+exposed compiler-generated `__aeabi_memcpy` calls for struct assignment. The
+new implementation uses explicit byte-copy loops; the final ARM object has no
+unresolved runtime imports. These were PC test/build findings, not car failures.
+
+`scripts/Check-CarPlaySanitizers.ps1` compiles the C sources and both C++
+protocol test executables with the installed LLVM/Visual Studio toolchain,
+AddressSanitizer and UndefinedBehaviorSanitizer, with sanitizer failures fatal.
+It builds under ignored `build/carplay-sanitized` and makes the existing ASan
+runtime available only within the script's process environment.
+
+Reproduce:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayArm.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
+```
+
+The ARM check now covers `iap2_wire.c`, `iap2_auth.c` and `iap2_link.c`. It
+still produces a relocatable Cortex-A8 object, **not** a linked QNX program,
+firmware update or executable validated on the unit. Sanitizer success covers
+the exercised host cases, not every possible input or target timing behavior.
+
+## Step 24 - Define the next integration boundary
+
+Status: link/profile groundwork complete for this step; receiver integration
+remains open.
+
+The public API separates four responsibilities:
+
+1. `feed`: consume incoming transport bytes and honor its consumed count even
+   on an error; keep any unconsumed tail outside the engine.
+2. `receive` / `send`: drain in-order session payloads and queue bounded outgoing
+   payloads. Respect `MORE`, `BUSY` and `NO_SPACE`; do not silently drop data.
+3. `output`: drain encoded output while the transport can retain the entire
+   returned frame. Preserve partial physical-write tails externally, or close
+   on failure. Handing a frame to this function's caller is not proof that a
+   USB device accepted it.
+4. `next_delay` plus caller time: service timers without blocking the engine.
+   On closure/reinitialization, reset the separate authentication and session
+   layers. The link object must not be copied after initialization, because
+   its embedded stream refers to its own receive buffer.
+
+The next implementation task is a bounded control-session adapter: reassemble
+CSMs split across link payloads, split larger outgoing CSMs according to the
+negotiated packet size, and connect the existing authentication sequencer
+through explicit provider callbacks. Test it using synthetic providers and
+transport before adding any QNX device access. There is currently no automatic
+wiring between `iap2_link` and `iap2_auth`, and no real signing provider.
+
+Physical chip identity, complete certificate retrieval, bus ownership, iPhone
+acceptance, QNX USB transport, CarPlay session/media protocols, display/input,
+audio focus and recovery still require separate work. Nothing in this step
+establishes an installable CarPlay receiver or changes the car. Earlier
+uncommitted diagnostic findings were preserved; no commit was requested or
+created for this continuation.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -701,12 +1016,16 @@ change has been created.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Connect the portable iAP2 components to a reliable link engine and actual
-   QNX USB transport. Establish the existing Apple authentication chip's identity
+3. Connect the bounded link engine to a control-session fragmentation/reassembly
+   adapter and the existing authentication sequencer using synthetic providers
+   first (Step 24); actual QNX USB transport remains separate. Establish the
+   existing Apple authentication chip's identity
    and usable interface. The register operations and cached `authcoproc`
-   relative export path are now traced; next investigate an existing read-only
-   diagnostic/export route for the actual unit (Step 18). `acp_ver` is not a
-   hardware query. Any new provider must
+   relative export path are now traced. The first diagnostic-route inspection
+   found no established read-only collection method (Steps 19-21); do not
+   enable logging to substitute for one. The reliable-link profile now passes
+   simulated transport tests while physical access remains unresolved.
+   `acp_ver` is not a hardware query. Any new provider must
    validate complete certificates and coordinate bus ownership. iPhone
    acceptance remains a separate test. This is a condition on the software-only
    approach, not a requirement for an added receiver module.

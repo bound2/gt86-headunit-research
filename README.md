@@ -94,8 +94,9 @@ frame reassembly, control-message encoding/decoding, and accessory authenticatio
 sequencing through a caller-supplied certificate/challenge provider. It performs
 no I/O and contains no authentication keys or fallback signer.
 
-`scripts/Build.ps1` builds this library and runs `iap2_tests` alongside the four
-existing suites. The new tests use 33 committed LIVI message vectors and golden
+`scripts/Build.ps1` builds this library and runs `iap2_tests` and
+`iap2_link_tests` alongside the four existing suites. The tests use 33 committed
+LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
 authentication failures. Provenance and GPL-3.0-or-later licensing are recorded
 in [third_party/README.md](third_party/README.md).
@@ -109,9 +110,37 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayArm
 It produces `build/carplay-arm/carplay_protocol.o`, a 32-bit ARM relocatable
 object with no unresolved symbols. This checks portable code generation, not
 QNX executable linking or compatibility with the car. The receiver still needs
-USB/Bluetooth transport, reliable link negotiation, the actual Apple
+USB/Bluetooth transport, broader link-profile interoperability, the actual Apple
 authentication provider, CarPlay session/media protocols, and QNX display/audio
 integration. There is no installable CarPlay package yet.
+
+### Experimental reliable-link layer
+
+`src/carplay/iap2_link.h` documents the new C99, allocation-free engine. It
+handles marker detection, bounded SYN/ACK negotiation, send windows, cumulative
+ACKs, delayed/piggyback ACKs, retransmission, duplicate suppression, reordered
+input and teardown. Time and transport remain caller supplied. The API exposes
+explicit queue/output backpressure; it does not execute callbacks or perform I/O.
+
+Defaults are a four-packet window, 1024-byte frames, eight fixed TX/RX slots
+each, and control session 10/version 1. Peer parameters must fit the offer;
+EAK, zero-ACK profiles and forced negotiation without marker exchange are not
+implemented. Other session IDs require explicit offers and application handlers.
+Session-message fragmentation/reassembly and real authentication integration
+are still separate work. See [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
+
+Six CTest suites pass, including 16 link test groups and a simulated two-endpoint
+exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
+checks use the installed LLVM and Visual Studio toolchain:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
+```
+
+This builds/runs the two protocol test executables with AddressSanitizer and
+UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
+or car access is required. The ARM portability check now covers all three C99
+translation units; it still produces no QNX executable.
 
 ## Read-only firmware analysis
 
@@ -156,6 +185,26 @@ directory/node handling and cached reads. It does not start QNX's resource
 manager, mount a device, serialize a full real XML document, or contact the car.
 Eight tool-safety tests now cover all three pinned binaries and the new probe.
 The same Unicorn dependency and create-new-only `--output` rules apply.
+
+### Diagnostic/export route investigation
+
+The inspected snapshot, crash-dump, Insight logging and Apple connection-script
+paths do not establish a read-only export of the chip information to the PC.
+The logging configuration includes uploads, so enabling it is not an identity-
+only operation. Findings and the correction about the separate USB logging
+trigger are in [CarPlay progress, Steps 19-21](reports/carplay-progress.md#step-19---inspect-existing-diagnostics-without-activating-them).
+
+```powershell
+python -B scripts/probe_diagnostic_routes.py
+python -B -m unittest discover -s tests -p test_diagnostic_routes.py -v
+```
+
+The probe verifies 11 extracted inputs plus the installation ISO. It models
+10 MCD decision paths and replays seven stock Lua scenarios with all guest I/O,
+services, parsers and timing mocked. Five regression/safety tests pass. It uses
+the existing Win32 Lua host and `C:/Windows/System32/tar.exe` to read one pinned
+ISO member into memory; no vendor shell script runs and no trigger file is
+created. Optional `--output` must name a new file.
 
 ### C++ binary analyzer
 
