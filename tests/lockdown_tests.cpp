@@ -1,16 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Synthetic service peer only; no phone, trust records, TLS or native USB.
 #include "lockdown_channel.h"
+#include "lockdown_reply.h"
 #include "support/usbmux_fixture.h"
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
 static std::filesystem::path fixtures;
 static Bytes fixture(const char *name) {
     std::ifstream in(fixtures / name, std::ios::binary);
     check(bool(in), "open independent XML fixture");
     return Bytes(std::istreambuf_iterator<char>(in), {});
+}
+static Bytes binary_product_fixture() {
+    std::ifstream in(fixtures / "plist-binary-vectors.txt"); check(bool(in),"open binary plist fixtures"); std::string line;
+    while(std::getline(in,line)) {
+        std::istringstream row(line); std::string name,hex; row>>name>>hex;
+        if(name!="product") continue;
+        Bytes out; check(hex.size()%2==0,"binary hex pairs");
+        for(size_t i=0;i<hex.size();i+=2) out.push_back(static_cast<uint8_t>(std::stoul(hex.substr(i,2),nullptr,16)));
+        return out;
+    }
+    throw std::runtime_error("binary ProductType fixture missing");
 }
 static lockdown_body view(const Bytes& v) { return {v.data(), v.size()}; }
 static Bytes bytes(const char *s) { return Bytes(s, s + std::strlen(s)); }
@@ -347,6 +360,33 @@ static void transport_failure_and_counter_exhaustion() {
     check(s.at(r.now+5)==LOCKDOWN_CHANNEL_CLOSED && s.c.reason==LOCKDOWN_CHANNEL_REASON_TRANSPORT &&
           r.peer.cancelled.size()==1 && lockdown_channel_next_delay(&s.c)==UINT32_MAX, "backend closure invalidates idle service"); s.canaries();
 }
+static void typed_validation_of_held_channel_responses() {
+    for(const char *name:{"product-type.xml","error.xml","product-binary"}) {
+        Runtime r(1,1024,64); r.ready(); const auto h=r.open(); r.established(h);
+        const auto request=get_value(), response=std::string(name)=="product-binary"?binary_product_fixture():fixture(name);
+        reply_with(r,request,framed(response)); Service s(r,h);
+        service_plist_node nodes[32]; uint8_t arena[1024]; const service_plist_storage storage{nodes,32,arena,sizeof arena};
+        service_plist_document doc{}; lockdown_reply result{}; uint64_t token=99;
+        check(lockdown_reply_read(&s.c,&storage,LOCKDOWN_REPLY_GET_VALUE,SERVICE_PLIST_STRING,&doc,&result,&token)==IAP2_MORE &&
+              !doc.nodes && !result.value && !token,"no typed response before actual held frame");
+        s.request(request); s.held(); const auto before=snapshot(s.c); const auto reads=r.peer.reads,writes=r.peer.writes;
+        const auto status=lockdown_reply_read(&s.c,&storage,LOCKDOWN_REPLY_GET_VALUE,SERVICE_PLIST_STRING,&doc,&result,&token);
+        check(status==(std::string(name)=="error.xml"?LOCKDOWN_REPLY_REMOTE_ERROR:IAP2_OK) &&
+              token==s.c.token && doc.count && snapshot(s.c)==before && r.peer.reads==reads && r.peer.writes==writes,"explicit typed bridge does not release or perform I/O");
+        const auto *value=result.value?result.value:result.error;
+        const Bytes copy(value->data,value->data+value->size);
+        check(lockdown_channel_release(&s.c,token,r.now)==0,"validated reply explicitly released");
+        std::fill(s.rx.begin()+1,s.rx.end()-1,0);
+        check(Bytes(value->data,value->data+value->size)==copy,"typed data outlives raw channel view through owned parser arena"); s.canaries();
+    }
+    Runtime r(1,1024,64); r.ready(); const auto h=r.open(); r.established(h); const auto request=get_value();
+    reply_with(r,request,framed(Bytes{'n','o','t',' ','p','l','i','s','t'})); Service s(r,h); s.request(request); s.held();
+    service_plist_node nodes[32]; uint8_t arena[1024]; const service_plist_storage storage{nodes,32,arena,sizeof arena};
+    service_plist_document doc{}; lockdown_reply result{}; uint64_t token=99; const auto before=snapshot(s.c);
+    check(lockdown_reply_read(&s.c,&storage,LOCKDOWN_REPLY_GET_VALUE,SERVICE_PLIST_STRING,&doc,&result,&token)<0 &&
+          !doc.nodes && !result.value && !token && snapshot(s.c)==before,"malformed body cannot yield a usable release token or silently continue");
+    lockdown_channel_close(&s.c); check(r.peer.cancelled.size()==1,"application explicitly aborts invalid response");
+}
 int main(int argc,char **argv) {
     try {
         check(argc==2,"fixture directory required"); fixtures=argv[1];
@@ -355,6 +395,7 @@ int main(int argc,char **argv) {
         response_waits_for_request_ack(); bad_prefixes_close_shared_transport(); partial_eof(); exchange_and_hold_deadlines();
         zero_window_and_clock(); stale_channel_never_cancels_new_session(); other_stream_and_control_keep_progressing();
         maximum_body_with_bounded_read_credit(); transport_failure_and_counter_exhaustion();
-        std::cout<<"PASS: 17 Lockdown framing/channel groups; synthetic service only. Channel bytes="<<sizeof(lockdown_channel)<<'\n'; return 0;
+        typed_validation_of_held_channel_responses();
+        std::cout<<"PASS: 18 Lockdown framing/channel groups; synthetic service only. Channel bytes="<<sizeof(lockdown_channel)<<'\n'; return 0;
     } catch (const std::exception& e) { std::cerr<<"FAIL: "<<e.what()<<'\n'; return 1; }
 }

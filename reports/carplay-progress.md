@@ -37,12 +37,13 @@ now adds port routing, sequence/ACK/window handling and close behavior, with
 coordinates up to four connections through explicit backend callbacks, with
 bounded stream APIs and 13 additional groups. Bounded Lockdown service framing,
 explicit GetValue XML encoding and an owned request/response channel now add
-17 groups; four independently parsed XML fixtures bring Python checks to 23.
-Response semantics, native USB and phone pairing remain absent.
-All fifteen CTest suites pass, and all eleven protocol suites pass under host
-address/undefined-behavior sanitizers. The fourteen C99
+18 groups. A bounded XML/binary plist decoder and typed response validation
+add 13 groups and seven synthetic binary fixtures; Python checks now total 24.
+Native USB, TLS and phone pairing remain absent.
+All sixteen CTest suites pass, and all twelve protocol suites pass under host
+address/undefined-behavior sanitizers. The sixteen C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-48 and [the service report](lockdown-service.md).
+Steps 22-49 and [the response report](lockdown-responses.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1750,6 +1751,37 @@ Real QNX transport, authentication-chip access, network/media and verified
 execution/recovery remain unresolved. No installable CarPlay image, update USB
 or vehicle change was produced.
 
+## Step 49 - Decode and validate Lockdown responses
+
+Status: service framing checkpoint committed/pushed as `7fd17f7`.
+The new [lockdown-responses.md](lockdown-responses.md) records a bounded C99
+XML/binary plist decoder, strict typed GetValue/StartSession/StartService/Pair
+response validation and an explicit bridge from held channel responses.
+It uses the existing idevice pin plus checked CPython/Apple format references.
+No upstream function bodies, real credentials or trust records were copied.
+
+The decoder bounds input/arena size, nodes and depth; it handles strings, data,
+integers, booleans and containers, rejects duplicate keys/reference cycles and
+copies decoded values into caller storage. Unsupported types remain explicit.
+The validator correlates Request, distinguishes remote Error, checks ports
+before narrowing and rejects malformed SSL flags or a plaintext StartSession
+downgrade. Validated fields do not mean pairing or TLS has succeeded.
+
+Thirteen new groups cover parsing/security/ownership boundaries and 24,000
+deterministic XML/binary mutations. Seven Python-serialized synthetic binary
+fixtures receive independent semantic checks. The channel suite now has 18
+groups, including typed XML/binary replies through the real dispatcher and fake
+backend. All 16 CTest suites, twelve sanitized suites, sixteen-unit ARM check
+and 24 Python tests pass. Nodes are 32 x64 bytes plus decoded byte storage.
+The first ARM test found an unwanted division import; a bounded-product check
+removed it without weakening validation.
+
+Next add explicit session/service request builders and application state
+transitions, with separate credential, user-authorized pairing/storage and TLS
+boundaries. Real carkit startup, QNX transport, network/media and hardware
+execution/recovery remain unresolved. No installable image or vehicle change
+was produced; software-only CarPlay is not yet demonstrated.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1760,8 +1792,10 @@ or vehicle change was produced.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Add bounded typed plist response validation, then explicit TLS/trust
-   pairing and carkit startup. Service framing, GetValue encoding and a bounded
+3. Add explicit session/service request construction and validated application
+   transitions, then TLS/trust pairing and carkit startup. Bounded XML/binary
+   response decoding/validation is implemented in Step 49.
+   Service framing, GetValue encoding and a bounded
    opaque response channel are implemented in Step 48.
    USBmux dispatch/byte-stream integration is now
    implemented in Step 47. TCP-style connection, routing and

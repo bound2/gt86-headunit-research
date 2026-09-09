@@ -217,3 +217,22 @@ The XML fixtures are synthetic and independently checked using Python plistlib;
 they are not phone captures, trust records or evidence of Apple conformance.
 See [the service report](../reports/lockdown-service.md) for exact source links,
 file hashes, security boundaries and missing response parsing/pairing/TLS.
+
+The later `service_plist.c`/`.h`, `lockdown_reply.c`/`.h`, tests and seven
+synthetic binary vectors also select GPL-3.0-only. They retain the idevice
+reference for response fields and use Apple's public plist DTD plus
+[CPython plistlib v3.14.7](https://github.com/python/cpython/blob/v3.14.7/Lib/plistlib.py)
+for XML/binary layout cross-checking. Python is a host tool/source reference
+under its own [PSF and historical license notices](https://github.com/python/cpython/blob/v3.14.7/LICENSE),
+not a bundled receiver dependency; no Python implementation bodies were copied.
+The installed plistlib source matches that tag after line-ending normalization;
+its raw SHA256 is
+`a2507c4c70e0c29eca3332917334d36f525b506ca3d61ee846626eec0804587d`.
+
+Python serialized the new independently specified synthetic dictionaries.
+They contain no captured phone information or actual pairing secrets. Local
+caps, owned expanded trees, duplicate/cycle rejection, restricted XML syntax,
+numeric/Unicode checks, strict response correlation, error/TLS policy and
+explicit channel-release boundaries are independent implementation choices,
+not claims of full Apple conformance. No external DTD/entity is loaded by the
+receiver. See [the response report](../reports/lockdown-responses.md).

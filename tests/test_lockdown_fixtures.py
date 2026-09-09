@@ -31,6 +31,31 @@ class LockdownFixtures(unittest.TestCase):
             "Label": "&<>\"'", "Request": "GetValue", "Key": "K&<>\"'",
             "Domain": "D&<>\"'"})
 
+    def test_binary_vectors(self):
+        expected = {
+            "product": {"Request": "GetValue", "Value": "iPhone17,1"},
+            "error": {"Request": "GetValue", "Error": -7,
+                      "ErrorString": "InvalidHostID", "ErrorDescription": "synthetic refusal"},
+            "session": {"Request": "StartSession", "SessionID": "synthetic-session",
+                        "EnableSessionSSL": True},
+            "service_tls": {"Request": "StartService", "Port": 62079, "EnableServiceSSL": True},
+            "service_plain": {"Request": "StartService", "Port": 1},
+            "pair": {"Request": "Pair", "EscrowBag": bytes([0, 255, 1, 2])},
+            "mixed": {"Request": "GetValue", "Value": [
+                "same", "same", 0, -1, -(1 << 63), 1 << 63, (1 << 64) - 1,
+                True, False, bytes([0, 255]), "\u00c4\U0001f600", {"nested": []}]},
+        }
+        found = {}
+        for line in (FIXTURES / "plist-binary-vectors.txt").read_text(encoding="ascii").splitlines():
+            if not line or line.startswith("#"):
+                continue
+            name, value = line.split()
+            self.assertNotIn(name, found)
+            raw = bytes.fromhex(value)
+            found[name] = plistlib.loads(raw)
+            self.assertEqual(raw, plistlib.dumps(expected[name], fmt=plistlib.FMT_BINARY, sort_keys=False))
+        self.assertEqual(found, expected)
+
 
 if __name__ == "__main__":
     unittest.main()

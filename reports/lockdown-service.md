@@ -9,6 +9,10 @@ peer test. The channel is not a complete Lockdown client: it does not parse
 response dictionaries, pair a phone, establish TLS or start carkit. No real
 device, trust record, vehicle setting or firmware was accessed or changed.
 
+Follow-up: [Step 49](lockdown-responses.md) adds a separate bounded XML/binary
+decoder and typed response helper. The framing channel itself remains opaque;
+the Step 48 implementation and verification record below are historical.
+
 ## Step 1 - Pin the service dependency before implementing its framing
 
 The existing LIVI pin is `a76553fc941dcf378dd55c04da56aaf3d6911e08`.
