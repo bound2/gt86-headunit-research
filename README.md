@@ -94,8 +94,8 @@ frame reassembly, control-message encoding/decoding, and accessory authenticatio
 sequencing through a caller-supplied certificate/challenge provider. It performs
 no I/O and contains no authentication keys or fallback signer.
 
-`scripts/Build.ps1` builds this library and runs `iap2_tests` and
-`iap2_link_tests` alongside the four existing suites. The tests use 33 committed
+`scripts/Build.ps1` builds this library and runs `iap2_tests`, `iap2_link_tests`
+and `iap2_control_tests` alongside the four existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
 authentication failures. Provenance and GPL-3.0-or-later licensing are recorded
@@ -126,10 +126,11 @@ Defaults are a four-packet window, 1024-byte frames, eight fixed TX/RX slots
 each, and control session 10/version 1. Peer parameters must fit the offer;
 EAK, zero-ACK profiles and forced negotiation without marker exchange are not
 implemented. Other session IDs require explicit offers and application handlers.
-Session-message fragmentation/reassembly and real authentication integration
-are still separate work. See [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
+The control-session adapter below now connects this engine to authentication;
+actual device transport and a real provider remain separate work. See
+[CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
 
-Six CTest suites pass, including 16 link test groups and a simulated two-endpoint
+Seven CTest suites pass, including 16 link test groups and a simulated two-endpoint
 exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
 checks use the installed LLVM and Visual Studio toolchain:
 
@@ -137,10 +138,33 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the two protocol test executables with AddressSanitizer and
+This builds/runs the three protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all three C99
+or car access is required. The ARM portability check now covers all four C99
 translation units; it still produces no QNX executable.
+
+### Bounded control-session/authentication adapter
+
+`src/carplay/iap2_control.h` documents the endpoint that owns both link and
+authentication state. It reassembles split control messages, preserves coalesced
+messages and fragments authentication replies to the negotiated frame size.
+Caller-owned receive/reply/provider buffers have explicit limits; there is no
+heap allocation. Only `poll` invokes the caller's synchronous provider. Pending
+replies survive queue pressure without repeating certificate/signature requests.
+
+The experimental profile offers one control session, serializes subsequent
+messages behind a fully acknowledged reply, and closes on malformed messages,
+authentication failures or local deadlines. Disconnect/reinitialization resets
+authentication and partial messages together. Non-authentication messages are
+held for explicit application handling; accessory identification and general
+application replies are not implemented. See
+[CarPlay progress, Steps 25-27](reports/carplay-progress.md#step-25---connect-control-messages-to-the-authentication-sequencer).
+
+Fourteen new test groups cover buffer limits, backpressure, teardown, deadlines
+and an exchange between two library endpoints with byte-fragmented transport
+and deliberate packet loss. Provider results are synthetic patterns, not real
+credentials. These are local stream/serialization choices, not an Apple
+conformance result, an iPhone test or proof of CarPlay compatibility.
 
 ## Read-only firmware analysis
 

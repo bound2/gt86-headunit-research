@@ -14,7 +14,7 @@ foreach ($headunitTool in @($headunitClang, $headunitLinker, $headunitNm)) {
 $headunitOutput = Join-Path $headunitRoot 'build/carplay-arm'
 New-Item -ItemType Directory -Path $headunitOutput -Force | Out-Null
 $headunitObjects = @()
-foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link')) {
+foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link', 'iap2_control')) {
     $headunitSource = Join-Path $headunitRoot "src/carplay/$headunitName.c"
     $headunitObject = Join-Path $headunitOutput "$headunitName.o"
     & $headunitClang --target=armv7-none-eabi -mcpu=cortex-a8 -mfloat-abi=soft `

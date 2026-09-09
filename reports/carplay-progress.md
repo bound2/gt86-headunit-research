@@ -13,9 +13,12 @@ No installable CarPlay update exists in this project yet. Portable C99 receiver
 components now implement iAP2 framing, control messages and authentication
 sequencing, validated against 33 upstream vectors. A new experimental reliable-
 link profile adds negotiation, ACKs, retransmission and bounded queues with
-16 link test groups. All six CTest suites pass, and both protocol suites pass
-under host address/undefined-behavior sanitizers. The three C99 components also
-compile to 32-bit ARM objects without runtime imports; see Steps 22-24.
+16 link test groups. A bounded control-session adapter now connects link payloads
+to authentication, including split/coalesced messages and larger replies, with
+14 additional test groups. All seven CTest suites pass, and all three protocol
+suites pass under host address/undefined-behavior sanitizers. The four C99
+components also compile to 32-bit ARM objects without runtime imports; see
+Steps 22-27. No real authentication provider or device transport is connected.
 All 13 earlier host-side
 manifest/dispatch/authentication checks pass. They confirm additional weaknesses
 in resident update control flow, with explicit mock assumptions. Adobe AIR also
@@ -1006,6 +1009,159 @@ establishes an installable CarPlay receiver or changes the car. Earlier
 uncommitted diagnostic findings were preserved; no commit was requested or
 created for this continuation.
 
+Follow-up: checkpointed in `be252e5` at the owner's next request. Steps 25-27
+below implement the bounded adapter described here, so the missing automatic
+link/auth connection above is a historical status, not the current result.
+
+## Step 25 - Connect control messages to the authentication sequencer
+
+Status: implemented locally on 2026-09-09; synthetic transport/providers only.
+
+The requested initial checkpoint is commit `be252e5`,
+`Add bounded iAP2 reliable link and document diagnostic route limits`.
+The working tree was clean immediately after that commit. This continuation
+adds `src/carplay/iap2_control.h` and `.c`, its test executable, and build/check
+integration. These new changes have not been committed automatically.
+
+The adapter uses the six-byte, length-delimited CSM format and authentication
+message fields from the same pinned LIVI revision. The references do not
+establish that this new adapter interoperates with an iPhone. Its stream
+reassembly, reply-ACK barrier and deadlines are explicit local policies, not
+private Apple requirements. References checked again on 2026-09-09:
+[pinned CSM codec](https://github.com/f-io/LIVI/blob/a76553fc941dcf378dd55c04da56aaf3d6911e08/native/livi-helperd/crates/iap2-csm/src/lib.rs)
+and [authentication fields](https://github.com/f-io/LIVI/blob/a76553fc941dcf378dd55c04da56aaf3d6911e08/native/livi-helperd/crates/iap2-csm/src/messages/authentication.rs).
+
+Implementation sequence:
+
+1. Own the link and authentication objects in one noncopyable endpoint. Only
+   the control API operates that link; callers must not separately reinitialize
+   its embedded fields. Closing/reinitializing discards partial CSMs, pending
+   replies and accepted authentication state together.
+2. Offer exactly one control session, kind 0/version 1. Defaults retain session
+   ID 10 and the previous link profile. Additional session types are rejected
+   at initialization rather than silently drained without a handler.
+3. Reassemble the CSM header first, check declared size against the caller's
+   receive capacity, and then collect the exact body. A retained link-payload
+   fragment preserves the tail when several CSMs share one payload. Malformed
+   markers, lengths or parameter tails close the endpoint; there is no search
+   for a new CSM marker inside damaged message data.
+4. Call the existing authentication sequencer only from `poll`, using explicitly
+   supplied synchronous certificate/signing callbacks. The library supplies no
+   default signer, device path, key, chip access or certificate contents.
+5. Retain each generated reply and queue fragments no larger than negotiated
+   frame size minus ten bytes. Queue saturation pauses at the exact unsent
+   offset; retries do not repeat the provider call. Later CSMs remain buffered
+   until the complete reply is cumulatively acknowledged. This serializes local
+   processing; it does not prove when a peer created a buffered message.
+6. Hold a valid non-authentication CSM for explicit application inspection and
+   release. Such a message is not treated as authentication success, nor is it
+   silently executed as an identification or CarPlay command.
+7. Enforce configurable local budgets: default 5 seconds from the first CSM
+   byte consumed by the adapter through assembly/application release, and
+   30 seconds from link NORMAL through authentication acceptance. Byte drips
+   do not renew a message budget. Authentication backpressure counts against
+   its total budget. Only an in-sequence success notification cancels that
+   budget; an ACK alone cannot authenticate the accessory.
+
+The three caller-owned buffers must be distinct: receive capacity 6..65535,
+reply capacity 11..65535, and provider scratch capacity 1..reply capacity minus
+10. A complete certificate is not assumed to fit a link packet. Tests cover a
+2048-byte synthetic certificate and the maximum 65525-byte provider result
+inside a 65535-byte CSM; these are capacity tests, not observed chip sizes.
+Host endpoint state occupies 18,888 bytes plus caller buffers; the example
+8192/8192/8182 buffer sizes bring this to 43,454 bytes, excluding caller/stack
+overhead. ARM layout may differ. There is no heap or OS dependency.
+
+## Step 26 - Verify streaming, pressure and connection teardown
+
+Status: all seven CTest suites, all three sanitized protocol suites, the ARM
+portability check and all 13 existing Python tool-safety tests pass.
+
+`tests/iap2_control_tests.cpp` adds 14 test groups:
+
+1. Configuration preflight, unchanged state on invalid initialization, argument
+   handling, buffer canaries, and a nondefault negotiated control session ID.
+2. Every split position in the certificate-request CSM header, with link frames
+   themselves delivered one transport byte at a time.
+3. Large inbound messages across 1/5/17/1014-byte payloads and an exact
+   65535-byte message; unknown message bytes remain intact for the application.
+4. Multiple coalesced messages and an application hold before authentication.
+5. Malformed markers/lengths/parameters, over-capacity declarations, exact
+   receive capacity and stable terminal error reporting.
+6. A smaller negotiated 29-byte frame size (19 payload bytes), queue saturation,
+   bounded poll yields, short physical-output buffers, exact reply resumption,
+   and acknowledgement waits without a perpetual immediate-work timer.
+7. Pipelined certificate request/challenge/success input: signing waits for
+   certificate acknowledgement, and acceptance waits for signature
+   acknowledgement and the explicit success notification.
+8. Missing/failing certificate callback, zero/overreported provider result and
+   a failing signing callback; no fallback authentication path.
+9. Out-of-sequence/rejected authentication and duplicate certificate requests.
+10. Disconnect with partial input, pending output, accepted authentication or
+    a held application message; reinitialization cannot retain old acceptance.
+11. Remote reset/restart, link retry exhaustion and handshake timeout; immediate
+    upper-layer reset even without a later poll. A recoverable bad body checksum
+    leaves the live endpoint able to accept a valid retransmission.
+12. Partial-message/application-hold/authentication deadlines, byte-drip and TX
+    stalls, accepted-session timer cancellation, backward time and arithmetic
+    near `UINT64_MAX`.
+13. Empty payloads, full receive queues followed by peer retransmission, and a
+    maximum-length reply across thousands of small negotiated payloads.
+14. Two actual library link endpoints exchanging synthetic authentication CSMs
+    through fragmented transport. One certificate frame is deliberately lost.
+    The peer checks complete certificate/signature bytes before sending the
+    next request; both provider callbacks run exactly once despite retransmission.
+
+The initial loss-test fixture inspected header byte 8 (checksum) instead of
+byte 7 (session), so it had not actually dropped the intended packet. Its loss
+assertion failed. Correcting the fixture made the final test exercise real
+retransmission through the local engine. No car or iPhone was involved.
+
+Reproduce from the repository root:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayArm.ps1
+python -B -m unittest discover -s tests -p test_*.py -v
+```
+
+The ARM check now includes all four C99 units and reports no unresolved runtime
+imports. Its result is still a relocatable Cortex-A8 object, not a QNX program,
+installable update or verified target ABI. Sanitizers cover the exercised host
+cases, not full protocol conformance. The Python tests require the pinned local
+corpus/tools as previously documented; the CTest protocol cases do not.
+
+## Step 27 - Keep the next receiver boundary explicit
+
+Status: adapter integration complete for this local profile; a usable CarPlay
+receiver is still not established.
+
+A future transport loop must initialize/start the control endpoint, feed bytes
+while honoring consumed counts, poll bounded application work, and drain output
+only while it can retain entire returned frames. `MORE` waits for input;
+`BUSY` needs transport/ACK progress; `MESSAGE` needs explicit application
+handling/release; `OK` from poll requests another bounded poll. The minimum
+link/adapter `next_delay` governs timer service. `feed`/`output` never invoke
+providers. EOF/transport failure calls `close`, and externally retained write
+tails must be discarded before opening a new connection.
+
+Provider calls are synchronous and must themselves be bounded: caller-supplied
+time cannot interrupt a hung hardware callback. Buffer clearing on closure is
+not a secure-erasure guarantee. General application replies and accessory
+identification handling remain absent, even though unknown CSMs can now be
+held for inspection. Authentication ACCEPTED denotes only the sequencer's
+receipt of an in-order notification, not CarPlay, a validated certificate or
+a cryptographic check of the synthetic peer.
+
+The next safe PC-side task is a bounded application-message reply path and
+accessory-identification sequencer using the pinned public vectors and explicit
+caller-supplied metadata. Do not invent physical device identity or advertise
+unimplemented CarPlay capabilities. Keep its tests on the simulated transport
+until the real provider, QNX execution/USB access and a recovery route are
+established. Chip identity, complete real certificate retrieval, bus ownership
+and iPhone acceptance remain unresolved independently of this adapter.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1016,15 +1172,16 @@ created for this continuation.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Connect the bounded link engine to a control-session fragmentation/reassembly
-   adapter and the existing authentication sequencer using synthetic providers
-   first (Step 24); actual QNX USB transport remains separate. Establish the
+3. Extend the now-connected control/link/authentication endpoint with explicit
+   application replies and accessory identification (Step 27), testing on the
+   PC first. The bounded adapter and synthetic provider exchange pass (Steps
+   25-26); actual QNX USB transport remains separate. Establish the
    existing Apple authentication chip's identity
    and usable interface. The register operations and cached `authcoproc`
    relative export path are now traced. The first diagnostic-route inspection
    found no established read-only collection method (Steps 19-21); do not
-   enable logging to substitute for one. The reliable-link profile now passes
-   simulated transport tests while physical access remains unresolved.
+   enable logging to substitute for one. Link and control/authentication
+   integration now pass simulated transport tests while physical access remains unresolved.
    `acp_ver` is not a hardware query. Any new provider must
    validate complete certificates and coordinate bus ownership. iPhone
    acceptance remains a separate test. This is a condition on the software-only

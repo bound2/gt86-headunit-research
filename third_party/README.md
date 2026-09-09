@@ -55,3 +55,11 @@ retransmissions after the initial send, and pure ACK frames do not trigger ACKs.
 The new tests retain the pinned LSP golden bytes but independently exercise
 these bounded-state choices. No private Apple specification is bundled or
 claimed as a conformance reference; real-device interoperability is untested.
+
+The `iap2_control.c` adapter uses the same pinned CSM/authentication fields.
+Its incremental CSM stream, caller-buffer bounds, reply-ACK serialization,
+application-message hold, deadlines and owned-link lifecycle are local design
+choices, not a claim that upstream implements or validates these policies.
+`tests/iap2_control_tests.cpp` contains independent synthetic transport/provider
+fixtures. Its deterministic certificate/signature patterns are not credentials
+or an authentication-chip emulator; no real provider or private key is supplied.
