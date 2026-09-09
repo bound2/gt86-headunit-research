@@ -1,4 +1,4 @@
-"""Read-only inspection of two SHA256-pinned Toyota Apple-authentication modules.
+"""Read-only inspection of SHA256-pinned Toyota Apple-authentication/media modules.
 
 No vendor program is loaded by the host OS. Optional LLVM disassembly receives
 an in-memory copy with the stripped section-directory fields cleared, allowing
@@ -12,10 +12,11 @@ import struct
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-DIRECTORY = ROOT / "extracted/qnx-system-v3/image-380000/lib/dll"
+DIRECTORY = ROOT / "extracted/qnx-system-v3/image-380000"
 PINS = {
-    "i2c": ("iofs-i2c-ipod.so", "f7791854a0fd94a9eaa85159291007ffb49c07ea49a7e66253c5aa07df8919e6"),
-    "ipod": ("iofs-ipod.so", "f0598ab13b10ad77fca2a309a484453512c0c9094ff726de77d54416c74cf629"),
+    "i2c": ("lib/dll/iofs-i2c-ipod.so", "f7791854a0fd94a9eaa85159291007ffb49c07ea49a7e66253c5aa07df8919e6"),
+    "ipod": ("lib/dll/iofs-ipod.so", "f0598ab13b10ad77fca2a309a484453512c0c9094ff726de77d54416c74cf629"),
+    "media": ("usr/sbin/io-fs-media", "92c92ef5a41c1a4ed15ab7bc89167b94def45a31d526afe5ca6c6f4214f4a6c5"),
 }
 LLVM = Path("C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/llvm-objdump.exe")
 
@@ -108,7 +109,8 @@ def main():
         raise FileExistsError(args.output)
     elf = PinnedElf(args.module)
     if args.disassemble:
-        defaults = (0x600, 0xABC) if args.module == "i2c" else (0x2F58, 0x41A0)
+        defaults = {"i2c": (0x600, 0xABC), "ipod": (0x2F58, 0x41A0),
+                    "media": (0x115870, 0x115930)}[args.module]
         rendered = elf.disassemble(args.llvm, defaults[0] if args.start is None else args.start,
                                   defaults[1] if args.stop is None else args.stop)
     else:
@@ -125,6 +127,20 @@ def main():
                     ("initialize", 0x1D98), ("control_lock", 0x1D9C),
                     ("read_register", 0x1DA0), ("write_register", 0x1DA4),
                     ("ready_unsupported", 0x1DA8), ("describe", 0x1DAC))}
+        elif args.module == "ipod":
+            evidence["driver_description"] = {
+                "module": "0x356f8", "interface": hex(elf.uint(0x3571C)),
+                "interface_name": elf.string(elf.uint(0x38A20)),
+                "describe_slot": "0x38a5c", "describe": hex(elf.uint(0x38A5C)),
+                "cached_auth_description": "0x2f90",
+            }
+        elif args.module == "media":
+            names = {"mount_create", "mount_info_io", "node_get", "hier_build", "iface_find", "attr_attach"}
+            evidence["exports"] = {
+                symbol["name"]: dict(address=hex(symbol["value"]), size=symbol["size"])
+                for symbol in (elf.symbol(i) for i in range(elf.uint(elf.dynamic[4] + 4)))
+                if symbol["section"] and symbol["name"] in names}
+            evidence["information_path_components"] = [elf.string(a) for a in (0x120D64, 0x120D70)]
         rendered = json.dumps(evidence, indent=2) + "\n"
     if args.output:
         with args.output.open("x", encoding="utf-8", newline="\n") as output:

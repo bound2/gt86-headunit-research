@@ -136,6 +136,27 @@ uses LLVM, whose location can be supplied with `--llvm`. Optional `--output`
 paths must be new files. No vendor binaries or device identities are bundled
 in the tools. The fixed `acp_ver` plugin entry is **not** a chip-version reading.
 
+### Cached media-information export
+
+The later corpus connects the iPod driver's cached `authcoproc` description to
+`<actual iPod mountpoint>/.FS_info./info.xml`. This is a derived filesystem path,
+not a confirmed route into the owner's installed firmware. The mountpoint,
+physical chip identity and an accessible read/export mechanism remain unknown.
+See [CarPlay progress, Steps 16-18](reports/carplay-progress.md#step-16---connect-cached-chip-details-to-the-media-information-file).
+
+```powershell
+python -B scripts/inspect_ipod_auth.py --module media --disassemble
+python -B scripts/probe_media_info.py
+python -B -m unittest discover -s tests -p test_ipod_auth_tools.py -v
+```
+
+The new probe runs 19 bounded ARM checks with synthetic state, including a
+mount-description **slice**, a separate actual iPod description callback,
+directory/node handling and cached reads. It does not start QNX's resource
+manager, mount a device, serialize a full real XML document, or contact the car.
+Eight tool-safety tests now cover all three pinned binaries and the new probe.
+The same Unicorn dependency and create-new-only `--output` rules apply.
+
 ### C++ binary analyzer
 
 ```powershell

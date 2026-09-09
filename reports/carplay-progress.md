@@ -21,9 +21,13 @@ work below is on the local PC.
 
 The Apple-authentication path is now traced through both stock ARM modules:
 17 synthetic-bus checks pass, including cached identity reporting, certificate
-paging and challenge/signature transfers. Five analysis-tool safety tests also
-pass. `acp_ver` proved to be a fixed plugin entry, not a chip-version reading.
-The real chip identity and iPhone acceptance remain unknown; see Steps 13-15.
+paging and challenge/signature transfers. `acp_ver` proved to be a fixed plugin
+entry, not a chip-version reading; see Steps 13-15. The cached-description path
+is now connected to `<actual iPod mountpoint>/.FS_info./info.xml` in the later
+corpus, with 19 additional native media-information checks and eight tool-safety
+tests passing. This is a filesystem export, not an established means of reaching
+the unit. The actual mountpoint, real chip identity, installed-version behavior
+and iPhone acceptance remain unknown; see Steps 16-18.
 
 ## Step 1 - Establish the target and limits
 
@@ -422,6 +426,9 @@ read-only route, but its complete path, callback dispatch and availability on
 6.9.0WL have not been established. Do not present a guessed path as a working
 command or assume it is accessible from the ordinary head-unit menus.
 
+Update: Step 16 resolves the callback dispatch and relative path in 6.17.0WL.
+Collection from the owner's installed 6.9.0WL remains unestablished.
+
 ## Step 14 - Trace certificate and challenge-response transfers
 
 Status: native callback table and register sequences reproduced with mocks.
@@ -520,6 +527,170 @@ Both tools accept `--output NEW_PATH` and refuse existing output files. Use a
 new filename for another saved run. These corpus-dependent tests are separate
 from the five CTest suites and the earlier 13 Lua update-path checks.
 
+## Step 16 - Connect cached chip details to the media-information file
+
+Status: static dispatch/path trace established for the pinned 6.17.0WL corpus;
+selected native routines reproduced with synthetic state on 2026-09-09.
+
+The additional input is
+`extracted/qnx-system-v3/image-380000/usr/sbin/io-fs-media`, SHA256
+`92c92ef5a41c1a4ed15ab7bc89167b94def45a31d526afe5ca6c6f4214f4a6c5`.
+It is an ARM executable whose text begins at virtual address `0x100000`.
+Addresses below are ELF virtual addresses, not all file offsets.
+
+QNX documents `io-fs-media` as a filesystem interface to media devices. Its
+documentation is background only: the Toyota-specific path and callback
+addresses below come from this pinned binary, not a guarantee from newer QNX
+documentation. [QNX io-fs-media reference](https://get.qnx.com/developers/docs/7.0.0/com.qnx.doc.io-fs-media/topic/io-fs-media.html).
+
+1. **Register the iPod interface.** In `iofs-ipod.so`, exported `iofs_module`
+   at `0x356f8` points through its `+0x24` field to the `drvr` interface at
+   `0x38a20`. Interface `+0x3c`, address `0x38a5c`, contains `0x29008`.
+   The service's `iface_find` writes the module pointer to interface `+0x0c`
+   at `0x1152f8`-`0x1152fc`. These are dynamically initialized interface
+   fields, not immutable chip identity values.
+2. **Build the cached description.** In `mount_create` (`0x1160cc`), the
+   device-description block opens a `device` XML element, emits the driver
+   name, and calls the interface's `+0x3c` callback at `0x116980`, passing
+   `(device, mount)`. This is the device-driver branch, not the separate
+   volume-provider callback at `0x116918`. The mount's XML buffer starts at
+   `mount + 0x80`.
+3. **Append chip details.** The iPod callback `0x29008` calls its cached
+   authentication-description function `0x2f90` at `0x290a0`. That function
+   emits the `authcoproc` subtree and delegates the I2C settings to the
+   provider's description callback. A null authentication-context pointer
+   omits the subtree. Description is not a new chip-identification query.
+4. **Expose a filesystem node.** The service creates a `.FS_info.` directory
+   under the mount root in the code around `0x116000`-`0x1160a4`. Its
+   `hier_build` special-directory branch (`0x110534`) links the `info.xml`
+   node as a child. `node_get` (`0x1170ac`) uses internal index `N+1` for the
+   directory and `N+3` for `info.xml`, where `N = *(mount + 0x11c)`. The
+   file node reports mode `0x8124` (regular file, permission bits `0444`)
+   and the cached byte length at `mount + 0x88`. An empty cache returns 2
+   for the file node instead of exposing an empty information file.
+5. **Read the cached bytes.** In `attr_attach`, the `N+3` branch loads
+   `mount_info_io` from the literal at `0x10caa4` and installs it as the
+   attribute's callback at `+0x6c` (`0x10ca5c`-`0x10ca60`).
+   `mount_info_io` (`0x115870`, 192 bytes) copies from the cached buffer at
+   `mount + 0x80`, in descriptor units of 512 bytes, clamped to its stored
+   length. The selected native read callback contains no chip polling or
+   authentication callback. This is not a full resource-manager or access-
+   permission test.
+
+The resulting **derived path**, with its unresolved component kept explicit, is:
+
+```text
+<actual iPod mountpoint>/.FS_info./info.xml
+```
+
+It is inside the unit's media filesystem, not automatically a file exported
+to a plugged-in USB drive or shown by the normal user interface. No mountpoint
+such as `/fs/ipod0` has been measured on this unit. No on-car command is supplied.
+The name lookup tests also show that case sensitivity depends on a mount flag;
+preserve the exact `.FS_info.` and `info.xml` spelling.
+
+The expected chip fields remain `type`, `device`, `firmware`, `protocol`,
+`devno`, `x509/size` and `i2c/{addr,path,speed}`. The tested callback emits
+certificate **size**, not certificate bytes or any private key. These cached
+fields could be absent, stale or uninitialized; their presence alone does not
+prove current chip health, CarPlay capability, or acceptance by an iPhone.
+
+## Step 17 - Preserve and validate the cached-export trace
+
+Status: 19 native media-information scenarios and eight tool-safety tests pass.
+
+The previous state was committed before this investigation as `4167001`,
+`Trace Apple authentication drivers with bounded ARM probes`. This step's
+new analysis is subsequent working-tree work, not part of that checkpoint.
+
+`scripts/inspect_ipod_auth.py` now also pins the media executable and reports
+its relevant exported functions and path components. The iPod metadata output
+now identifies the driver-description table and callback. Optional media
+disassembly defaults to the complete `mount_info_io` routine.
+
+New `scripts/probe_media_info.py` executes these 19 scenarios:
+
+- The actual iPod `0x29008` callback, selected through its relocated table,
+  forwards a synthetic cached identity to `authcoproc` XML emission with no
+  bus calls during description. The optional transport-description branch
+  is not exercised.
+- A bounded slice of `mount_create`, `0x116938`-`0x116984`, calls a **mocked**
+  driver callback with the observed `(device, mount)` arguments. It does not
+  execute the whole mount routine. XML emission is mocked in both tests;
+  these are separate checks, not an end-to-end native XML serialization test.
+- The special `.FS_info.` hierarchy branch links the `info.xml` child node.
+  Its name hash is mocked; generic directory traversal is not exercised.
+- Two built-in node cases verify directory/file names and modes, three
+  lookup cases verify exact/wrong-case/configured-insensitive matching, and
+  an empty-cache case verifies file-node omission.
+- Eight read cases verify one-block copying, length clamping, the final
+  partial block, offset beyond EOF, a large non-wrapping offset, disabled
+  operation flags, a non-special descriptor, and zero requested blocks.
+  Two more cases verify multiple descriptors and an empty cache. Destination
+  canary bytes after each copy must remain unchanged.
+
+Every native call is bounded to 300,000 instructions and five seconds. All
+guest imports are intercepted; unhandled imports, out-of-scope execution and
+interrupts fail. Libc COPY-relocation storage is synthetic zeroed memory and
+unused by the selected paths; the QNX process initializer is not executed.
+No guest operation can open a host device, file, process or network connection.
+These are bounded behavioral checks, not a security audit of the media service.
+
+The extended safety tests cover all three input pins, the media read-callback
+literal and driver table, existing-output refusal for all three tools,
+forbidden process initialization/imports/interrupts, and the explicit slice
+gate. The earlier 17 authentication scenarios still pass, as do all five CTest
+suites. Native authentication and media probes remain separate from CTest.
+
+Reproduce from the project root with the existing Unicorn dependency:
+
+```powershell
+python -B scripts/inspect_ipod_auth.py --module media --disassemble
+python -B scripts/inspect_ipod_auth.py --module media --disassemble --start 0x116938 --stop 0x116984
+python -B scripts/inspect_ipod_auth.py --module ipod --disassemble --start 0x29008 --stop 0x290a8
+python -B scripts/probe_media_info.py
+python -B scripts/probe_ipod_auth.py
+python -B -m unittest discover -s tests -p test_ipod_auth_tools.py -v
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build.ps1
+```
+
+The first saved 19-scenario record is `extracted/media-info-probe.json`, ignored
+by Git. Optional `--output NEW_PATH` creates a new file and never overwrites
+previous evidence. All identity and cached-content bytes in this test are
+synthetic. No real chip identity, certificate, signature or phone data was read.
+
+## Step 18 - Define the remaining read-only collection task
+
+Status: collection target identified; an access mechanism on the car is not.
+
+The next local investigation is to look for an existing diagnostic/log-export
+route that can read the media-information file without installing code or
+changing service flags. Do not assume such a route exists. The owner's current
+photos do not provide it, and no live QNX connection is available in this work.
+
+If a supported read-only route is established, collection should proceed in
+this order:
+
+1. Confirm the actual Go-module part number/hardware revision and that the
+   installed 6.9.0WL has the same export. Resolve the real iPod mountpoint
+   from observed state, not the later corpus's naming conventions.
+2. Retrieve an existing information file through that route. Do not reset the
+   chip, issue signing requests, write directly to I2C, restart the media
+   service, or alter firmware just to obtain identity. If no such route exists,
+   stop collection and resolve safe execution/recovery separately.
+3. Inspect only the needed `authcoproc` fields: device version, firmware,
+   register-protocol version, provider type, certificate length and bus
+   configuration. Keep full exported documents out of Git: they may also
+   contain phone/device identifiers. `devno` is not needed in a public report.
+4. Treat the values as evidence for a provider implementation, not a CarPlay
+   verdict. Verify complete certificate retrieval, bus ownership and finally
+   real iPhone authentication in separately authorized tests. A cache-only
+   read cannot answer those questions.
+
+This completes the planned cached-export trace on the PC, not the software-only
+CarPlay receiver. No diagnostic payload, modified firmware, update USB or car
+change has been created.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -532,9 +703,10 @@ from the five CTest suites and the earlier 13 Lua update-path checks.
    cannot establish that both versions contain the same defects.
 3. Connect the portable iAP2 components to a reliable link engine and actual
    QNX USB transport. Establish the existing Apple authentication chip's identity
-   and usable interface. The register operations are now traced; next resolve
-   the existing cached `authcoproc` metadata export and how to collect it from
-   the actual unit. `acp_ver` is not a hardware query. Any new provider must
+   and usable interface. The register operations and cached `authcoproc`
+   relative export path are now traced; next investigate an existing read-only
+   diagnostic/export route for the actual unit (Step 18). `acp_ver` is not a
+   hardware query. Any new provider must
    validate complete certificates and coordinate bus ownership. iPhone
    acceptance remains a separate test. This is a condition on the software-only
    approach, not a requirement for an added receiver module.
