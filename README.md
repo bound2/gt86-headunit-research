@@ -14,7 +14,8 @@ Observed from the owner's photos:
 The display/audio unit and Go navigation module are separate research targets.
 Firmware from the same product family is not proof that it can be installed on
 this particular unit. This project does not flash hardware or prepare an update
-USB. Downloaded firmware is treated as data and is not executed.
+USB. Selected pinned ARM/Lua inputs are exercised only in bounded host-side
+emulation or mocked Lua environments; vendor programs are not run on the car.
 
 **Result:** an official Toyota-hosted **6.17.0WL / WEU-Low** navigation firmware
 corpus is available locally, with matching ZIP CRC32 and supplied MD5 checksums.
@@ -24,11 +25,13 @@ navigation family, not a verified flash image for the owner's specific unit.
 
 The second pass decompresses all five embedded QNX image files, validates their
 imagefs checksums and traces two updater authentication layers. The embedded
-SHA256 digest matches both official ISO payloads. No custom-code execution or
-CarPlay support has been demonstrated.
+SHA256 digest matches both official ISO payloads. Custom-code execution on the
+physical unit and CarPlay support have not been demonstrated.
 
 Read [the initial findings](reports/findings.md) and
 [the QNX extraction and authentication analysis](reports/qnx-analysis.md).
+Continue with the [step-by-step CarPlay progress record](reports/carplay-progress.md)
+for the current findings, mock test outcomes and remaining requirements.
 
 ## Build and verify (Windows)
 
@@ -44,6 +47,40 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Verify-IsoPayloa
 `Build.ps1` normalizes an inherited duplicate `Path`/`PATH` environment entry
 that otherwise causes MSBuild to fail in this workspace. It affects only the
 script process environment.
+
+## Mocked Lua update-path checks
+
+The CarPlay investigation adds 13 host-only checks covering complete stock
+manifests, resident dispatch and update-mode authentication. First extract the
+corpus as documented below and unpack `extracted/qnx-system-v3`. The harness
+requires Python 3 and a **Win32 Lua 5.1.5** host, matching the vendor chunk's
+32-bit `size_t` layout. No Python packages are needed for this harness.
+
+The local source archive `downloads/lua-5.1.5.tar.gz` comes from the
+[official Lua download area](https://www.lua.org/ftp/), whose published SHA256 is
+`2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333`.
+For a fresh checkout, obtain that archive, verify its SHA256 with `Get-FileHash`,
+and extract it into a fresh `build/lua-source` directory. The existing local
+source is `build/lua-source/lua-5.1.5/src`. Build from the project root:
+
+```powershell
+$headunitLuaBuildPath = $env:Path
+Remove-Item Env:PATH
+$env:Path = $headunitLuaBuildPath
+cmake -S scripts/lua-host -B build/lua-host -G 'Visual Studio 17 2022' -A Win32 "-DLUA_SOURCE_DIR=$PWD/build/lua-source/lua-5.1.5/src"
+cmake --build build/lua-host --config Release
+python scripts/probe_update_path.py
+```
+
+The driver verifies five vendor input hashes before loading them. Guest file,
+shell and service operations are intercepted; native installers and hardware
+are not executed. The result is not full-system emulation or flash readiness.
+Use `--output extracted/carplay-update-path.json` to save a new evidence file;
+existing files are refused. These corpus-dependent checks are run separately
+from the synthetic CTest suites.
+
+For bytecode listings use `luac.exe -l -p FILE`: `-p` prevents the compiler from
+creating its default `luac.out` output file.
 
 ## Read-only C++ analyzer
 

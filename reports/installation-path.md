@@ -6,6 +6,10 @@ application. All experiments were performed against the downloaded Toyota
 6.17.0WL corpus on Windows. No modified ISO was written, no USB update was
 prepared, and no connection to the car was made.
 
+Continued in [the step-by-step CarPlay progress record](carplay-progress.md),
+which includes complete stock-manifest evaluation, resident-dispatch tests and
+the current receiver integration requirements.
+
 ## What the normal update path does
 
 The resident Lua loader is in:
@@ -24,7 +28,7 @@ When media detection sees `swdl.iso`, it:
 The manifest is therefore executable Lua supplied by the update image. This is
 the most relevant code-loading boundary found so far.
 
-The same loader also calls `/usr/bin/verifyISO sha256 /fs/usb0/swdl.iso` after
+The same loader also calls `/usr/bin/verifyISO sha256 /fs/usb0/swdl.iso` before
 mounting. In the observed code, the return value of that command is not checked
 before loading the manifest. This is a real control-flow weakness in the script,
 but it does not bypass the first public-key check.
@@ -106,4 +110,3 @@ started and recovered reliably.
 - `scripts/Verify-IsoPayload.ps1`: independent SHA-256 payload verification.
 - [QNX extraction report](qnx-analysis.md): image layout, native interfaces and
   SAM signature call trace.
-
