@@ -99,7 +99,7 @@ authentication keys or fallback signer is supplied.
 `scripts/Build.ps1` builds this library and runs `iap2_tests`, `iap2_link_tests`,
 `iap2_control_tests`, `iap2_identification_tests`, `iap2_transport_tests` and
 `iap2_carplay_tests`, `usbmux_tests`, `usbmux_host_tests` and
-`usbmux_connection_tests` alongside the four
+`usbmux_connection_tests` and `usbmux_dispatcher_tests` alongside the four
 existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
@@ -135,7 +135,7 @@ The control-session adapter below now connects this engine to authentication;
 actual device transport and a real provider remain separate work. See
 [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
 
-Thirteen CTest suites pass, including 16 link test groups and a simulated two-endpoint
+Fourteen CTest suites pass, including 16 link test groups and a simulated two-endpoint
 exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
 checks use the installed LLVM and Visual Studio toolchain:
 
@@ -143,9 +143,9 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the nine protocol test executables with AddressSanitizer and
+This builds/runs the ten protocol test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
-or car access is required. The ARM portability check now covers all eleven C99
+or car access is required. The ARM portability check now covers all twelve C99
 translation units; it still produces no QNX executable.
 
 ### Bounded control-session/authentication adapter
@@ -219,8 +219,8 @@ reject stale results after reconnect; cancellation clears transport and endpoint
 state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
 
 Seventeen test groups exercise a fake backend, including complete synthetic
-exchanges in both startup orders over fragmented reads/writes. All thirteen CTest suites and
-nine sanitized protocol suites pass. Details and callback lifetime requirements
+exchanges in both startup orders over fragmented reads/writes. All fourteen CTest suites and
+ten sanitized protocol suites pass. Details and callback lifetime requirements
 are in the
 [step-by-step transport adapter report](reports/transport-adapter.md) and
 [CarPlay progress, Steps 34-36](reports/carplay-progress.md#step-34---implement-the-bounded-byte-stream-pump).
@@ -293,10 +293,27 @@ opening/write/ACK/read/close budgets are implemented without I/O or allocation.
 Fifteen test groups include a complete synthetic request/response through the
 packet host using three-byte reads and five-byte writes. Connection state is
 360 host bytes plus separate RX/TX storage. This is not a general IP TCP stack:
-no retransmission/congestion control, TIME-WAIT, automatic tuple allocation or
-production dispatcher is supplied. The ordered reliable USBmux backend, phone
+no retransmission/congestion control or TIME-WAIT is supplied. The dispatcher
+below now allocates fresh ports and coordinates multiple streams. A real USBmux backend, phone
 pairing/TLS, carkit service and media path still need integration. See the
 [step-by-step connection report](reports/usbmux-connection.md).
+
+### Runtime USBmux dispatcher and stream API
+
+`usbmux_dispatcher.h` connects one packet host and up to four TCP connections
+to explicit nonblocking raw read/write/cancel callbacks. It routes both ports,
+retains coalesced input and schedules complete packets round-robin. TCP completion
+is credited only after the containing physical mux packet completes. Fresh local
+ports and generation-tagged stream handles prevent stale requests from reaching
+reused slots. Read/write/finish APIs expose bounded byte streams.
+
+Thirteen dispatcher groups cover four concurrent streams, three-byte reads and
+five-byte writes, held control events, stale callbacks/handles, exact shared
+deadlines, cancellation and maximum-sized packets. Dispatcher storage is 1,240
+host bytes, including a 1,024-byte scratch buffer; host/connection objects and
+their buffers are additional. No native USB implementation, phone trust/TLS,
+carkit service or media receiver is provided. See the
+[step-by-step dispatcher report](reports/usbmux-dispatcher.md).
 
 ## Read-only firmware analysis
 

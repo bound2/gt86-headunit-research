@@ -182,3 +182,12 @@ new reference fixtures are copied. The integrated `abc`/`ok` exchange is test
 data, not real Lockdown/TLS/carkit traffic or a captured phone session. See
 [usbmux-connection.md](../reports/usbmux-connection.md) for the intentionally
 limited reliable-transport profile and missing production integration.
+
+`usbmux_dispatcher.c`/`.h` and their independent fake-backend tests also select
+GPL-3.0-only. They coordinate the existing host/connection modules without new
+protocol schemas, upstream fixture copies or dependency downloads. Callback
+completion/cancellation validation, fresh-port and handle lifetimes, held
+control tokens, whole-session failure policy and round-robin scheduling are
+local designs. The tests use synthetic echoes through explicit callbacks, not
+native USB, real trust records or carkit sessions. See
+[usbmux-dispatcher.md](../reports/usbmux-dispatcher.md).

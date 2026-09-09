@@ -33,12 +33,14 @@ vectors. Its bounded version/setup host adds 15 groups, actual-write completion
 barriers, explicit sequence conventions, deadlines and stale-generation rejection;
 the host remains packet-only. A separate bounded TCP-style connection engine
 now adds port routing, sequence/ACK/window handling and close behavior, with
-15 groups and a layered host/connection simulation. Physical USB, production
-dispatch and phone pairing remain absent.
-All thirteen CTest suites pass, and all nine protocol suites pass under host
-address/undefined-behavior sanitizers. The eleven C99
+15 groups and a layered host/connection simulation. A new dispatcher now
+coordinates up to four connections through explicit backend callbacks, with
+bounded stream APIs and 13 additional groups. Native USB and phone pairing
+remain absent.
+All fourteen CTest suites pass, and all ten protocol suites pass under host
+address/undefined-behavior sanitizers. The twelve C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-46 and [the connection-layer report](usbmux-connection.md).
+Steps 22-47 and [the dispatcher report](usbmux-dispatcher.md).
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -1678,6 +1680,37 @@ pairing and carkit startup. Requested an already accessible read-only Go-module
 identifier from the owner; no vehicle access, disassembly or setting change was
 performed. Actual software-only CarPlay remains unverified and not installable.
 
+## Step 47 - Connect the runtime dispatcher and byte-stream APIs
+
+Status: TCP connection layer committed/pushed as `dcfdb7f`.
+The new [usbmux-dispatcher.md](usbmux-dispatcher.md) documents the library bridge
+between one packet host, up to four TCP streams and explicit raw backend
+callbacks. Polling bounds read/feed/dispatch/submission/write work, retains
+coalesced input and schedules complete packets round-robin. Connection output
+is only credited after complete physical mux transmission, never on a host copy.
+
+The dispatcher allocates non-reused local ports per physical generation and
+tags application handles with both physical and connection generations. Graceful
+closure plus RX drain permits slot reuse; old handles/retired tuples cannot
+reach the new stream. CONTROL is held with an explicit release token while TX
+continues. All shared hard deadlines precede I/O, and a terminal connection or
+backend error cancels the whole physical generation exactly once.
+
+Thirteen groups cover four concurrent streams, byte ownership, early replies,
+three-byte reads/five-byte writes, coalesced control tails, stale callbacks,
+token/slot reuse, cancellation, window backpressure, malformed results, exact
+deadlines and maximum-size packets. All 14 CTest suites, ten sanitized protocol
+suites, twelve-unit ARM check and 19 Python tests pass. Dispatcher storage is
+1,240 host bytes including scratch; existing object sizes are unchanged. New
+files select GPL-3.0-only. These are synthetic peer/callback tests, not physical
+USB or phone-pairing evidence.
+
+Next implement bounded Lockdown/service framing and plist exchanges on these
+stream APIs, then TLS/trust pairing and carkit startup before attaching the
+iAP2/control endpoint. The real QNX backend, authentication provider, media path,
+hardware identity and execution/recovery remain unresolved; no installable
+CarPlay image or vehicle change was produced.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1688,8 +1721,9 @@ performed. Actual software-only CarPlay remains unverified and not installable.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Add bounded USBmux host/connection dispatch and byte-stream integration, then
-   Lockdown/plist/TLS pairing and carkit startup. TCP-style connection, routing and
+3. Add bounded Lockdown/service framing and plist exchanges, then TLS/trust
+   pairing and carkit startup. USBmux dispatch/byte-stream integration is now
+   implemented in Step 47. TCP-style connection, routing and
    flow control are implemented in Step 46; version/setup and packet queues in
    Step 45, packet codecs and streaming in Step 44.
    Explicit supported-message/USB-host declarations are implemented

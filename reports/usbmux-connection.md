@@ -149,9 +149,9 @@ Incoming held mux payloads are routed to the connection before being released.
 A synthetic length-prefixed request/response then verifies owned application
 data, peer ACK release and receive delivery. Its `abc`/`ok` bodies are **not**
 Lockdown plists, trust pairing, TLS or carkit messages. No phone participates.
-The bridge logic currently lives in the test, not a production dispatcher or
-backend. Input/output lifetimes and completion accounting must be preserved by
-that next integration layer.
+At this checkpoint the bridge logic lived in the test, not a production
+dispatcher or backend. The subsequent [dispatcher report](usbmux-dispatcher.md)
+records the new library integration and callback-based multi-stream tests.
 
 Fifteen groups cover independent handshake bytes, both-port routing, handshake
 rejections, physical/peer-ACK separation, window/flight limits, ring and sequence
@@ -169,8 +169,9 @@ Verification passed:
 
 ## Step 7 - Continue toward the real receiver
 
-Next implement the bounded host/connection dispatcher and byte-stream adapter,
-then the Lockdown framing/plist/TLS trust-pairing path and carkit service startup.
+The bounded host/connection dispatcher and byte-stream APIs are now implemented
+in [the next step](usbmux-dispatcher.md). Continue with the Lockdown
+framing/plist/TLS trust-pairing path and carkit service startup.
 These are needed to connect the existing iAP2/control components to a real phone.
 The USB network/media path is separate and still unimplemented.
 

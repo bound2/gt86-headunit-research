@@ -204,8 +204,9 @@ that either reference supplies these guarantees. No device input is captured.
 The subsequent [connection-layer report](usbmux-connection.md) now records
 implemented TCP-style port routing, SYN/ACK/sequence validation, bounded windows
 and graceful/half-close behavior, including a simulation through this packet
-host. The host API itself remains packet-only. Production dispatch/byte-stream
-integration, Lockdown/plist/TLS trust pairing and carkit startup remain next.
+host. The host API itself remains packet-only. The subsequent
+[dispatcher step](usbmux-dispatcher.md) adds runtime dispatch and byte-stream
+APIs with a simulated raw backend. Lockdown/plist/TLS pairing and carkit startup remain next.
 None of these layers is a USB backend or proof of iPhone acceptance/CarPlay.
 
 Real USB ownership/profile support, the existing authentication provider,
