@@ -49,7 +49,7 @@ typedef struct lockdown_tls {
     uint8_t tx[LOCKDOWN_TLS_WRITE_LIMIT], rx[LOCKDOWN_TLS_CHUNK];
     unsigned send_budget, receive_budget;
     enum lockdown_tls_state state; enum lockdown_tls_reason reason;
-    int last_error, initialized, transport_error, truncated, peer_matched, again;
+    int last_error, initialized, transport_error, truncated, peer_matched, again, application_used;
 } lockdown_tls;
 void lockdown_tls_default_config(lockdown_tls_config *);
 /* Consumes/zeroes handoff only on successful init. Failure frees partial crypto
@@ -62,6 +62,15 @@ void lockdown_tls_default_config(lockdown_tls_config *);
  */
 int lockdown_tls_init(lockdown_tls *, lockdown_tls_handoff *, const lockdown_tls_credentials *,
                       const lockdown_tls_config *, uint64_t now_ms);
+/* Fresh non-Lockdown service stream only: no application sequence advance,
+ * RX data, FIN or unacknowledged data. Same real TLS/credential policy as init,
+ * but no invented StartSession/SessionID. Does not modify the supplied handle.
+ * Caller transfers exclusive stream ownership only on success.
+ */
+int lockdown_tls_init_service(lockdown_tls *, usbmux_dispatcher *, const usbmux_handle *,
+                              const lockdown_tls_credentials *, const lockdown_tls_config *, uint64_t now_ms);
+/* Clocks/deadlines only, no backend or crypto I/O. Stale owners rejected first. */
+int lockdown_tls_check(lockdown_tls *, uint64_t now_ms);
 /* At most one dispatcher poll and one TLS handshake step / write / read.
  * BIO does at most one <=512-byte dispatcher read and write per poll. Crypto
  * operations themselves may be expensive. OPEN is set only after real verified

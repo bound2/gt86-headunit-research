@@ -146,6 +146,9 @@ Follow-up: [lockdown-tls.md](lockdown-tls.md) now implements and tests the actua
 cryptographic stream upgrade. The counts above record this earlier bootstrap
 step; protected RPC/carkit startup and target integration remain incomplete.
 
+Subsequent follow-up: [carkit-startup.md](carkit-startup.md) now implements the
+protected RPC and service stream; target integration remains unverified.
+
 The follow-up supplies explicit credentials, peer validation, cancellation and
 handshake deadlines and tests actual cryptographic handshakes on this handoff.
 Next own framed RPC exchanges over that protected session, validate returned

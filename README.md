@@ -359,11 +359,20 @@ CA trust and an exact device-certificate pin, with bounded app/BIO buffers and
 handshake/write/hold deadlines. Seven groups exercise EC/RSA mutual handshakes,
 encrypted service fixture bytes and failure cases over simulated USBmux.
 `scripts/Build-CarPlayTls.ps1` prepares the verified dependency archive and runs
-18 CTest suites; `scripts/Check-CarPlayTlsSanitizers.ps1` instruments the crypto
+19 CTest suites; `scripts/Check-CarPlayTlsSanitizers.ps1` instruments the crypto
 dependency as well as the adapter. The ordinary build still has 17 suites.
 TLS uses heap/platform services and is not included in the freestanding ARM
-claim. No actual pairing records, phone or head unit are accessed. Protected RPC
-ownership and carkit startup remain next; see [the TLS report](reports/lockdown-tls.md).
+claim. No actual pairing records, phone or head unit are accessed. See
+[the TLS report](reports/lockdown-tls.md).
+
+`lockdown_client.h` now owns protected GetValue/StartService exchanges with typed
+replies, exact-token release and request-ACK/deadline checks. `carkit.h` validates
+the service port/SSL policy, opens a second stream and completes service TLS
+before exposing raw iAP2. Seven new groups exercise that integrated sequence,
+explicitly permitted plain services, malformed replies and both stream lifetimes.
+The default requires service TLS; TLS failures never trigger plaintext fallback.
+Connecting this stream to the iAP2 session engine and native transport/media
+remains next; see [the carkit startup report](reports/carkit-startup.md).
 
 ## Read-only firmware analysis
 

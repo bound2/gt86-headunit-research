@@ -29,7 +29,7 @@ foreach ($headunitName in @('3rdparty/everest/library/everest.c', '3rdparty/ever
 }
 foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link', 'iap2_control', 'iap2_identification', 'iap2_transport',
     'iap2_carplay', 'iap2_power', 'usbmux_wire', 'usbmux_host', 'usbmux_connection', 'usbmux_dispatcher',
-    'lockdown_wire', 'lockdown_channel', 'service_plist', 'lockdown_reply', 'lockdown_bootstrap', 'lockdown_tls')) {
+    'lockdown_wire', 'lockdown_channel', 'service_plist', 'lockdown_reply', 'lockdown_bootstrap', 'lockdown_tls', 'lockdown_client', 'carkit')) {
     $headunitSources += Join-Path $headunitRoot "src/carplay/$headunitName.c"
 }
 $headunitObjects = @()
@@ -45,10 +45,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'LLVM resource lookup failed' }
     Remove-Item Env:PATH
     $env:Path = (Join-Path $headunitResource 'lib/windows') + ';' + $headunitSavedTlsPath
-    $headunitExe = Join-Path $headunitOutput 'lockdown_tls_tests.exe'
-    & $headunitCpp -std=c++20 @headunitFlags @headunitIncludes (Join-Path $headunitRoot 'tests/lockdown_tls_tests.cpp') @headunitObjects -Xlinker bcrypt.lib -o $headunitExe
-    if ($LASTEXITCODE -ne 0) { throw 'Sanitized TLS build failed' }
-    & $headunitExe (Join-Path $headunitRoot 'tests/fixtures/lockdown')
-    if ($LASTEXITCODE -ne 0) { throw 'Sanitized TLS tests failed' }
+    foreach ($headunitTest in @('lockdown_tls_tests', 'carkit_tests')) {
+        $headunitExe = Join-Path $headunitOutput "$headunitTest.exe"
+        & $headunitCpp -std=c++20 @headunitFlags @headunitIncludes (Join-Path $headunitRoot "tests/$headunitTest.cpp") @headunitObjects -Xlinker bcrypt.lib -o $headunitExe
+        if ($LASTEXITCODE -ne 0) { throw "Sanitized build failed: $headunitTest" }
+        & $headunitExe (Join-Path $headunitRoot 'tests/fixtures/lockdown')
+        if ($LASTEXITCODE -ne 0) { throw "Sanitized tests failed: $headunitTest" }
+    }
 } finally { $env:Path = $headunitSavedTlsPath }
 Write-Output 'PASS: TLS adapter, protocol dependencies and Mbed TLS built with AddressSanitizer/UndefinedBehaviorSanitizer.'

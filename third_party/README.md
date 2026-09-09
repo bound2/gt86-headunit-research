@@ -264,3 +264,11 @@ implementation bodies. It does not reproduce the pinned idevice reference's
 disabled peer verification. Tests generate ephemeral synthetic credentials in
 RAM and never load/save actual trust records. See the
 [TLS report](../reports/lockdown-tls.md) for exact policies and portability limits.
+
+The subsequent `lockdown_client.c`/`.h`, `carkit.c`/`.h`, hosted integration tests
+and extracted shared TLS fixture also select GPL-3.0-only. They reuse the same
+pinned LIVI/idevice service sequence and Mbed TLS dependency. Owned protected
+RPCs, exact-token/ACK gates, explicit service policy, same-identity checks and
+two-stream lifetime handling are local implementation choices; no new upstream
+bodies or actual pairing credentials were copied. See
+[the carkit startup report](../reports/carkit-startup.md).

@@ -43,15 +43,17 @@ now adds 11 groups, explicit session/service request encoders and token-bound
 TLS handoff, with no plaintext resume or automatic pairing. An optional hosted
 TLS adapter now performs real mutually authenticated TLS 1.2 over the handoff,
 with explicit CA/device-pin validation and seven cryptographic test groups.
-Encrypted service fixture bytes round-trip over simulated USBmux; protected RPC
-ownership and carkit startup are not implemented yet. Python checks total 25.
+An owning protected RPC client and carkit startup layer now add seven groups:
+validated service ports, explicit SSL policy, a separate service connection,
+real dual TLS and raw iAP2 round trips over simulated USBmux. Connecting that
+stream to the iAP2 session engine remains next. Python checks total 25.
 Native USB and phone pairing remain absent.
-All seventeen ordinary CTest suites and eighteen TLS-enabled suites pass.
-All thirteen original protocol suites and the new TLS suite pass under host
+All seventeen ordinary CTest suites and nineteen TLS-enabled suites pass.
+All thirteen original protocol suites and both TLS/carkit suites pass under host
 address/undefined-behavior sanitizers, including instrumentation of Mbed TLS.
 The seventeen freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-51 and [the TLS report](lockdown-tls.md). Hosted TLS uses heap/platform
+Steps 22-52 and [the carkit report](carkit-startup.md). Hosted TLS uses heap/platform
 services and is not included in that ARM claim.
 No real authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -1869,6 +1871,49 @@ QNX USB/network, pairing provision, media, exact hardware identity and verified
 execution/recovery remain unresolved. No installable update or vehicle change
 was produced; software-only CarPlay on the owner's head unit is not demonstrated.
 
+## Step 52 - Own protected Lockdown requests and open carkit
+
+Status: verified TLS upgrade committed/pushed as `aa418e1`.
+The new [carkit-startup.md](carkit-startup.md) records the protected RPC owner,
+port/TLS-policy gates, second stream and integration tests. A fresh authenticated
+Lockdown session now owns explicit GetValue/StartService requests, bounded
+framing/decoding, correlated typed replies and exact-token release. A complete
+encrypted reply is not exposed until the request has physically drained and
+been TCP-acknowledged. Coalesced following bytes are preserved and known
+unsolicited data cannot be reassigned to a new request. Valid remote errors
+remain explicit held events, not automatic pairing/retry instructions.
+
+Carkit startup requests only com.apple.carkit.service, validates the integer
+port and SSL policy, and opens a separate stream. TLS is required by default;
+plain service mode needs explicit caller permission and a false/absent SSL flag.
+A true flag always performs real TLS, with no downgrade after failure. The
+service uses the same parsed host/device identity as the retained control
+session and does not invent a SessionID or replay StartSession on its port.
+READY exposes raw iAP2 bytes without a plist envelope. Either stream's failure
+terminates both owners, while stale owners cannot cancel a new generation.
+
+Seven groups cover actual encrypted RPCs/dual TLS and raw frame round trips,
+one-byte TLS records, request-ACK gating, tokens/coalesced tails, invalid frame
+lengths/plists/ports/SSL types, parser limits, remote errors, explicit plain
+policy, certificate/identity rejection, startup/exchange/hold budgets, reused
+TLS-session rejection and closure of either connection. The ephemeral TLS peer
+and credentials moved into a shared test header; no real records/devices or
+additional dependencies were introduced.
+
+All 19 TLS-enabled CTest suites (17 ordinary), both fully instrumented TLS/carkit
+suites, thirteen original sanitized suites, the unchanged seventeen-unit ARM
+check and 25 Python tests pass. Hosted C99 warning checks and document links
+also pass. Measured x64 structs are 312 bytes for the protected client, 176 for
+carkit and 7,984 per TLS context, plus caller buffers and crypto heap; these are
+not total QNX runtime measurements or an ARM executable.
+
+Next attach the existing iAP2 transport/link/control engine to carkit with
+correct completion/cancellation accounting. Copied TLS plaintext must not be
+reported as physically written. Then integrate broader CarPlay session/network
+and media paths. Native transport, pairing provision, authentication-chip
+access, actual Go identity and verified execution/recovery remain unresolved.
+No installable software-only CarPlay receiver or vehicle change was produced.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -1879,8 +1924,11 @@ was produced; software-only CarPlay on the owner's head unit is not demonstrated
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Add protected framed RPC ownership and StartService/port/SSL policy, then
-   carkit stream startup and explicit trust-pairing provision. The real TLS
+3. Attach the iAP2 transport/link/control engine to the carkit stream, preserving
+   write-completion, cancellation and ownership semantics; then continue with
+   broader session/network/media integration and explicit trust-pairing provision.
+   Protected framed RPC ownership, StartService/port/SSL policy and carkit stream
+   startup are implemented in Step 52. The real TLS
    adapter with explicit credentials, peer validation and deadlines is now
    implemented in Step 51; it is not yet a verified QNX crypto port.
    Explicit request encoders and pre-TLS startup/handoff are implemented in Step 50.

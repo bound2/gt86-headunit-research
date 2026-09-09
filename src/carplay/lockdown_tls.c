@@ -80,10 +80,10 @@ static int parse_certificates(mbedtls_x509_crt *crt, lockdown_body body) {
      * successful application progress in this API's shared status namespace. */
     return status > 0 ? MBEDTLS_ERR_X509_INVALID_FORMAT : status;
 }
-int lockdown_tls_init(lockdown_tls *t, lockdown_tls_handoff *h, const lockdown_tls_credentials *creds,
+static int initialize(lockdown_tls *t, lockdown_tls_handoff *h, const lockdown_tls_credentials *creds,
                       const lockdown_tls_config *config, uint64_t now) {
     enum usbmux_connection_state state; const usbmux_connection *conn; int status;
-    if (!t || t->initialized || !h || !h->dispatcher || !h->session_id_size || h->session_id_size > 256 ||
+    if (!t || t->initialized || !h || !h->dispatcher || h->session_id_size > 256 ||
         !creds || !creds->random || !config || !config->handshake_ms || config->handshake_ms > 60000 ||
         !config->write_ms || config->write_ms > 60000 || !config->hold_ms || config->hold_ms > 60000 ||
         !body_ok(creds->root, 32768) || !body_ok(creds->host_certificate, 32768) ||
@@ -123,6 +123,24 @@ int lockdown_tls_init(lockdown_tls *t, lockdown_tls_handoff *h, const lockdown_t
 fail:
     free_crypto(t); memset(t, 0, sizeof *t); return status;
 }
+int lockdown_tls_init(lockdown_tls *t, lockdown_tls_handoff *h, const lockdown_tls_credentials *creds,
+                      const lockdown_tls_config *config, uint64_t now) {
+    if (!h || !h->session_id_size) return IAP2_ARGUMENT;
+    return initialize(t, h, creds, config, now);
+}
+int lockdown_tls_init_service(lockdown_tls *t, usbmux_dispatcher *d, const usbmux_handle *handle,
+                              const lockdown_tls_credentials *creds, const lockdown_tls_config *config, uint64_t now) {
+    lockdown_tls_handoff h; enum usbmux_connection_state state; const usbmux_connection *conn; int status;
+    if (!d || !handle) return IAP2_ARGUMENT;
+    status = usbmux_dispatcher_state(d, handle, &state); if (status) return status;
+    conn = d->connections[handle->slot];
+    if (conn->remote_port == 62078) return IAP2_UNSUPPORTED;
+    if (state != USBMUX_CONNECTION_OPEN || conn->rx_used || conn->tx_next != conn->initial_sequence + 1u ||
+        conn->rx_next != conn->peer_initial + 1u) return LOCKDOWN_TLS_BUSY;
+    memset(&h, 0, sizeof h); h.dispatcher = d; h.handle = *handle;
+    return initialize(t, &h, creds, config, now);
+}
+int lockdown_tls_check(lockdown_tls *t, uint64_t now) { return tick(t, now); }
 int lockdown_tls_poll(lockdown_tls *t, uint64_t now) {
     int status = tick(t, now), transport;
     if (status) return status;
@@ -144,7 +162,7 @@ int lockdown_tls_poll(lockdown_tls *t, uint64_t now) {
         }
     } else if (!t->rx_size) {
         status = mbedtls_ssl_read(&t->ssl, t->rx, sizeof t->rx);
-        if (status > 0) { t->rx_size = (size_t)status; t->rx_offset = 0; t->held_at = now; status = 0; }
+        if (status > 0) { t->application_used = 1; t->rx_size = (size_t)status; t->rx_offset = 0; t->held_at = now; status = 0; }
         else if (!status) return stop(t, LOCKDOWN_TLS_REASON_TRUNCATED, MBEDTLS_ERR_SSL_CONN_EOF);
     } else return transport;
     if (t->truncated) return stop(t, LOCKDOWN_TLS_REASON_TRUNCATED, status);
@@ -160,7 +178,7 @@ int lockdown_tls_write(lockdown_tls *t, const uint8_t *data, size_t size, uint64
     status = tick(t, now); if (status) return status;
     if (t->state != LOCKDOWN_TLS_OPEN || t->tx_size) return LOCKDOWN_TLS_BUSY;
     if (t->dispatcher->connections[t->handle.slot]->peer_fin) return stop(t, LOCKDOWN_TLS_REASON_TRUNCATED, IAP2_END);
-    memcpy(t->tx, data, size); t->tx_size = size; t->write_at = now; t->again = 1; return IAP2_OK;
+    memcpy(t->tx, data, size); t->application_used = 1; t->tx_size = size; t->write_at = now; t->again = 1; return IAP2_OK;
 }
 int lockdown_tls_read(lockdown_tls *t, uint8_t *out, size_t capacity, size_t *size, uint64_t now) {
     size_t n; int status; if (size) *size = 0;

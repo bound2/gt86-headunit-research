@@ -4,6 +4,11 @@ Date: 2026-09-09. Continues [the startup/handoff step](lockdown-bootstrap.md)
 and [CarPlay progress](carplay-progress.md). This is host-side implementation,
 not an installable head-unit update or demonstrated iPhone interoperability.
 
+Follow-up: [carkit-startup.md](carkit-startup.md) implements the protected RPC
+owner and separate service stream. It adds a fresh-service TLS initializer,
+timer-only check and application-use tracking; current TLS context size is
+7,984 x64 bytes. Counts/sizes below otherwise record this earlier TLS step.
+
 ## Step 1 - Review the pinned receiver's TLS behavior
 
 The existing idevice 0.1.65 reference uses HostCertificate/HostPrivateKey to
