@@ -327,3 +327,17 @@ terminal counter exhaustion are local policies. Twelve public synthetic values
 are independently reproduced with the existing host-only PyCA environment.
 See [the encrypted-control report](../reports/encrypted-control.md) for Git blobs,
 wire evidence, validation commands and remaining target limitations.
+
+`pair_srp.c`/`.h`, `pair_setup.c`/`.h`, `pair_setup_channel.c`/`.h`, setup tests
+and the independent setup checker select GPL-3.0-only. They use the pinned LIVI
+SRP/setup protocol profile and RFC 5054's 3072-bit group, without copying upstream
+implementation bodies. The optional `carplay_enrollment` target links the
+existing Monocypher and Mbed TLS `mbedcrypto` dependencies under the selections
+above; it adds no new dependency version. The checked MPI API takes its
+secret-exponent path; target side-channel/heap/runtime suitability remains
+unverified. Explicit enrollment authorization, candidate approval, insert-only
+durable-commit contract, ownership transfer and deadline policies are local.
+Music Assistant's Apache-2.0 AirPlay source was inspected only to cross-check
+integer serialization; no bodies or permissive verification behavior were
+copied. Python integer/PyCA fixtures are public synthetic data, not phone
+captures. See [pair-setup.md](../reports/pair-setup.md) for source pins and limits.

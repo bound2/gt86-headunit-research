@@ -1,9 +1,13 @@
-param([string]$LlvmDirectory = 'C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin')
+param([string]$LlvmDirectory = 'C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin', [switch]$IncludeEnrollment)
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'Prepare-CarPlayTls.ps1')
 $headunitRoot = Split-Path -Parent $PSScriptRoot
 $headunitSource = Join-Path $headunitRoot 'build/mbedtls-3.6.7'
 $headunitOutput = Join-Path $headunitRoot 'build/tls-sanitized-direct'
+if ($IncludeEnrollment) {
+    & (Join-Path $PSScriptRoot 'Prepare-CarPlayCrypto.ps1')
+    $headunitOutput = Join-Path $headunitRoot 'build/enrollment-sanitized'
+}
 New-Item -ItemType Directory -Force $headunitOutput | Out-Null
 $headunitClang = Join-Path $LlvmDirectory 'clang.exe'
 $headunitCpp = Join-Path $LlvmDirectory 'clang++.exe'
@@ -32,6 +36,14 @@ foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link', 'iap2_control
     'lockdown_wire', 'lockdown_channel', 'service_plist', 'lockdown_reply', 'lockdown_bootstrap', 'rtsp_wire', 'rtsp_channel', 'pair_tlv', 'lockdown_tls', 'lockdown_client', 'carkit', 'carkit_iap2')) {
     $headunitSources += Join-Path $headunitRoot "src/carplay/$headunitName.c"
 }
+if ($IncludeEnrollment) {
+    $headunitMono = Join-Path $headunitRoot 'build/monocypher-4.0.3'
+    $headunitIncludes += @('-I', (Join-Path $headunitMono 'src'), '-I', (Join-Path $headunitMono 'src/optional'))
+    $headunitSources += @((Join-Path $headunitMono 'src/monocypher.c'), (Join-Path $headunitMono 'src/optional/monocypher-ed25519.c'))
+    foreach ($headunitName in @('pair_crypto','pair_verify','control_cipher','projection_control','pair_srp','pair_setup','pair_setup_channel')) {
+        $headunitSources += Join-Path $headunitRoot "src/carplay/$headunitName.c"
+    }
+}
 $headunitObjects = @()
 foreach ($headunitFile in $headunitSources) {
     $headunitObject = Join-Path $headunitOutput ($headunitObjects.Count.ToString() + '.obj')
@@ -45,12 +57,17 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'LLVM resource lookup failed' }
     Remove-Item Env:PATH
     $env:Path = (Join-Path $headunitResource 'lib/windows') + ';' + $headunitSavedTlsPath
-    foreach ($headunitTest in @('lockdown_tls_tests', 'carkit_tests', 'carkit_iap2_tests')) {
+    $headunitTests = @('lockdown_tls_tests', 'carkit_tests', 'carkit_iap2_tests')
+    if ($IncludeEnrollment) { $headunitTests += 'pair_setup_tests' }
+    foreach ($headunitTest in $headunitTests) {
         $headunitExe = Join-Path $headunitOutput "$headunitTest.exe"
         & $headunitCpp -std=c++20 @headunitFlags @headunitIncludes (Join-Path $headunitRoot "tests/$headunitTest.cpp") @headunitObjects -Xlinker bcrypt.lib -o $headunitExe
         if ($LASTEXITCODE -ne 0) { throw "Sanitized build failed: $headunitTest" }
-        & $headunitExe (Join-Path $headunitRoot 'tests/fixtures/lockdown')
+        $headunitFixture = 'tests/fixtures/lockdown'
+        if ($headunitTest -eq 'pair_setup_tests') { $headunitFixture = 'tests/fixtures/pair-setup-vectors.txt' }
+        & $headunitExe (Join-Path $headunitRoot $headunitFixture)
         if ($LASTEXITCODE -ne 0) { throw "Sanitized tests failed: $headunitTest" }
     }
 } finally { $env:Path = $headunitSavedTlsPath }
 Write-Output 'PASS: TLS adapter, protocol dependencies and Mbed TLS built with AddressSanitizer/UndefinedBehaviorSanitizer.'
+if ($IncludeEnrollment) { Write-Output 'PASS: SRP/pair-setup and Monocypher also instrumented; synthetic trust provider only, no target execution or persistence claim.' }

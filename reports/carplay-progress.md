@@ -56,20 +56,24 @@ known-controller pair verification add seven cryptographic groups with RFC and
 independent PyCA vectors. Authenticated control records and an owning
 pair-verification-to-encrypted-RTSP handoff now add ten groups, including retained
 tails, plaintext-M4 drain gating, replay/tampering and counter exhaustion.
-First-time enrollment, persistent trust, network/media and hardware integration
-remain missing. Python regression checks total 25, plus independent checkers
-for 21 pairing and 12 control-frame fixture values.
+Real first-time SRP/setup, explicit enrollment/candidate approval, trust-commit
+handling and an owning RTSP-to-pair-verify transfer now add nine groups. Actual
+durable trust storage/approval UI, network/media and hardware integration remain
+missing. Python regression checks total 25, plus independent checkers for 21
+pair-verification, 12 control-frame and 51 setup fixture values.
 Native USB and actual phone pairing remain absent.
-All nineteen ordinary, twenty-two TLS-only and twenty-five combined crypto/TLS
-CTest suites pass. All fifteen protocol suites, four pairing/control suites and
-three TLS/carkit/integration suites pass under host address/undefined-behavior
-sanitizers, including instrumentation of both crypto dependencies.
+All nineteen ordinary, twenty-two TLS-only and twenty-six combined crypto/TLS
+CTest suites pass. All fifteen protocol suites, four pairing/control suites,
+the enrollment suite and three TLS/carkit/integration suites pass under host
+address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-56 and [the encrypted-control report](encrypted-control.md). Hosted TLS
+Steps 22-57 and [the pair-setup report](pair-setup.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate pairing crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
+The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
+not included in either ARM claim.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
 the existing Apple authentication chip's identity or prove its compatibility.
@@ -2141,6 +2145,67 @@ identity, installed-version execution/recovery and the Apple-chip interface
 remain unresolved. No installable update, head-unit/phone operation, actual
 trust-record access or firmware/update-USB change occurred.
 
+## Step 57 - Implement real first-time pairing and owned enrollment
+
+Added [pair-setup.md](pair-setup.md), with exact reference blobs, selected byte
+profile, authorization/storage boundaries, test commands and target limits.
+New `pair_srp`, `pair_setup` and `pair_setup_channel` modules implement SRP-6a
+3072/SHA512, the signed/encrypted M1-M6 identity exchange and an owning plaintext
+RTSP enrollment route. They join a separate optional `carplay_enrollment` target
+using the already-pinned Monocypher and hosted Mbed TLS MPI dependencies.
+
+The code uses the pinned CarPlay reference's fixed username/code and explicit
+integer serialization. A cross-check found minimal-versus-padded A/B proof
+differences in another AirPlay implementation; these are documented rather than
+hidden behind automatic fallback. Independent leading-zero A/B/S vectors test
+the selected behavior. Real iPhone compatibility remains unverified. The
+public-exponent unsafe MPI API is not used; target side-channel/allocator/stack
+suitability remains unproven. Four prepared MPI source/header files matched the
+pinned tag after UTF-8/line-ending normalization; an initial comparison mismatch
+was a host text-decoding issue, not a source modification.
+
+Enrollment starts disabled. A fresh local authorization ID enables one attempt,
+but successful SRP with a public code is not permission to trust an identity.
+M5 must authenticate and carry a valid session-bound Ed25519 proof, then its
+candidate ID/key is held for explicit approval. Only approval invokes the
+trusted commit provider. Success requires an atomic durable insert or exact
+existing match; conflicting-key replacement/failure cannot produce M6 success.
+Tests use a synthetic map implementing that contract, not a real durable store.
+Actual approval UI and authorization provenance are frontend responsibilities.
+
+The RTSP owner accepts only the explicit enrollment route and retains following
+wire through every request/approval/reply/drain boundary. After committed M6
+drains, a token-bound transfer initializes fresh pair verification under a new
+generation, optionally reusing cleared RX/TX buffers. Source close/check cannot
+wipe the receiving owner's data. Setup completion does not activate encryption;
+pair verification is still required. A successful stored mapping is not rolled
+back just because the final reply is lost; committed metadata survives close.
+
+Nine groups cover independent normal/edge SRP/setup transcripts, invalid group
+values, every-byte SRP proof mutation, bad AEAD/Ed25519/fields, RNG failure,
+explicit denial, commit errors/collisions/idempotence, stale generation/token/
+clock, response/deadline clearing, fragmented owned RTSP, retained wire, transfer
+failure and same-buffer handoff through pair verification to encrypted requests.
+A separate integration test also exchanges an encrypted explicit response using
+the newly enrolled controller. All 51 fixture values reproduce with independent
+Python client/server integer arithmetic and PyCA; all keys are public fixtures.
+
+All 26 combined CTest, 22 TLS-only and 19 standard suites pass, along with all
+25 Python regressions and all three independent vector checkers. The enrollment
+and three TLS/carkit suites pass ASan/UBSan with both crypto dependencies and
+composed modules instrumented. Four existing pairing/control sanitizer suites
+also pass. New C99 modules pass strict Clang warnings. The unchanged twenty-unit
+core and nine-unit optional crypto ARM checks pass their existing import policies;
+the new hosted enrollment code is not part of those objects. x64 SRP/setup/
+candidate/channel sizes are 824/2,144/104/2,392 bytes, plus buffers/MPI heap/stack.
+
+Next implement the actual explicit durable identity/controller store and its
+atomic-write/corruption tests, then enrollment UI/mode selection, capability/
+auth routes and typed network/media session integration. Actual Go-module
+identity, native USB-network access, installed-version execution/recovery and
+the Apple authentication-chip interface remain unresolved. No real trust
+record, phone, head unit, firmware image or update USB was read or modified.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2151,9 +2216,13 @@ trust-record access or firmware/update-USB change occurred.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement first-time pair-setup with explicit enrollment authorization and
-   trust-commit ownership, then pre-session capability/auth routes, typed session
-   handlers and network/media with real listeners. Authenticated control-frame
+3. Implement an explicit durable identity/controller store with atomic commit,
+   strict load/corruption handling and no silent identity replacement. Then
+   connect enrollment UI/initial-mode selection, pre-session capability/auth
+   routes, typed session handlers and network/media with real listeners.
+   First-time SRP/setup and owned enrollment-to-pair-verify transfer are now
+   implemented in Step 57; the actual durable trust/approval frontend remains.
+   Authenticated control-frame
    streaming/counters and the owned pairing-to-RTSP handoff are implemented in
    Step 56, with explicit plaintext-M4 downstream-drain gating.
    TLV8, explicit receiver identity and real known-controller pair verification

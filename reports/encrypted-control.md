@@ -244,3 +244,9 @@ and usable Apple authentication-chip interface remain unresolved. No real
 phone, trust record, head unit, firmware image or update USB was accessed or
 changed. Passing these tests does not prove software-only CarPlay compatibility
 on the owner's factory hardware.
+
+Follow-up: [pair-setup.md](pair-setup.md), Step 57, now implements real first-time
+pairing, explicit candidate approval/commit handling and an owning RTSP route
+that transfers to this control owner after M6 drains. The actual durable store,
+approval UI and common initial-route dispatcher remain work. The combined build
+now passes 26 suites; counts above record Step 56.

@@ -245,3 +245,7 @@ authenticated control records/counters and owns the actual pair-verify/RTSP
 handoff, including the plaintext-M4 downstream-drain barrier. The historical
 test counts above describe Step 55; the combined build now has 25 suites.
 First-time pair-setup/trust persistence and real network/media integration remain.
+
+Further follow-up: [pair-setup.md](pair-setup.md), Step 57, implements first-time
+pairing and the owned enrollment-to-pair-verify transfer. Actual trust persistence,
+enrollment UI and network/media integration are still missing.

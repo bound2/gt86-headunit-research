@@ -403,11 +403,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayCry
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayCrypto.ps1
 ```
 
-The combined build passes 25 suites; new crypto tests use RFC vectors and a
+The combined build passes 26 suites; new crypto tests use RFC vectors and a
 PyCA-reproduced transcript. The crypto sanitizer includes Monocypher itself.
 Its separate ARM object check reports required runtime helpers and does not
-extend the core's import-free claim. First-time enrollment,
-trust persistence, network/media and QNX execution remain incomplete. See
+extend the core's import-free claim. Actual trust persistence/approval UI,
+network/media and QNX execution remain incomplete. See
 [the identity/pair-verification report](reports/pair-verification.md).
 
 `control_cipher.h` and `projection_control.h` now add authenticated encrypted
@@ -418,6 +418,19 @@ new test groups cover fragmentation, tampering, replay, counter exhaustion and
 the integrated lifecycle; twelve public control vectors reproduce independently
 with PyCA. No socket, first-time enrollment or media handler is implied. See
 [the step-by-step encrypted-control report](reports/encrypted-control.md).
+
+`pair_srp.h`, `pair_setup.h` and `pair_setup_channel.h` now implement first-time
+pair-setup and an owning RTSP enrollment route. SRP uses the existing hosted
+Mbed TLS big-number backend; signed/encrypted identity exchange uses Monocypher.
+Explicit enrollment permission and candidate approval precede a required
+durable-commit callback. Only after M6 drains can ownership transfer to fresh
+pair verification. Nine groups and 51 independent public fixture values pass;
+the trust provider is synthetic, not a real persistent store or approval UI.
+See [the step-by-step pairing report](reports/pair-setup.md).
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayTlsSanitizers.ps1 -IncludeEnrollment
+```
 
 ## Read-only firmware analysis
 
