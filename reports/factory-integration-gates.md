@@ -4,6 +4,8 @@ Date: 2026-09-10. Continues [installation-path.md](installation-path.md) and
 [CarPlay progress, Step 74](carplay-progress.md#step-74---return-to-factory-readiness-and-trace-the-remaining-media-reader).
 Starting implementation checkpoint: `f6b981b`, verified on local `master` and
 the configured GitHub remote. This step does not install or run software on a car.
+Updated with [Step 75 diagnostic photo evidence](headunit-debug-photos.md),
+supplied after the original Step 74 audit.
 
 ## Step 1 - Recheck the actual requested outcome
 
@@ -37,11 +39,20 @@ revision. The audio-unit ID and navigation activation identifiers are not
 substitutes. The local firmware artifacts still contain the later `6.17.0WL`
 research corpus, not an exact installed-version image or a unit backup.
 
+The subsequently supplied four `Pictures/headunitdebug` photos add the audio
+product code `PW600-18001`, Panasonic DA manufacturer/component versions, and
+Harman International NAVI BOX manufacturer with `6.9.0WL`. Toyota documentation
+maps the product code to TAS400 without DAB, not the Go module. See the
+[new photo report](headunit-debug-photos.md) for direct readings and primary
+sources. Exact navigation part/revision, Apple-chip identity and native access
+are still not shown. The original Step 74 photo check above is historical, not
+a claim that the newer folder contains no additional evidence.
+
 ## Step 3 - Audit readiness at the scope of the car
 
 | Requirement | Current authoritative evidence | What remains necessary |
 | --- | --- | --- |
-| Match the physical target | Owner photos and Step 11 identify software/audio unit, not Go hardware | Go-module identity and matching firmware/variant evidence |
+| Match the physical target | Steps 11/75 identify Panasonic TAS400 audio and Harman NAVI BOX with `6.9.0WL` | Exact Go-module part/revision and matching firmware/variant evidence |
 | Start and recover native code | [Installation analysis](installation-path.md) demonstrates selected later-loader behavior only in mocks/emulation | An established route on this installed version, plus recovery before any deployment experiment |
 | Build a factory process | `Check-CarPlayArm.ps1` uses `armv7-none-eabi` and a relocatable link; it explicitly is not a QNX executable | Matching QNX ABI/runtime/toolchain and an actual target executable |
 | Own the phone transport | [USB trace](usb-transport.md) identifies stock HID/media/audio service ownership | Native interface access and a coordinated ownership/restore plan, verified on the unit |
@@ -145,6 +156,9 @@ The next actionable input is the Go module's model/part number and hardware
 revision from an already accessible label or existing service paperwork. This
 can narrow the matching firmware and hardware-interface investigation. It does
 not by itself establish a safe execution route or remove the other gates above.
+Step 75 now supplies its manufacturer, Harman International, and documentation
+leads for navigation part-number families; the Panasonic audio product need not
+be identified again. The generic chip-serial field is not an Apple-chip model.
 
 No VIN, device activation code, private key, dashboard disassembly, changed service-menu
 flag or logging marker is requested. If the label is inaccessible, existing

@@ -16,6 +16,11 @@ execution/recovery and hardware-interface evidence. It also traces the remaining
 native media-information reader; that consumer is not a demonstrated chip-data
 export to the PC. There is still no installation procedure for this car.
 
+The newer [diagnostic photo findings](headunit-debug-photos.md) identify Panasonic
+TAS400 audio (`PW600-18001`) and a Harman International navigation box running
+`6.9.0WL`. They do not establish the navigation module's exact part/revision,
+Apple-chip compatibility or execution/recovery access.
+
 ## What the normal update path does
 
 The resident Lua loader is in:

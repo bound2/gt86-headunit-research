@@ -3150,12 +3150,39 @@ dashboard disassembly or configuration changes. That evidence is needed to narro
 factory integration path; it will not by itself prove chip compatibility or safe
 installation. The full software-only CarPlay goal remains unachieved.
 
+## Step 75 - Identify the audio product and navigation manufacturer from new diagnostic photos
+
+Date: 2026-09-10. Added [headunit-debug-photos.md](headunit-debug-photos.md).
+Inspected all four newly supplied images in `Pictures/headunitdebug`, separately
+from Step 11's seven originals. Product Information shows `PW600-18001`; the DA
+version pages name Panasonic and provide component versions; NAVI BOX names
+Harman International and reconfirms MAIN `6.9.0WL`.
+
+Cross-checked the audio code against Toyota's GT86 TAS400 manual: it identifies
+TAS400 without DAB, not the navigation module. Toyota's separate Go manual gives
+navigation accessory families and a module part-number pattern to guide an
+existing-paperwork check. These are documented candidates, not a substituted
+reading of the owner's exact Go part number or hardware revision.
+
+The populated main-unit chip-serial field does not identify an Apple
+authentication-chip generation or usable API. EXT Box dashes do not establish
+absence of the navigation module, whose version page is separately shown.
+Diagnostic screen access does not establish a shell, safe export or recovery.
+Original photos and the serial value remain outside Git and web searches.
+
+Updated the README, installation findings and factory audit to reflect the new
+evidence. This is documentation-only; no runtime code, firmware, car setting or
+device state changed. Checked local Markdown links and whitespace. The remaining
+exact module identity, installed-version execution/recovery and native-interface
+requirements are not solved by these photos; CarPlay remains uninstalled.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
    recovery route before preparing anything intended to execute on the car.
-   The missing facts are its model/part number and hardware revision; the
-   installed navigation version is already confirmed by the existing photos.
+   The missing facts are its exact part number and hardware revision; Step 75
+   now confirms Harman International as manufacturer and reconfirms `6.9.0WL`.
+   Panasonic TAS400 audio code `PW600-18001` is now identified separately.
    An already accessible module label or ordinary read-only identification is
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above

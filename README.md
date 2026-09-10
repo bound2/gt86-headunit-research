@@ -6,14 +6,20 @@ Observed from the owner's photos:
 
 | Component | Identifier |
 | --- | --- |
+| Audio product / manufacturer | `PW600-18001` / Panasonic; TAS400 identification documented below |
 | Display/audio device | `13TFDAEU-DA05` |
 | Display/audio software | `0101B0` |
+| Navigation manufacturer | Harman International |
 | Navigation software | `6.9.0WL` |
 | Map release | `2017 v1` |
 
 The seven originals in `Pictures/headunit` have been inspected; photo-by-photo
 evidence and the remaining hardware-identification gaps are recorded in
 [CarPlay progress, Step 11](reports/carplay-progress.md#step-11---inspect-the-owners-existing-head-unit-photographs).
+The four newer diagnostic photos in `Pictures/headunitdebug` identify the audio
+product and both manufacturers; see [diagnostic photo findings](reports/headunit-debug-photos.md)
+for the version transcription and Toyota product-code cross-check. The exact
+Go-module part number and hardware revision are still not shown.
 
 The display/audio unit and Go navigation module are separate research targets.
 Firmware from the same product family is not proof that it can be installed on
@@ -39,8 +45,9 @@ for the current findings, mock test outcomes and remaining requirements.
 
 For the gap between the host prototype and software-only CarPlay on the actual
 car, see [factory integration gates](reports/factory-integration-gates.md). The
-Go-module identity, installed-version execution/recovery, native transport/chip
-access and target media integration remain unverified. No factory update is ready.
+exact Go-module part/revision, installed-version execution/recovery, native
+transport/chip access and target media integration remain unverified. No factory
+update is ready.
 
 ## Build and verify (Windows)
 
