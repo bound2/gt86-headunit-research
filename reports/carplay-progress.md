@@ -3373,11 +3373,35 @@ the entire software-only approach. Next trace the separate AIR media-graph and
 decoder-acquisition boundary; its H.264 names still do not establish availability
 or an external API. CarPlay remains unimplemented on the intended factory unit.
 
+## Step 84 - Trace the AIR media graph and its buffer-push boundary
+
+Recovered bounded unwind intervals and RTTI/virtual-method relationships in the
+stripped AIR library. Its selected video path creates an `AIRMediaOut` graph,
+requests a `flash_reader` buffer-push callback, selects a processing filter via
+`MmFindChannelsFilter`, and routes raw video through an optional queue to
+`screen_writer`. This is not a public H.264-to-RGBA function. Named controls,
+callback ownership/framing, actual decoder availability and native runtime
+behavior are still unverified. Step-by-step evidence is in
+[air-video-graph.md](air-video-graph.md).
+
+Added a pinned read-only inspector and seven regression tests for the unwind
+index, calls, relocations and resource boundaries. All 71 Python tests pass.
+No vendor code or target
+service ran. The selected failure paths destroy a graph; a low-latency resource
+name or setup call alone is not proof of video playback or timing performance.
+
+Next trace the separate MainConcept-associated `H264VideoDecompressor`
+construction/frame interface and fallback selection. The MMF route additionally
+needs provenance for its AOI controls/selected decoding filter. This step is
+native-interface research, not a completed CarPlay decoder or installable system.
+
 ## Next checks
 
-1. Trace the AIR media-graph/decoder acquisition and compressed-input/output
-   boundary. Step 83 finds RAW pixel copying and a null-returning WFD client
-   factory, not a reusable H.264 decoder. Step 82 identifies CPU pixel staging,
+1. Trace the separate AIR MainConcept-associated decompressor's construction,
+   frame interface and fallback selection. Step 84 traces the MMF graph's
+   runtime buffer-push callback and Screen writer, not a CPU-frame decoder API;
+   control/decoder availability and complete ABI remain unresolved. Step 83
+   finds RAW pixel copying and a null-returning WFD client factory. Step 82 identifies CPU pixel staging,
    GLES upload/draw, EGL presentation and separate cleanup paths. Step 81's
    window-name/visibility-cache constraints remain; the complete caption/event
    path and Toyota signal consumer are still not established.
@@ -3488,8 +3512,9 @@ or an external API. CarPlay remains unimplemented on the intended factory unit.
    validate complete certificates and coordinate bus ownership. iPhone
    acceptance remains a separate test. This is a condition on the software-only
    approach, not a requirement for an added receiver module.
-4. After tracing the AIR acquisition/input/output boundary, resolve whether that
-   decoder can be used outside AIR or whether a separate decoder is needed.
+4. Resolve whether either AIR decoder path can be used outside AIR or whether
+   a separate decoder is needed. Step 84 identifies MMF filter/callback/writer
+   dependencies, not their availability or a supported external decoder API.
    Step 83's null WFD factory must not be treated as an available alternative.
    Port the remaining CarPlay session/media
    protocols and trace display ownership and audio focus.

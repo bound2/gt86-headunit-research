@@ -177,8 +177,13 @@ libraries omitted by the original selective extraction and follows CPU pixel
 staging, GLES drawing, EGL swapping and native cleanup. The
 [Step 83 decoder-boundary trace](factory-video-decoder.md) identifies RAW pixel
 copying and a WFD factory that logs and returns null; the H.264 negotiation names
-do not supply a working decoder through that path. Next trace the separate AIR
-decoder-acquisition/input/output boundary. No usable CarPlay decoder is established.
+do not supply a working decoder through that path. The
+[Step 84 AIR trace](air-video-graph.md) follows MMF filter lookup, a runtime
+buffer-push callback, raw-video channel selection and Screen-writer output.
+Its dependencies and external ABI remain unverified; it does not return CPU
+RGBA frames through an established decoder API. Next trace the separate
+MainConcept-associated decompressor and its fallback selection. No usable
+CarPlay decoder is established.
 Keep observation provenance and
 later-corpus findings separate from verified behavior on the installed `6.9.0WL`
 unit.

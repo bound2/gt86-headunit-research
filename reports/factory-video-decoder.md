@@ -138,7 +138,10 @@ This turn also checked its section directory: unlike the recovered remote-UI
 library, it has no intact static symbol table available to the same parser.
 That limits easy function naming; it does not show that the decoder is absent.
 
-Next useful offline step: trace AIR's concrete media-graph acquisition and
+Follow-up: [Step 84 traces AIR's concrete media-graph and buffer-push boundary](air-video-graph.md).
+Its separate MainConcept-associated decompressor remains to be traced.
+
+The next step identified at this checkpoint was to trace AIR's media-graph acquisition and
 compressed-input/output boundaries, including how it selects a decoder and
 handles failure. Only then decide whether external use is technically supported
 or a separate decoder port is necessary. Do not infer decoder availability from
