@@ -206,7 +206,8 @@ static int fail(projection_session *s,int r) { projection_session_close(s); retu
 int projection_session_init(projection_session *s,const projection_info_profile *p,
     int (*available)(void *,uint64_t,const projection_info_profile *),void *context,const projection_session_config *cfg,uint64_t gen) {
     size_t n; int status;
-    if(!s||!p||!available||!cfg||!gen||!cfg->provider.open||!cfg->provider.start||!cfg->provider.close||cfg->enabled_features>15) return IAP2_ARGUMENT;
+    if(!s||!p||!available||!cfg||!gen||!cfg->provider.open||!cfg->provider.start||!cfg->provider.close||cfg->enabled_features>15||
+       ((cfg->provider.poll!=0)!=(cfg->provider.next_delay!=0))) return IAP2_ARGUMENT;
     if(((cfg->enabled_features&PROJECTION_SESSION_HEVC)&&!p->hevc)||
        ((cfg->enabled_features&PROJECTION_SESSION_ALT_SCREEN)&&p->display_count!=2)) return IAP2_INVALID;
     status=projection_info_encode(p,0,0,&n); if(status) return status;

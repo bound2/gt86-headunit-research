@@ -54,6 +54,13 @@ typedef struct projection_session_provider {
     /* Must synchronously cancel/close/wipe one lease, without failure/reentry.
      * Called once per transferred unique lease, including invalid open output. */
     void (*close)(void *,uint64_t,uint64_t);
+    /* Optional paired callbacks for real nonblocking endpoint work. poll is
+     * called only by explicit receiver_poll after control deadline checks.
+     * OK/MORE are nonfatal; other results close the owning receiver/resources.
+     * next_delay is read-only milliseconds, UINT32_MAX if no scheduled work.
+     * Both callbacks or neither; no hidden worker, socket I/O in next_delay. */
+    int (*poll)(void *,uint64_t,uint64_t now_ms);
+    uint32_t (*next_delay)(const void *,uint64_t);
 } projection_session_provider;
 typedef struct projection_session_config {
     projection_session_provider provider;

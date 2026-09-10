@@ -132,6 +132,13 @@ int projection_receiver_check(projection_receiver *s, uint64_t gen, uint64_t now
 void projection_receiver_info_default_config(projection_receiver_info_config *cfg) {
     if(cfg) { pair_crypto_wipe(cfg,sizeof(*cfg)); cfg->initial_ms=60000; cfg->initial_limit=4; }
 }
+int projection_receiver_poll(projection_receiver *s,uint64_t gen,uint64_t now) {
+    int r=projection_receiver_check(s,gen,now); if(r!=IAP2_OK) return r;
+    if(!s->session.enabled||!s->session.count) return IAP2_MORE;
+    if(!s->session.config.provider.poll) return IAP2_UNSUPPORTED;
+    r=s->session.config.provider.poll(s->session.config.provider.context,gen,now);
+    return r==IAP2_OK||r==IAP2_MORE?r:stop(s,PROJECTION_RECEIVER_REASON_SESSION,r);
+}
 int projection_receiver_enable_info(projection_receiver *s,uint64_t gen,const projection_receiver_info_config *cfg,uint64_t now) {
     size_t size=0; int r=owner(s,gen); if(r!=IAP2_OK) return r;
     if(!cfg||!cfg->profile||!cfg->available||!cfg->buffer||!cfg->initial_ms||cfg->initial_ms>60000||
@@ -369,7 +376,14 @@ uint32_t projection_receiver_next_delay(const projection_receiver *s) {
     uint32_t delay,total;
     if(!s||!s->generation||s->state==PROJECTION_RECEIVER_DEAD) return UINT32_MAX;
     if(s->state==PROJECTION_RECEIVER_SETUP) return pair_setup_channel_next_delay(&s->setup);
-    if(s->state==PROJECTION_RECEIVER_AUTH) return projection_auth_next_delay(&s->auth);
+    if(s->state==PROJECTION_RECEIVER_AUTH) {
+        delay=projection_auth_next_delay(&s->auth);
+        if(s->session.enabled&&s->session.count&&s->session.config.provider.next_delay) {
+            total=s->session.config.provider.next_delay(s->session.config.provider.context,s->generation);
+            if(total<delay) delay=total;
+        }
+        return delay;
+    }
     delay=rtsp_channel_next_delay(&s->initial);
     if(s->info.profile) {
         total=s->now-s->started_at>=s->info.initial_ms?0:s->info.initial_ms-(uint32_t)(s->now-s->started_at);

@@ -13,10 +13,17 @@ inline projection_info_profile session_profile() {
 struct SessionBackend {
     unsigned opens=0,starts=0,fail_open=0; int bad_output=0,start_error=0; bool same_ports=false;
     uint64_t next_lease=1;
+    unsigned polls=0; int poll_error=0; uint32_t poll_delay=2;
     std::vector<uint64_t> live,closed,started;
     std::vector<projection_session_resource> requests;
     std::vector<projection_session_keys> keys;
-    projection_session_config config() { return {{this,open,start,close},15}; }
+    projection_session_config config() { return {{this,open,start,close,nullptr,nullptr},15}; }
+    static int poll(void* context,uint64_t gen,uint64_t) {
+        auto& self=*static_cast<SessionBackend*>(context); CHECK(gen==91); ++self.polls; return self.poll_error;
+    }
+    static uint32_t next_delay(const void* context,uint64_t gen) {
+        CHECK(gen==91); return static_cast<const SessionBackend*>(context)->poll_delay;
+    }
     static int open(void* context,uint64_t gen,const projection_session_resource* request,uint8_t features,
                     const projection_session_keys* key,projection_session_endpoint* out) {
         auto& self=*static_cast<SessionBackend*>(context); CHECK(gen==91&&features<=15);

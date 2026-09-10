@@ -24,7 +24,8 @@ groups, an explicit wired-start reply and unsolicited power notifications that
 preserve held input. A separate explicit wired identity now declares the
 implemented message IDs and a caller-supplied USB-host component; typed wired
 helpers require that accepted profile. The minimal default remains unchanged.
-No capability is automatically advertised and no network/media session is opened. The pinned
+This iAP2 startup engine does not automatically advertise capabilities or open
+network/media sessions. The pinned
 runtime's identification-first order is now supported through explicit opt-in
 configuration, with independent phase budgets and provider gating. The original
 authentication-first default remains available. See [startup-order.md](startup-order.md).
@@ -75,31 +76,35 @@ A separate projection plist decoder supports 640 nodes and finite real values
 without loosening the existing Lockdown parser. Typed session/resource handling
 now adds four groups and optional owned SETUP/RECORD/TEARDOWN routes: advertised
 capability gates, explicit endpoint leases, event/media key derivation, ID-reuse
-prevention and rollback/teardown/drain-start ownership. Its runtime provider is
-synthetic; real endpoint services and media are not supplied. Target QNX storage,
-approval/revocation UI, broader discovery/phone interoperability, network/media
-and hardware integration remain missing.
+prevention and rollback/teardown/drain-start ownership. A real Windows endpoint
+provider now supplies peer-bound UDP timing, encrypted TCP events and optional
+UDP keepalive, with explicit polling, deadlines and cleanup. Four pure timing
+and eight real IPv4/IPv6 loopback service groups pass; media delegates and MFi
+providers in the integrated tests remain synthetic. Event command sequencing,
+actual media, target QNX storage, approval/revocation UI, broader discovery/phone
+interoperability and hardware integration remain missing.
 Python regression checks total 25, plus independent
 checkers for 21 pair-verification, 12 control-frame, 51 setup and 39 combined
 MFi/pair-verification fixture values, plus 42 session fixture values, 16 session
-directional key/zero values and three independently parsed session replies.
+directional key/zero values and three independently parsed session replies,
+plus 12 independent timing-clock/filter values.
 Native USB and actual phone pairing remain absent.
-All twenty ordinary, twenty-three TLS-only and thirty-three combined crypto/TLS
-CTest suites pass. All sixteen protocol/capability suites, five pairing/control/store suites,
-the enrollment, real-file, MFiSAP, projection-session and receiver-router suites and three TLS/carkit/integration suites pass under host
+All twenty-one ordinary, twenty-four TLS-only and thirty-five combined crypto/TLS
+CTest suites pass. All seventeen protocol/capability/timing suites, five pairing/control/store suites,
+the enrollment, real-file, MFiSAP, projection-session, receiver-router and real-socket service suites and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-62, [the persistent-store report](pair-store.md),
+Steps 22-63, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
-[session resources](projection-session.md). Hosted TLS
+[session resources](projection-session.md) / [real endpoint services](projection-services.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
 not included in either ARM claim. The new capability encoder, hosted MFi/AES and
-receiver/session targets and Windows-only filesystem backend are also
+receiver/session targets, new timing/services and Windows-only filesystem backend are also
 excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -2575,6 +2580,58 @@ resource provider is not a production fallback. Factory execution/recovery,
 USB-network ownership, compatible existing authentication-chip access, target
 persistence and real-phone validation remain necessary; CarPlay is not installable.
 
+## Step 63 - Implement real timing and encrypted event sockets
+
+Date: 2026-09-10. Added [projection-services.md](projection-services.md), with
+exact source pins, timing/socket contracts, validation commands and remaining
+limitations. `carplay_timing` is a pure bounded C99 RTCP-style timing/steered-clock
+engine. The optional Windows `carplay_services` provider creates actual
+nonblocking, exclusive, non-inheritable UDP timing, TCP event and optional UDP
+keepalive endpoints. All network tests use PC loopback only.
+
+Timing pins the control peer IP and SETUP port, matches a single pending probe,
+validates RTT and filters observations. Unsigned fixed-point arithmetic handles
+negative phase and NTP rollover without signed overflow or changing the OS clock.
+Malformed/stale traffic does not renew synchronization deadlines. Actual UDP
+send acceptance commits a probe; would-block probes are freshly timestamped.
+
+Events accept one matching peer, then close the listener. The existing cipher
+authenticates records with independent event keys/counters; bounded network tails
+and held plaintext preserve backpressure. Tag/replay/EOF/deadline failures wipe
+and close, never reconnect under reused keys. Unsolicited output waits for the
+outer RECORD reply drain. There is no automatic event-command success or complete
+RTSP event-message owner yet. Media requires an explicit delegate; no synthetic
+port allocation becomes a production fallback.
+
+Provider leases are remapped uniquely and cleanup retains Winsock while delegated
+resources need it. The receiver now supports paired optional poll/next-delay
+callbacks, enforcing outer control generation/deadlines before backend I/O and
+closing all leases on polling failure. Full-teardown reply drain still works
+after all service leases have closed.
+
+Four timing groups cover wire validation, filter/window eviction, modular clocks,
+transactional/deadline boundaries and 10,000 malformed packets. Eight real-socket
+groups cover IPv4/IPv6, peer pinning, actual binding/cleanup, encrypted fragments/
+tails/empty records, replay/tag/EOF and lifetime failures. Integration uses actual
+pair verification/encrypted MFi/session routing and event key derivation; the
+public credentials, MFi provider and media driver remain explicitly synthetic.
+
+All 35 combined, 21 ordinary, 24 TLS-only and 25 Python regressions pass.
+Seventeen ordinary and nine hosted suites pass ASan/UBSan, with both crypto
+dependencies instrumented. Strict C99/C++ Clang warnings and static analysis of
+the four changed/new C99 modules pass. An independent Python Fraction checker
+matches 12 clock/filter values; existing session/capability checkers also pass.
+The service context measures 920 bytes, session 3,856 and receiver 13,552 on
+x64, excluding caller buffers, stack and dependency/kernel allocations.
+No new dependency or ARM/QNX portability claim is introduced. The existing
+dependency warning and privileged-symlink skip remain; junction rejection passes.
+
+Next implement the authenticated event message owner and explicit feedback/input
+commands, then actual stream receivers and display/audio/microphone drivers.
+Factory identification, execution/recovery, USB-network ownership, existing Apple
+authentication-chip access and phone interoperability remain unresolved. No
+installable CarPlay update, modified ISO or vehicle operation is produced.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2585,11 +2642,14 @@ persistence and real-phone validation remain necessary; CarPlay is not installab
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement real endpoint services and network/media/input backends. Step 62 adds
+3. Implement event commands and network/media/input backends. Step 63 adds actual
+   peer-bound Windows timing/event/keepalive sockets and receiver polling, tested
+   over loopback. Event RTSP/feedback/input sequencing, stream record/packet
+   processing, actual media drivers and a QNX socket backend remain missing.
+   Step 62 adds
    typed session/resource ownership and key derivation, with strict capability/
-   state gates, lease cleanup and reply-drain/start handling. The allocation
-   provider remains synthetic; timing/event services, real listeners, peer-bound
-   stream record/packet processing and actual media are not yet implemented.
+   state gates, lease cleanup and reply-drain/start handling. Media allocation
+   in the current integration tests remains explicitly synthetic.
    Step 61 adds explicit capability encoding and optional bounded `/info` routing,
    including plaintext discovery opt-in and encrypted responses. Its runtime
    availability contract still needs actual display/audio/input backend support;

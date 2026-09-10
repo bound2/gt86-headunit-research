@@ -230,6 +230,11 @@ those portability checks were not expanded by this step.
 
 ## Step 7 - Implement real endpoint services and media paths next
 
+Update: Step 63 now implements actual Windows timing/event/keepalive endpoints
+and receiver polling; see [projection-services.md](projection-services.md).
+The original next-step statement below records the Step 62 boundary. Event
+command sequencing, media backends and target integration remain incomplete.
+
 Next provide actual peer-bound endpoint allocation and cancellation, initially
 with local-loopback integration tests: timing synchronization, encrypted event
 transport and stream receivers must back the advertised ports/features. Wire

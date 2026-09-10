@@ -389,3 +389,16 @@ local implementation choices, not Apple conformance guarantees. Python plistlib
 and standard-library HMAC reproduce public synthetic requests/keys; the test
 provider does not create real endpoints or claim actual hardware support. See
 [projection-session.md](../reports/projection-session.md) for exact blobs and limits.
+
+`projection_timing.c`/`.h`, `projection_services_win.c`, `projection_services.h`,
+their tests/shared fixtures, receiver polling extensions and the independent
+timing checker select GPL-3.0-only. The same pinned LIVI `timingServer.ts`,
+`cpStack.ts` and `keepAliveServer.ts` are wire/filter/transport references; no
+upstream implementation bodies or credentials were copied. Fixed-point clock
+arithmetic, explicit anchors, peer pinning, bounds, lease remapping, scheduling
+and failure ownership are local policies. The Windows backend links the OS
+Winsock API and the existing cipher; no dependency version is added. Microsoft's
+socket documentation informs platform error/binding semantics, not CarPlay
+conformance. Real loopback tests still use public synthetic pairing/MFi and media
+providers. Exact blobs, sources and limitations are recorded in
+[projection-services.md](../reports/projection-services.md).

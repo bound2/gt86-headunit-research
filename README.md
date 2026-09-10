@@ -101,7 +101,7 @@ authentication keys or fallback signer is supplied.
 `iap2_carplay_tests`, `usbmux_tests`, `usbmux_host_tests` and
 `usbmux_connection_tests`, `usbmux_dispatcher_tests`, `lockdown_tests` and
 `service_plist_tests`, `lockdown_bootstrap_tests`, `rtsp_tests`, `pair_tlv_tests`
-and `projection_info_tests` alongside the four
+and `projection_info_tests`, `projection_timing_tests` alongside the four
 existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
@@ -404,7 +404,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayCry
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayCrypto.ps1
 ```
 
-The combined build passes 33 suites; new crypto tests use RFC vectors and a
+The combined build passes 35 suites; new crypto tests use RFC vectors and a
 PyCA-reproduced transcript. The crypto sanitizer includes Monocypher itself.
 Its separate ARM object check reports required runtime helpers and does not
 extend the core's import-free claim. Target trust persistence, approval UI,
@@ -464,7 +464,8 @@ after committed M6 drains. One public connection generation and monotonic respon
 tokens survive the child transfer. Twelve groups exercise both initial pairing routes,
 actual enrollment/verification/encrypted MFi, fragmentation, tails, stale callbacks
 and failure/deadline gates, plus the optional capability route below. Enrollment
-is disabled by default. No listener, approval UI or actual media is supplied.
+is disabled by default. The router itself supplies no listener, approval UI or
+actual media; the Windows session service below now provides timing/event sockets.
 See [receiver-routing.md](reports/receiver-routing.md).
 
 `projection_info.h` adds a bounded typed binary-plist capability encoder without
@@ -499,13 +500,33 @@ output, start, EOF or timeout closes owned resources. Playback starts only after
 the correlated reply fully drains; partial and full teardown are distinct.
 
 Four session groups, expanded encrypted receiver tests, 42 public fixture values
-and independent key/plist checks pass. Endpoint providers are synthetic tests,
-not real sockets, timing/event services or media drivers. This remains host-side
-implementation, not a QNX port or installable receiver. See
+and independent key/plist checks pass. Its original endpoint-provider tests are
+synthetic; the Windows timing/event backend below now adds real sockets. Actual
+media drivers remain missing. This remains host-side implementation, not a QNX
+port or installable receiver. See
 [the session/resource report](reports/projection-session.md).
 
 ```powershell
 python -B scripts/check_projection_session.py build/crypto/Release/projection_session_tests.exe tests/fixtures/projection-session-vectors.txt
+```
+
+`projection_timing.h` now provides a bounded fixed-point timing/steered-clock
+engine. `projection_services.h` adds an actual Windows nonblocking UDP timing,
+encrypted TCP event and optional UDP keepalive provider, explicitly bound to the
+control peer. One event connection owns its keys/counters for life; failures
+wipe/close resources without reconnecting under reused keys. Receiver polling
+checks control deadlines first; RECORD reply drain gates unsolicited output.
+Media allocations require an explicit delegate, with no dummy default backend.
+
+Four timing groups and eight service groups pass, including real IPv4/IPv6
+loopback sockets through synthetic pairing/MFi/session integration. Seventeen
+ordinary and nine hosted suites pass ASan/UBSan; 12 clock/filter values agree
+with an independent Python checker. Event RTSP/command sequencing, actual media,
+QNX integration and real-phone validation remain incomplete. See the
+[step-by-step service report](reports/projection-services.md).
+
+```powershell
+python -B scripts/check_projection_timing.py build/crypto/Release/projection_timing_tests.exe
 ```
 
 ## Read-only firmware analysis

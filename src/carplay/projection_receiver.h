@@ -91,6 +91,11 @@ int projection_receiver_init(projection_receiver *, const projection_receiver_pr
     const projection_receiver_config *, const projection_receiver_storage *,
     uint64_t connection_generation, uint64_t verification_generation, uint64_t now_ms);
 int projection_receiver_check(projection_receiver *, uint64_t, uint64_t);
+/* Explicit bounded endpoint I/O, after normal control/deadline validation.
+ * Optional session provider poll; no work before resources exist. Failure closes
+ * all receiver-owned resources. Caller refreshes monotonic time afterward.
+ * Event application messages still need explicit frontend handling. */
+int projection_receiver_poll(projection_receiver *,uint64_t,uint64_t);
 /* Optional /info route, disabled at receiver init. Enable ONCE before any
  * initial input/provider work, while ROUTING. Validates/measures profile and
  * response capacity, no I/O or provider call. Profile and referenced data stay
