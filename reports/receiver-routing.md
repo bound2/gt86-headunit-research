@@ -23,8 +23,8 @@ memory-only trust-commit simulation and an opaque synthetic MFi provider.
 No real phone, Apple credential, factory chip or vehicle was accessed.
 
 This is not an installable update or a working media receiver. Explicit
-capability responses are now implemented in Step 61; session/resource handling,
-real endpoints and target integration remain incomplete. Software-only CarPlay
+capability responses are now implemented in Step 61 and typed session/resource
+ownership in Step 62; real endpoint services and target integration remain incomplete. Software-only CarPlay
 on the factory hardware remains unproven.
 
 ## Step 2 - Separate reference evidence from local policy
@@ -214,9 +214,11 @@ QNX receiver, target memory/timing suitability or actual phone interoperability.
 
 Capability encoding and optional bounded initial/encrypted `/info` routing are
 implemented in [Step 61](projection-capabilities.md), with an explicit runtime
-availability contract but no actual display/audio/input provider. Next implement
-typed session/resource negotiation, real network endpoints and actual media/input
-integration. Broader discovery variants and actual phone interoperability remain
+availability contract but no actual display/audio/input provider. Typed session/
+resource negotiation and lease/key ownership are implemented in
+[Step 62](projection-session.md), still with a synthetic endpoint provider. Next
+implement real timing/event/stream services and actual media/input integration.
+Broader discovery variants and actual phone interoperability remain
 unverified. Enrollment approval/rate limiting,
 target persistence/revocation and safe provider scheduling remain necessary.
 

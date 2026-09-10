@@ -64,7 +64,7 @@ and encrypted-control integration. MFiSAP response calculation and an owning
 encrypted `/auth-setup` route now add seven groups, including same-transport
 enrollment-to-verification-to-MFi handoff. Cryptography is real; the explicit
 certificate/signature test providers are synthetic, not Apple credentials or
-proof of handset acceptance. An initial receiver router now has ten groups,
+proof of handset acceptance. An initial receiver router now has twelve groups,
 explicit local permission and separate verified-candidate approval, automatic
 same-connection post-M6 transfer and public tokens stable across child phases.
 An explicit typed capability encoder adds four groups and three independent
@@ -72,28 +72,34 @@ Python-decoded profiles, including a 25,777-byte response. Optional exact `/info
 handling requires an explicit runtime availability check; pre-pairing plaintext
 discovery additionally requires opt-in and has count/absolute-time bounds.
 A separate projection plist decoder supports 640 nodes and finite real values
-without loosening the existing Lockdown parser. Target QNX storage,
-approval/revocation UI, broader discovery/phone interoperability, typed session/
-resource handling, network/media and hardware integration remain missing.
+without loosening the existing Lockdown parser. Typed session/resource handling
+now adds four groups and optional owned SETUP/RECORD/TEARDOWN routes: advertised
+capability gates, explicit endpoint leases, event/media key derivation, ID-reuse
+prevention and rollback/teardown/drain-start ownership. Its runtime provider is
+synthetic; real endpoint services and media are not supplied. Target QNX storage,
+approval/revocation UI, broader discovery/phone interoperability, network/media
+and hardware integration remain missing.
 Python regression checks total 25, plus independent
 checkers for 21 pair-verification, 12 control-frame, 51 setup and 39 combined
-MFi/pair-verification fixture values.
+MFi/pair-verification fixture values, plus 42 session fixture values, 16 session
+directional key/zero values and three independently parsed session replies.
 Native USB and actual phone pairing remain absent.
-All twenty ordinary, twenty-three TLS-only and thirty-two combined crypto/TLS
+All twenty ordinary, twenty-three TLS-only and thirty-three combined crypto/TLS
 CTest suites pass. All sixteen protocol/capability suites, five pairing/control/store suites,
-the enrollment, real-file, MFiSAP and receiver-router suites and three TLS/carkit/integration suites pass under host
+the enrollment, real-file, MFiSAP, projection-session and receiver-router suites and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-61, [the persistent-store report](pair-store.md),
+Steps 22-62, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
-and [projection capabilities](projection-capabilities.md). Hosted TLS
+and [projection capabilities](projection-capabilities.md) /
+[session resources](projection-session.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
 not included in either ARM claim. The new capability encoder, hosted MFi/AES and
-receiver targets and Windows-only filesystem backend are also
+receiver/session targets and Windows-only filesystem backend are also
 excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -2506,6 +2512,69 @@ Real network/media/input backends, approval/rate limiting, target persistence/
 revocation, native USB-network ownership and installed-version execution/recovery
 remain necessary. Software-only CarPlay on the factory unit is not installable.
 
+## Step 62 - Own typed sessions, derived keys and resource leases
+
+Date: 2026-09-10. Added [projection-session.md](projection-session.md) with
+source pins, request schemas, exact key domains, provider contracts, tests and
+remaining backend limits. The existing receiver can now enable a typed session
+child after info configuration and before any initial input/discovery. Only
+verified encrypted requests after local MFi reply drain reach resource allocation;
+this does not establish real MFi or handset acceptance.
+
+Initial SETUP binds its opaque target and validates the peer NTP timing port and
+optional low-power request. Stream SETUP preflights all entries against the same
+advertised profile: main/alternate screen, three audio types with single-bit
+format selection and optional main-audio microphone, plus an explicitly enabled
+iAP tunnel. Integer/bool/real/string types are distinct; malformed dictionaries,
+unknown stream types, inconsistent capabilities and reused IDs fail closed.
+The target is never a network destination or controller trust identity.
+
+Event and stream keys use the real owned pairing shared secret with separate
+HKDF-SHA512 salts/info; media/tunnel receive and microphone send directions are
+explicit. Unsigned decimal IDs retain zero, 2^63 and UINT64_MAX. A 128-entry
+lifetime ledger includes retired stream IDs/seeds, preventing setup from
+recreating a prior key/counter domain. Full teardown ends the connection rather
+than restarting events with the same keys.
+
+The explicit bounded provider transfers unique leases and validated port results.
+There are no default ports or real backend implementation in these tests. Any
+failed allocation/result closes all owned resources, including earlier streams.
+RECORD starts prepared resources only after its exact reply drains; added streams
+start after their own setup reply drains. Failed start, response construction,
+deadline, EOF and explicit close also clean up. Valid partial teardown closes only
+the selected streams; invalid bodies never become successful full teardown.
+Runtime loss cannot prevent cancellation. Resource providers must bind the actual
+control peer and preserve counter/transport ownership themselves.
+
+Four session groups cover lifecycle, schemas/capacities/state/ID limits, 600
+mutations/truncations, failures at every allocation position, invalid/duplicate
+leases, availability/start failure and capability/configuration gates. The
+receiver now has twelve groups, including both real enrollment/verification
+routes through encrypted full session lifecycles, output/drain ownership, stale
+callbacks, retained authenticated tails, pre-MFi/plaintext denial and cleanup.
+An enablement guard was tightened to reject enabling after a discovery reply
+even though its staging buffer has already been cleared.
+
+All 33 combined, 20 ordinary and 23 TLS-only CTest suites and 25 Python regressions
+pass. Eight hosted TLS/carkit/enrollment/file/MFi/session/router suites pass
+ASan/UBSan with both crypto dependencies instrumented. Strict Clang C99/C++
+warnings pass and static analysis finds no issue in the changed C99 modules.
+Independent standard-library checks reproduce 42 public fixtures, 16 directional
+key/zero values and three reply dictionaries of 178, 450 and 158 bytes; the last
+preserves UINT64_MAX correlation. Existing independent capability profiles pass.
+
+The child occupies 3,840 bytes and the receiver 13,536 on x64, before scratch,
+stack and dependency allocations. Session parse alone has a 20,680-byte individual
+Clang-O2 frame; no whole-stack or target-suitability claim follows. The new target
+is outside both prior ARM claims. No new dependency version, real phone/chip,
+head unit, trust record, firmware or update USB changed.
+
+Next implement actual peer-bound endpoint services and cancellation, timing/event
+protocols and stream packet/record owners, then media/input backends. The synthetic
+resource provider is not a production fallback. Factory execution/recovery,
+USB-network ownership, compatible existing authentication-chip access, target
+persistence and real-phone validation remain necessary; CarPlay is not installable.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2516,7 +2585,11 @@ remain necessary. Software-only CarPlay on the factory unit is not installable.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement typed session/resource handlers and network/media with real listeners.
+3. Implement real endpoint services and network/media/input backends. Step 62 adds
+   typed session/resource ownership and key derivation, with strict capability/
+   state gates, lease cleanup and reply-drain/start handling. The allocation
+   provider remains synthetic; timing/event services, real listeners, peer-bound
+   stream record/packet processing and actual media are not yet implemented.
    Step 61 adds explicit capability encoding and optional bounded `/info` routing,
    including plaintext discovery opt-in and encrypted responses. Its runtime
    availability contract still needs actual display/audio/input backend support;

@@ -404,7 +404,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayCry
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayCrypto.ps1
 ```
 
-The combined build passes 32 suites; new crypto tests use RFC vectors and a
+The combined build passes 33 suites; new crypto tests use RFC vectors and a
 PyCA-reproduced transcript. The crypto sanitizer includes Monocypher itself.
 Its separate ARM object check reports required runtime helpers and does not
 extend the core's import-free claim. Target trust persistence, approval UI,
@@ -455,13 +455,13 @@ transfer into this receiver on the same transport after committed M6 drains.
 Seven groups and 39 independent public values verify actual X25519/SHA/AES,
 encrypted output/drain, failure handling and enrollment transfer. Synthetic
 provider bytes do not prove real MFi licensing or chip compatibility.
-Session/media handlers and actual hardware integration
+Media handlers and actual hardware integration
 remain incomplete. See [the MFiSAP report](reports/mfi-sap.md).
 
 `projection_receiver.h` owns initial setup-versus-verification routing, optional
 local enrollment permission, verified-candidate approval and automatic transfer
 after committed M6 drains. One public connection generation and monotonic response
-tokens survive the child transfer. Ten groups exercise both initial pairing routes,
+tokens survive the child transfer. Twelve groups exercise both initial pairing routes,
 actual enrollment/verification/encrypted MFi, fragmentation, tails, stale callbacks
 and failure/deadline gates, plus the optional capability route below. Enrollment
 is disabled by default. No listener, approval UI or actual media is supplied.
@@ -481,11 +481,31 @@ finite real values without loosening the existing 256-node/no-real Lockdown API.
 Integration tests cover discovery-to-pairing transfer, encrypted full-profile
 POSTs, large multi-record replies, failures and output/drain ownership. The new
 encoder has substantial bounded stack scratch and is not part of the ARM core
-claim. Typed session/resource negotiation and actual drivers remain unfinished.
+claim. Typed session/resource negotiation is now implemented below; actual
+endpoint services and drivers remain unfinished.
 See [the step-by-step capability report](reports/projection-capabilities.md).
 
 ```powershell
 python -B scripts/check_projection_info.py build/crypto/Release/projection_info_tests.exe
+```
+
+`projection_session.h` adds owned typed `SETUP`/`RECORD`/`TEARDOWN`, enabled
+explicitly on the same receiver after info configuration. Only verified encrypted
+control after local MFi reply drain can allocate. All requested streams must fit
+the advertised display/audio/input profile; endpoint ports come from explicit
+provider leases, not defaults. Event/media keys derive from the owned pairing
+exchange, and retired IDs cannot be reused with reset counters. Failed allocation,
+output, start, EOF or timeout closes owned resources. Playback starts only after
+the correlated reply fully drains; partial and full teardown are distinct.
+
+Four session groups, expanded encrypted receiver tests, 42 public fixture values
+and independent key/plist checks pass. Endpoint providers are synthetic tests,
+not real sockets, timing/event services or media drivers. This remains host-side
+implementation, not a QNX port or installable receiver. See
+[the session/resource report](reports/projection-session.md).
+
+```powershell
+python -B scripts/check_projection_session.py build/crypto/Release/projection_session_tests.exe tests/fixtures/projection-session-vectors.txt
 ```
 
 ## Read-only firmware analysis

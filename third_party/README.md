@@ -377,3 +377,15 @@ ownership are local policies, not Apple conformance claims. The public synthetic
 test profiles do not establish actual hardware capabilities. Exact source blobs,
 independent checks and limitations are in
 [projection-capabilities.md](../reports/projection-capabilities.md).
+
+`projection_session.c`/`.h`, its typed-resource fixtures/tests, receiver extensions
+and independent session checker select GPL-3.0-only. The same pinned LIVI
+`cpStack.ts`, `iapTunnel.ts` and `keepAliveServer.ts` provide session schemas,
+key-domain and endpoint-transport references,
+without copied implementation bodies or a new dependency. Key derivation uses
+the existing Monocypher-backed HKDF adapter. Capability/state/ID gates, explicit
+lease contracts, bounded reply schemas and drain/start/rollback policies are
+local implementation choices, not Apple conformance guarantees. Python plistlib
+and standard-library HMAC reproduce public synthetic requests/keys; the test
+provider does not create real endpoints or claim actual hardware support. See
+[projection-session.md](../reports/projection-session.md) for exact blobs and limits.

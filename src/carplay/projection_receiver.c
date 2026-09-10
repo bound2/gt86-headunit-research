@@ -74,6 +74,7 @@ static int keyed(const projection_receiver *s, rtsp_channel_key key) {
 static int stop(projection_receiver *s, enum projection_receiver_reason reason, int error) {
     if(s->state!=PROJECTION_RECEIVER_DEAD) {
         s->enrolled=s->setup.setup.committed;
+        projection_session_close(&s->session);
         rtsp_channel_close(&s->initial);
         pair_setup_channel_close(&s->setup);
         projection_auth_close(&s->auth);
@@ -160,6 +161,32 @@ static int info_request(projection_receiver *s,const rtsp_message *req) {
         pair_crypto_wipe(nodes,sizeof(nodes)); pair_crypto_wipe(storage.bytes,storage.byte_capacity); return r;
     }
 }
+int projection_receiver_enable_session(projection_receiver *s,uint64_t gen,const projection_session_config *cfg,uint64_t now) {
+    projection_session tmp; int r=owner(s,gen); if(r!=IAP2_OK) return r;
+    if(!s->info.profile||s->session.enabled||s->state!=PROJECTION_RECEIVER_ROUTING||s->initial.input.used||s->initial_info_count) return RTSP_BUSY;
+    if(s->storage.control.response_capacity<PROJECTION_SESSION_REPLY+256u) return IAP2_NO_SPACE;
+    r=projection_session_init(&tmp,s->info.profile,s->info.available,s->info.context,cfg,gen);
+    if(r!=IAP2_OK) return r;
+    r=projection_receiver_check(s,gen,now);
+    if(r==IAP2_OK) s->session=tmp;
+    pair_crypto_wipe(&tmp,sizeof(tmp)); return r;
+}
+static int session_reply(projection_receiver *s,const rtsp_message *req,rtsp_channel_key key,uint64_t now) {
+    rtsp_response response; rtsp_header header; int r;
+    if(s->auth.auth.state!=MFI_SAP_DONE) return stop(s,PROJECTION_RECEIVER_REASON_SESSION,IAP2_UNSUPPORTED);
+    r=projection_session_request(&s->session,req,s->auth.control.shared_secret,s->info.buffer,s->info.capacity);
+    if(r!=IAP2_OK) return stop(s,PROJECTION_RECEIVER_REASON_SESSION,r);
+    pair_crypto_wipe(&response,sizeof(response)); response.status=200;
+    if(s->session.reply_size) {
+        header.name=literal("Content-Type"); header.value=literal("application/x-apple-binary-plist");
+        response.headers=&header; response.header_count=1;
+        response.body.data=s->session.reply; response.body.size=s->session.reply_size;
+    }
+    r=projection_auth_respond(&s->auth,key,&response,now);
+    pair_crypto_wipe(s->session.reply,sizeof(s->session.reply)); s->session.reply_size=0;
+    if(r!=RTSP_CHANNEL_OUTPUT) return stop(s,PROJECTION_RECEIVER_REASON_SESSION,r);
+    return sync(s,r);
+}
 static int info_reply(projection_receiver *s,const rtsp_message *req,rtsp_channel_key key,int initial,uint64_t now) {
     size_t size=0; rtsp_header header; rtsp_response response; int r;
     if(!s->info.profile||(initial&&(!s->info.allow_initial||s->initial_info_count>=s->info.initial_limit)))
@@ -221,6 +248,8 @@ int projection_receiver_feed(projection_receiver *s, uint64_t gen, const uint8_t
             int got=projection_auth_request(&s->auth,&req,&key);
             if(got!=RTSP_CHANNEL_REQUEST) return stop(s,PROJECTION_RECEIVER_REASON_INFO,got);
             if(equals(req.target,"/info")) return info_reply(s,&req,key,0,now);
+            if(s->session.enabled&&(equals(req.method,"SETUP")||equals(req.method,"RECORD")||equals(req.method,"TEARDOWN")))
+                return session_reply(s,&req,key,now);
         }
         return sync(s,r);
     }
@@ -261,14 +290,14 @@ int projection_receiver_request(const projection_receiver *s, rtsp_message *req,
     if(key) pair_crypto_wipe(key,sizeof(*key));
     if(!req||!key) return IAP2_ARGUMENT;
     r=owner(s,s?s->generation:0); if(r!=IAP2_OK) return r;
-    if(s->state!=PROJECTION_RECEIVER_AUTH||s->info_pending) return IAP2_MORE;
+    if(s->state!=PROJECTION_RECEIVER_AUTH||s->info_pending||s->session.state==PROJECTION_SESSION_HELD) return IAP2_MORE;
     r=projection_auth_request(&s->auth,req,&child);
     if(r==RTSP_CHANNEL_REQUEST) *key=s->key;
     return r;
 }
 int projection_receiver_respond(projection_receiver *s, rtsp_channel_key key, const rtsp_response *response, uint64_t now) {
     int r=keyed(s,key); if(r!=IAP2_OK) return r;
-    if(s->info_pending) return RTSP_BUSY;
+    if(s->info_pending||s->session.state==PROJECTION_SESSION_HELD) return RTSP_BUSY;
     if(s->state!=PROJECTION_RECEIVER_AUTH) return RTSP_BUSY;
     return sync(s,projection_auth_respond(&s->auth,s->child_key,response,now));
 }
@@ -320,6 +349,10 @@ int projection_receiver_release(projection_receiver *s, rtsp_channel_key key, ui
         pair_crypto_wipe(&s->providers,sizeof(s->providers)); s->authorization=0;
     }
     if(r==IAP2_OK||r==PAIR_SETUP_COMPLETE||r==PROJECTION_CONTROL_SECURE||r==MFI_SAP_DRAINED) {
+        if(s->session.state==PROJECTION_SESSION_HELD) {
+            int released=projection_session_release(&s->session);
+            if(released!=IAP2_OK) return stop(s,PROJECTION_RECEIVER_REASON_SESSION,released);
+        }
         s->info_pending=0;
         pair_crypto_wipe(&s->key,sizeof(s->key)); pair_crypto_wipe(&s->child_key,sizeof(s->child_key));
     }

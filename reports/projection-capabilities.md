@@ -3,6 +3,9 @@
 Date: 2026-09-10. CarPlay progress Step 61; follows
 [receiver-routing.md](receiver-routing.md).
 
+Follow-up: [Step 62](projection-session.md) now implements typed session/resource
+ownership in this receiver. Counts and size measurements below describe Step 61.
+
 ## Step 1 - Add capability responses without claiming a working receiver
 
 `projection_info` now encodes a typed, caller-supplied capability profile as a
@@ -216,10 +219,11 @@ portability claims; no QNX stack size, timing, linking or execution is proved.
 
 ## Step 7 - Continue with typed session/resource negotiation
 
-Next implement typed `SETUP`/session handling with explicit resource allocation,
-real endpoint results and rollback/teardown ownership. Advertised capabilities
-must constrain accepted session requests; synthetic availability must not become
-a production default. Network/media/input backends, actual phone interoperability,
+Typed `SETUP`/`RECORD`/`TEARDOWN`, capability validation, derived keys and
+allocation/rollback ownership are implemented in [Step 62](projection-session.md).
+Its resource provider remains synthetic, not a real endpoint/backend. Next
+implement actual peer-bound timing/event/stream services and media/input backends;
+synthetic availability must not become a production default. Actual phone interoperability,
 approval/rate limiting, target persistence/revocation and bounded provider
 scheduling still need implementation and validation.
 

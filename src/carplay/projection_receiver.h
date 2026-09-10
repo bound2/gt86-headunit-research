@@ -4,6 +4,7 @@
 #include "pair_setup_channel.h"
 #include "projection_auth.h"
 #include "projection_info.h"
+#include "projection_session.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -19,7 +20,7 @@ enum projection_receiver_reason {
     PROJECTION_RECEIVER_REASON_INITIAL, PROJECTION_RECEIVER_REASON_ROUTE,
     PROJECTION_RECEIVER_REASON_SETUP, PROJECTION_RECEIVER_REASON_AUTH,
     PROJECTION_RECEIVER_REASON_TOKEN, PROJECTION_RECEIVER_REASON_EOF,
-    PROJECTION_RECEIVER_REASON_INFO
+    PROJECTION_RECEIVER_REASON_INFO, PROJECTION_RECEIVER_REASON_SESSION
 };
 typedef struct projection_receiver_config {
     rtsp_channel_config initial;
@@ -58,6 +59,7 @@ typedef struct projection_receiver {
     projection_receiver_storage storage;
     projection_receiver_providers providers;
     projection_receiver_info_config info;
+    projection_session session;
     rtsp_channel_key key, child_key;
     uint64_t generation, verify_generation, next_token, authorization, now,started_at;
     size_t info_size;
@@ -113,6 +115,15 @@ int projection_receiver_check(projection_receiver *, uint64_t, uint64_t);
  */
 void projection_receiver_info_default_config(projection_receiver_info_config *);
 int projection_receiver_enable_info(projection_receiver *,uint64_t,const projection_receiver_info_config *,uint64_t);
+/* Optional typed SETUP/RECORD/TEARDOWN, disabled at init. Enable once while
+ * ROUTING, after enabling info and before input. Uses that same immutable
+ * capability profile/availability binding and scratch. Requires explicit real
+ * resource provider; no default ports/backend. Only verified encrypted control
+ * AFTER local MFi reply drain may allocate resources. No phone acceptance claim.
+ * Sessions own transferred leases through close, deadline/EOF and reply failures.
+ * Callback time must be refreshed before subsequent output/transport work.
+ * See projection_session.h for schemas, key lifetime and drain/start contract. */
+int projection_receiver_enable_session(projection_receiver *,uint64_t,const projection_session_config *,uint64_t);
 /* Optional local one-attempt authorization ID, not supplied by the wire. May be
  * granted while ROUTING or after AUTHORIZE event; never renewed/replaced. When
  * waiting it processes the already held initial request, possibly returning

@@ -5,6 +5,7 @@
 #include "pair_store.h"
 #include "pair_test_support.h"
 #include "projection_info_fixture.h"
+#include "projection_session_fixture.h"
 
 template<class T> static auto snapshot(const T& s) {
     std::array<uint8_t,sizeof(T)> b{}; std::memcpy(b.data(),&s,sizeof(T)); return b;
@@ -113,7 +114,7 @@ struct Harness {
         if(release) {
             CHECK(projection_receiver_release(&s,key,1)==expected); completed.push_back(key);
             saved=snapshot(s);
-            CHECK(projection_receiver_release(&s,key,UINT64_MAX)==IAP2_INVALID&&snapshot(s)==saved);
+            CHECK(projection_receiver_release(&s,key,UINT64_MAX)==(expected==PROJECTION_RECEIVER_CLOSED?PROJECTION_RECEIVER_CLOSED:IAP2_INVALID)&&snapshot(s)==saved);
         }
         return decoded;
     }
@@ -474,13 +475,102 @@ static void info_configuration_and_limits(const Vectors& v,const Vectors& setup_
       CHECK(h.feed(get,2)==RTSP_CHANNEL_OUTPUT&&projection_receiver_next_delay(&h.s)==1&&info.calls==2);
       CHECK(projection_receiver_check(&h.s,91,3)==PROJECTION_RECEIVER_CLOSED&&h.random_calls==0); h.cleared(); }
 }
+static int encrypted_session(Harness& h,const Bytes& body,const char* method="SETUP",unsigned seq=10,const char* target="rtsp://127.0.0.1/123") {
+    auto wire=outer(body,seq,target,method,"application/x-apple-binary-plist"); int result=IAP2_MORE;
+    for(size_t offset=0;offset<wire.size();) {
+        auto end=std::min(offset+256,wire.size()); auto frame=h.frame(Bytes(wire.begin()+offset,wire.begin()+end));
+        size_t used=0; result=h.feed(frame,1,&used); CHECK(used==frame.size()); offset=end;
+        if(offset<wire.size()) CHECK(result==IAP2_MORE);
+    }
+    return result;
+}
+static void session_enable(Harness& h,InfoBackend& info,SessionBackend& backend) {
+    info.profile=session_profile(); info.enable(h); auto cfg=backend.config();
+    CHECK(projection_receiver_enable_session(&h.s,91,&cfg,0)==IAP2_OK&&backend.opens==0);
+}
+static void session_mfi(Harness& h) {
+    CHECK(h.feed(h.frame(outer(h.v.at("request"),7,"/auth-setup","POST","application/octet-stream")))==RTSP_CHANNEL_OUTPUT);
+    h.drain(true,MFI_SAP_DRAINED);
+}
+static void session_routes(const Vectors& v,const Vectors& setup_v,const Vectors& sv) {
+    for(bool enroll:{false,true}) {
+        InfoBackend info(2); SessionBackend backend; Harness h(v,setup_v,enroll); session_enable(h,info,backend);
+        if(enroll) { h.to_candidate(); pair_setup_candidate candidate{}; rtsp_channel_key key{};
+            CHECK(projection_receiver_pending(&h.s,&candidate,&key)==PAIR_SETUP_APPROVAL);
+            CHECK(projection_receiver_decide(&h.s,key,1,1)==RTSP_CHANNEL_OUTPUT); h.drain(false,PAIR_SETUP_COMPLETE); }
+        h.pair(); session_mfi(h);
+        CHECK(encrypted_session(h,sv.at("session"))==RTSP_CHANNEL_OUTPUT&&backend.opens==1&&info.calls==1);
+        auto saved=snapshot(h.s); rtsp_response fake={501,{},nullptr,0,{}};
+        CHECK(projection_receiver_respond(&h.s,h.s.key,&fake,UINT64_MAX)==RTSP_BUSY&&snapshot(h.s)==saved);
+        rtsp_message req{}; rtsp_channel_key key{}; CHECK(projection_receiver_request(&h.s,&req,&key)==IAP2_MORE&&!key.token);
+        CHECK(backend.keys[0].has_write); h.drain(true,IAP2_OK);
+        CHECK(encrypted_session(h,sv.at("streams"))==RTSP_CHANNEL_OUTPUT&&backend.opens==7&&backend.starts==0);
+        auto reply=h.drain(true,IAP2_OK); size_t decoded=0;
+        CHECK(rtsp_message_decode(reply.data(),reply.size(),&req,&decoded)==IAP2_OK&&req.status==200&&req.body.size>0);
+        CHECK(encrypted_session(h,{},"RECORD")==RTSP_CHANNEL_OUTPUT&&backend.starts==0);
+        h.drain(true,IAP2_OK); CHECK(backend.starts==1&&h.s.session.recording);
+        CHECK(encrypted_session(h,sv.at("teardown_audio"),"TEARDOWN")==RTSP_CHANNEL_OUTPUT&&backend.closed.size()==1); h.drain(true,IAP2_OK);
+        CHECK(encrypted_session(h,sv.at("audio_new"))==RTSP_CHANNEL_OUTPUT&&backend.starts==1); h.drain(true,IAP2_OK); CHECK(backend.starts==2);
+        CHECK(encrypted_session(h,{},"TEARDOWN")==RTSP_CHANNEL_OUTPUT&&backend.live.empty()); h.drain(true,PROJECTION_RECEIVER_CLOSED); h.cleared();
+        for(size_t i=1;i<h.completed.size();++i) CHECK(h.completed[i].token>h.completed[i-1].token);
+    }
+}
+static void session_gates_and_cleanup(const Vectors& v,const Vectors& setup_v,const Vectors& sv) {
+    { InfoBackend info(2); SessionBackend backend; Harness h(v,setup_v); session_enable(h,info,backend); h.pair();
+      CHECK(encrypted_session(h,sv.at("session"))==PROJECTION_RECEIVER_CLOSED&&backend.opens==0&&info.calls==0); }
+    { InfoBackend info(2); SessionBackend backend; Harness h(v,setup_v); session_enable(h,info,backend);
+      auto wire=outer(sv.at("session"),1,"/session","SETUP","application/x-apple-binary-plist"); size_t n=0;
+      CHECK(h.feed(wire,1,&n)==PROJECTION_RECEIVER_CLOSED&&backend.opens==0&&h.random_calls==0); }
+    for(unsigned mode=0;mode<8;++mode) {
+        InfoBackend info(2); SessionBackend backend; Harness h(v,setup_v); session_enable(h,info,backend); h.pair(); session_mfi(h);
+        CHECK(encrypted_session(h,sv.at("session"))==RTSP_CHANNEL_OUTPUT&&backend.opens==1);
+        if(mode==0) { CHECK(projection_receiver_eof(&h.s,91,1)==PROJECTION_RECEIVER_CLOSED); }
+        else if(mode==1) { CHECK(projection_receiver_check(&h.s,91,30001)==PROJECTION_RECEIVER_CLOSED); }
+        else if(mode==2) { h.drain(true,IAP2_OK,false); CHECK(projection_receiver_release(&h.s,h.s.key,30001)==PROJECTION_RECEIVER_CLOSED); }
+        else {
+            h.drain(true,IAP2_OK);
+            if(mode==3) { backend.fail_open=4; CHECK(encrypted_session(h,sv.at("streams"))==PROJECTION_RECEIVER_CLOSED&&backend.opens==4); }
+            if(mode==4) { info.result=-55; CHECK(encrypted_session(h,sv.at("streams"))==PROJECTION_RECEIVER_CLOSED&&backend.opens==1); }
+            if(mode==5) { CHECK(encrypted_session(h,sv.at("bad_format_real"))==PROJECTION_RECEIVER_CLOSED&&backend.opens==1&&info.calls==1); }
+            if(mode==6) { auto frame=h.frame(bytes("RECORD rtsp://127.0.0.1/123 RTSP/1.0\r\nCSeq: 30\r\n\r\n")); frame.back()^=1; size_t n=0;
+                CHECK(h.feed(frame,1,&n)==PROJECTION_RECEIVER_CLOSED&&backend.opens==1); }
+            if(mode==7) { CHECK(encrypted_session(h,sv.at("streams"))==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
+                CHECK(encrypted_session(h,{},"RECORD")==RTSP_CHANNEL_OUTPUT); backend.start_error=-88; h.drain(true,PROJECTION_RECEIVER_CLOSED); }
+        }
+        CHECK(backend.live.empty()&&backend.closed.size()==backend.opens); h.cleared();
+    }
+    { InfoBackend info(2); SessionBackend backend; Harness h(v,setup_v); auto cfg=backend.config(); auto saved=snapshot(h.s);
+      CHECK(projection_receiver_enable_session(&h.s,91,&cfg,0)==RTSP_BUSY&&snapshot(h.s)==saved); info.profile=session_profile(); info.enable(h); saved=snapshot(h.s);
+      CHECK(projection_receiver_enable_session(&h.s,90,&cfg,UINT64_MAX)==IAP2_INVALID&&snapshot(h.s)==saved);
+      auto bad=cfg; bad.provider.open=nullptr;
+      CHECK(projection_receiver_enable_session(&h.s,91,&bad,UINT64_MAX)==IAP2_ARGUMENT&&snapshot(h.s)==saved);
+      CHECK(projection_receiver_enable_session(&h.s,91,&cfg,0)==IAP2_OK); saved=snapshot(h.s);
+      CHECK(projection_receiver_enable_session(&h.s,91,&cfg,UINT64_MAX)==RTSP_BUSY&&snapshot(h.s)==saved); }
+    { InfoBackend info; SessionBackend backend; Harness h(v,setup_v); info.enable(h,true);
+      CHECK(h.feed(bytes("GET /info RTSP/1.0\r\nCSeq: 1\r\n\r\n"))==RTSP_CHANNEL_OUTPUT); h.drain(false,IAP2_OK);
+      auto cfg=backend.config(); auto saved=snapshot(h.s);
+      CHECK(projection_receiver_enable_session(&h.s,91,&cfg,UINT64_MAX)==RTSP_BUSY&&snapshot(h.s)==saved&&backend.opens==0); }
+    { InfoBackend info; SessionBackend backend; Harness h(v,setup_v); info.enable(h);
+      CHECK(h.feed(bytes("P"))==IAP2_MORE); auto cfg=backend.config(); auto saved=snapshot(h.s);
+      CHECK(projection_receiver_enable_session(&h.s,91,&cfg,UINT64_MAX)==RTSP_BUSY&&snapshot(h.s)==saved&&backend.opens==0); }
+    { InfoBackend info(2); SessionBackend backend; Harness h(v,setup_v); session_enable(h,info,backend); h.pair(); session_mfi(h);
+      CHECK(encrypted_session(h,sv.at("session"))==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
+      CHECK(encrypted_session(h,sv.at("streams"))==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
+      auto record=bytes("RECORD rtsp://127.0.0.1/123 RTSP/1.0\r\nCSeq: 21\r\n\r\n"),next=bytes("GET /unknown RTSP/1.0\r\nCSeq: 22\r\n\r\n");
+      record.insert(record.end(),next.begin(),next.end()); CHECK(h.feed(h.frame(record))==RTSP_CHANNEL_OUTPUT&&backend.starts==0);
+      h.drain(true,IAP2_OK); CHECK(backend.starts==1); CHECK(h.feed({})==RTSP_CHANNEL_REQUEST);
+      rtsp_message req{}; rtsp_channel_key key{}; CHECK(projection_receiver_request(&h.s,&req,&key)==RTSP_CHANNEL_REQUEST&&req.cseq==22);
+      rtsp_response response={501,{},nullptr,0,{}}; CHECK(projection_receiver_respond(&h.s,key,&response,1)==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
+      projection_receiver_close(&h.s); CHECK(backend.live.empty()); }
+}
 int main(int argc,char** argv) {
     try {
-        CHECK(argc==3); auto v=load_vectors(argv[1],39),setup_v=load_vectors(argv[2],51);
+        CHECK(argc==4); auto v=load_vectors(argv[1],39),setup_v=load_vectors(argv[2],51),session_v=load_vectors(argv[3],42);
         known_route(v,setup_v); enrollment_route(v,setup_v); permission_and_failure(v,setup_v);
         invalid_routes(v,setup_v); initial_lifetimes(v,setup_v); transactionality(v,setup_v); exhausted_and_late(v,setup_v);
         info_routes(v,setup_v); info_policy_and_errors(v,setup_v); info_configuration_and_limits(v,setup_v);
-        std::cout<<"PASS: 10 receiver-router groups; enrollment/verification/MFi, explicit capabilities, bounded discovery, stable tokens and failure gates\n";
+        session_routes(v,setup_v,session_v); session_gates_and_cleanup(v,setup_v,session_v);
+        std::cout<<"PASS: 12 receiver-router groups; enrollment/verification/MFi, capabilities, owned session/resource routing and failure gates\n";
         std::cout<<"x64 receiver bytes: "<<sizeof(projection_receiver)<<"; caller buffers/stack additional; synthetic credentials only\n";
         return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
