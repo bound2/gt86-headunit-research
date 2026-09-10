@@ -92,6 +92,11 @@ revision**. The Toyota accessory families and `86840-` pattern above can help
 distinguish navigation identifiers from the now-known `PW600-18001` audio code.
 No new photo of the same audio/version pages is necessary.
 
+Follow-up [navigation identification analysis](navigation-identification-route.md)
+finds an internal persisted part-number path in the later firmware, but its
+reply can be truncated or based on a default. It is not a substitute for the
+owner-specific identity or a proven read-only collection route.
+
 If an already available read-only information page supplies those fields, it
 is useful evidence; these photos do not establish that such a page exists.
 Do not change service-menu settings, enable logging, enter update/reprogramming

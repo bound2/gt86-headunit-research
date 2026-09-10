@@ -159,6 +159,10 @@ not by itself establish a safe execution route or remove the other gates above.
 Step 75 now supplies its manufacturer, Harman International, and documentation
 leads for navigation part-number families; the Panasonic audio product need not
 be identified again. The generic chip-serial field is not an Apple-chip model.
+Step 76's [navigation identification trace](navigation-identification-route.md)
+finds a persisted part-number path with default/truncation limitations and a
+stateful NaviSync export. Neither establishes passive PC access to complete
+hardware identity or Apple-chip metadata; no on-car operation was performed.
 
 No VIN, device activation code, private key, dashboard disassembly, changed service-menu
 flag or logging marker is requested. If the label is inaccessible, existing

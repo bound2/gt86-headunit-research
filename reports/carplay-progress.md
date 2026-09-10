@@ -3176,6 +3176,33 @@ device state changed. Checked local Markdown links and whitespace. The remaining
 exact module identity, installed-version execution/recovery and native-interface
 requirements are not solved by these photos; CarPlay remains uninstalled.
 
+## Step 76 - Trace navigation part-number and version reporting
+
+Date: 2026-09-10. Added [navigation-identification-route.md](navigation-identification-route.md).
+Starting checkpoint `e9dc7ab` is pushed; the preceding goal turn made concrete
+progress by identifying the audio product and navigation manufacturer. Rechecked
+the clean worktree and the four unchanged diagnostic photos before continuing.
+
+The later firmware's `versioninfo`, `framClient`, `properties` and `avclan`
+bytecode now establish a selected internal identification flow. Software versions
+come from `/etc/version.txt`; a persisted `PartNumber` may replace the default
+`86100-YY050`, and the part-number reply keeps only its last five characters.
+Neither the default nor a truncated reply establishes full physical identity.
+The internal device/service route is not proven accessible from the owner's menu
+or PC and was not invoked.
+
+Also traced the nearby `copyDeviceInfo` wrapper into `deviceStatus.lua`: it
+creates a USB NaviSync export destination and stops/starts navigation-update
+tools before requesting device status. It is not established as a passive
+Apple-chip metadata read. No export, service call or bus write was attempted.
+
+Verified sizes/CRC32 against the extraction inventory and recorded SHA256 for
+six inspected Lua chunks. Used listing-only `luac -l -p`; no vendor module was
+executed. Checked Markdown links/whitespace. This documentation-only step narrows
+the remaining identification options, not the definition of the CarPlay goal.
+Factory execution/recovery, target interfaces and real phone validation remain
+unestablished; CarPlay is not installable from this repository.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -3183,6 +3210,10 @@ requirements are not solved by these photos; CarPlay remains uninstalled.
    The missing facts are its exact part number and hardware revision; Step 75
    now confirms Harman International as manufacturer and reconfirms `6.9.0WL`.
    Panasonic TAS400 audio code `PW600-18001` is now identified separately.
+   Step 76 traces an internal part-number reply but finds default/truncation
+   limitations, not a proven owner-accessible retrieval path. Do not infer the
+   unit's identity from the corpus default or activate the NaviSync export merely
+   because its method name mentions device information.
    An already accessible module label or ordinary read-only identification is
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
