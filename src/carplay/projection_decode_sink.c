@@ -12,6 +12,7 @@ typedef struct decode_slot {
     uint8_t encoded[PROJECTION_AUDIO_PAYLOAD]; size_t encoded_size;
     uint32_t offset,next_sample,gap_left,latency_ms;
     uint8_t started,flushing,pending,seen,anchored;
+    projection_audio_anchor sync; uint64_t waiting_ns; uint8_t has_sync,waiting;
 } decode_slot;
 struct projection_decode_sink {
     projection_decode_sink_config config;
@@ -31,6 +32,8 @@ static int refresh(projection_decode_sink *s) {
     if(now==UINT64_MAX||now<s->now_ns) return fail(s,IAP2_PROVIDER_FAILED);
     s->now_ns=now;
     for(i=0;i<3;++i) if((s->slots[i].decoded.frames||s->slots[i].pending)&&now>=s->slots[i].deadline_ns)
+        return fail(s,IAP2_PROVIDER_FAILED);
+    for(i=0;i<3;++i) if(s->slots[i].waiting&&now-s->slots[i].waiting_ns>=(uint64_t)s->config.sender_sync_ms*1000000)
         return fail(s,IAP2_PROVIDER_FAILED);
     return IAP2_OK;
 }
@@ -112,6 +115,20 @@ static int submit(void *ctx,uint64_t gen,uint64_t lease,const projection_audio_f
     if((format->codec==PROJECTION_AUDIO_PCM16&&(packet->size%(2u*format->channels)||packet->frames!=packet->size/(2u*format->channels)))||
        (format->codec!=PROJECTION_AUDIO_PCM16&&packet->frames)) return IAP2_INVALID;
     if(!packet->size) return IAP2_OK;
+    if(s->config.sender_sync_ms&&!slot->anchored) {
+        uint32_t difference=packet->sample_time-slot->sync.sample_time; uint64_t magnitude,ns;
+        if(!slot->has_sync||s->now_ns-slot->sync.received_ns>=(uint64_t)s->config.sender_sync_ms*1000000) {
+            if(!slot->waiting) { slot->waiting=1; slot->waiting_ns=s->now_ns; }
+            return IAP2_MORE;
+        }
+        magnitude=(difference>>31)?(uint32_t)(0u-difference):difference;
+        if(magnitude>(uint64_t)format->clock_rate*60) return fail(s,IAP2_UNSUPPORTED);
+        ns=magnitude*1000000000/format->clock_rate;
+        if((difference>>31)&&magnitude*1000000000%format->clock_rate) ++ns;
+        if(difference>>31) { if(ns>slot->sync.local_ns) return fail(s,IAP2_INVALID); slot->base_ns=slot->sync.local_ns-ns; }
+        else { if(slot->sync.local_ns>=UINT64_MAX-ns) return fail(s,IAP2_INVALID); slot->base_ns=slot->sync.local_ns+ns; }
+        slot->anchored=1; slot->waiting=0;
+    }
     if(slot->seen) {
         if(packet->counter<=slot->last_counter) return fail(s,IAP2_UNSUPPORTED);
         gap=packet->sample_time-slot->next_sample;
@@ -223,23 +240,35 @@ static int flush(void *ctx,uint64_t gen,uint64_t lease,const projection_audio_fl
         slot->pending=slot->seen=slot->anchored=0; slot->gap_left=slot->next_sample=0;
         slot->timeline=slot->decoded_at=slot->base_ns=slot->last_counter=slot->deadline_ns=0;
         slot->held_ns=0; slot->started=0; slot->flushing=1;
+        memset(&slot->sync,0,sizeof(slot->sync)); slot->has_sync=slot->waiting=0; slot->waiting_ns=0;
         r=projection_decode_create(slot->original.bit,gen,&fresh); if(r) return fail(s,r); slot->decoder=fresh;
     } else { slot->started=1; slot->flushing=0; }
     if(refresh(s)) return IAP2_PROVIDER_FAILED;
     return IAP2_OK;
 }
+static int anchor(void *ctx,uint64_t gen,uint64_t lease,const projection_audio_anchor *in) {
+    projection_decode_sink *s=(projection_decode_sink *)ctx; decode_slot *slot; uint64_t delta;
+    if(!valid(s,gen)||!in||(slot=find(s,lease))==NULL||!s->config.sender_sync_ms) return IAP2_INVALID;
+    if(refresh(s)) return IAP2_PROVIDER_FAILED;
+    if(slot->flushing||slot->anchored) return IAP2_MORE;
+    delta=in->local_ns>s->now_ns?in->local_ns-s->now_ns:s->now_ns-in->local_ns;
+    if(in->local_ns==UINT64_MAX||in->received_ns>s->now_ns||delta>(uint64_t)s->config.sender_sync_ms*1000000||
+       s->now_ns-in->received_ns>=(uint64_t)s->config.sender_sync_ms*1000000) return IAP2_INVALID;
+    if(slot->has_sync&&in->received_ns<=slot->sync.received_ns) return IAP2_MORE;
+    slot->sync=*in; slot->has_sync=1; return IAP2_OK;
+}
 int projection_decode_sink_create(const projection_decode_sink_config *c,uint64_t gen,projection_decode_sink **out) {
     projection_decode_sink *s;
     if(out) *out=NULL;
     if(!out||!c||!gen||!c->clock_ns||!c->hold_ms||c->hold_ms>60000||!c->pcm.open||!c->pcm.start||!c->pcm.submit||!c->pcm.poll||!c->pcm.playback||!c->pcm.close||
-       c->paced>1||c->max_gap_ms>1000||c->ahead_ms>500||(!c->paced&&c->ahead_ms)||
+       c->paced>1||c->max_gap_ms>1000||c->ahead_ms>500||(!c->paced&&c->ahead_ms)||c->sender_sync_ms>5000||(!c->paced&&c->sender_sync_ms)||
        (c->paced&&!(c->pcm.features&PROJECTION_AUDIO_SINK_TIMED))||
        (c->max_gap_ms&&!(c->pcm.features&PROJECTION_AUDIO_SINK_CONCEALMENT))) return IAP2_ARGUMENT;
     s=(projection_decode_sink *)calloc(1,sizeof(*s)); if(!s) return IAP2_NO_SPACE;
     s->config=*c; s->generation=gen; *out=s; return IAP2_OK;
 }
 projection_audio_sink projection_decode_sink_provider(projection_decode_sink *s) {
-    projection_audio_sink out={s,open,start,submit,poll,playback,close,s&&s->config.pcm.flush?flush:NULL,0};
+    projection_audio_sink out={s,open,start,submit,poll,playback,close,s&&s->config.pcm.flush?flush:NULL,0,s&&s->config.sender_sync_ms?anchor:NULL};
     if(!s) memset(&out,0,sizeof(out)); return out;
 }
 void projection_decode_sink_destroy(projection_decode_sink *s) {

@@ -59,7 +59,7 @@ Output::Slot *Output::find(uint64_t lease) noexcept {
     for(auto& s:slots_) if(lease&&s.lease==lease) return &s;
     return nullptr;
 }
-projection_audio_sink Output::sink() noexcept { return {this,open,start,submit,poll,playback,close,flush,PROJECTION_AUDIO_SINK_CONCEALMENT|PROJECTION_AUDIO_SINK_TIMED}; }
+projection_audio_sink Output::sink() noexcept { return {this,open,start,submit,poll,playback,close,flush,PROJECTION_AUDIO_SINK_CONCEALMENT|PROJECTION_AUDIO_SINK_TIMED,nullptr}; }
 int Output::open(void *ctx,uint64_t gen,const projection_session_resource *r,const projection_audio_format *f,uint64_t *lease) noexcept {
     auto& o=*static_cast<Output*>(ctx); projection_audio_format expected{};
     if(lease) *lease=0;

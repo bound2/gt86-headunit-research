@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only; real UDP/codecs, synthetic final device. */
 #include "projection_socket_fixture.h"
 #include "projection_audio_fixture.h"
+#include "projection_sync_fixture.h"
 #include "projection_decode_sink.h"
 #include "projection_pcm_output.hpp"
 #include <memory>
@@ -28,13 +29,15 @@ struct Pipeline {
     projection_pcm::Output output;
     std::unique_ptr<projection_decode_sink,decltype(&projection_decode_sink_destroy)> decoder{nullptr,projection_decode_sink_destroy};
     projection_audio_services audio{};
+    projection_timing timing{};
     Bytes storage=Bytes(3*8*8192+1,0xaa),network=Bytes(8192+36+1,0xaa);
-    explicit Pipeline(bool v6=false,bool paced=false,uint32_t late=0,uint32_t drift=0):automatic(paced),output({this,open_device,clock,thread},91,100,0,late,drift) {
-        projection_decode_sink_config dc{output.sink(),clock,this,100,paced?120u:0u,paced?40u:0u,static_cast<uint8_t>(paced)}; projection_decode_sink* raw=nullptr;
+    explicit Pipeline(bool v6=false,bool paced=false,uint32_t late=0,uint32_t drift=0,bool sync=false):automatic(paced),output({this,open_device,clock,thread},91,100,0,late,drift) {
+        projection_decode_sink_config dc{output.sink(),clock,this,100,paced?120u:0u,paced?40u:0u,static_cast<uint8_t>(paced),sync?500u:0u}; projection_decode_sink* raw=nullptr;
         CHECK(projection_decode_sink_create(&dc,91,&raw)==IAP2_OK); decoder.reset(raw);
         projection_audio_services_config cfg{}; cfg.local=cfg.peer=loopback(v6); cfg.clock_ns=clock; cfg.clock_context=this; cfg.poll_ms=2;
         cfg.sink=projection_decode_sink_provider(decoder.get()); projection_audio_default_config(&cfg.audio);
         cfg.audio.slots=paced?64:8; cfg.audio.payload_capacity=8192; cfg.audio.reorder_ms=10;
+        if(sync) { audio_sync_clock(timing,now); cfg.timing=&timing; cfg.sync_ms=500; cfg.max_sync_latency_ms=1000; }
         if(paced) storage.resize(3*64*8192+1,0xaa);
         CHECK(projection_audio_services_init(&audio,&cfg,storage.data(),storage.size(),network.data(),network.size(),91)==IAP2_OK);
     }
@@ -237,8 +240,55 @@ static void drifting_device(const Vectors& v) {
         p.close(p.context,91,e.lease); CHECK(f.closed==1&&!f.audio.wsa); Socket reuse(SOCK_DGRAM,ipv6,1,e.data_port);
     }
 }
+static void sender_anchored(const Vectors& v) {
+    for(bool ipv6:{false,true}) for(bool aac:{false,true}) {
+        auto owner=std::make_unique<Pipeline>(ipv6,true,0,0,true); auto& f=*owner; Socket phone(SOCK_DGRAM,ipv6),control(SOCK_DGRAM,ipv6);
+        uint32_t bit=aac?0x400000:0x10000000,rate=aac?44100:48000,duration=aac?1024:960,first=UINT32_MAX-511;
+        unsigned count=aac?2:1; auto e=f.open(100,bit,999); auto d=f.devices[0]; auto p=projection_audio_services_provider(&f.audio);
+        uint8_t key[32]; std::fill(key,key+32,9); std::vector<Bytes> packets;
+        for(unsigned i=0;i<count;++i) packets.push_back(v.at(std::string(aac?"aac44100_":"opus20_")+std::to_string(i)));
+        auto queue=[&](unsigned counter,uint32_t sample) {
+            for(unsigned i=0;i<count;++i) phone.datagram(audio_packet(key,counter+i,sample+i*duration,packets[i]),e.data_port);
+            f.until([&]{return f.audio.slots[0].audio.count==count;});
+        };
+        f.start(e.lease); queue(0,first); f.now+=10*ms;
+        f.until([&]{return f.audio.slots[0].audio.held!=0;}); f.now+=30*ms; CHECK(f.poll()==IAP2_OK&&d->data.empty()&&!d->starts);
+        auto sync=audio_sync_packet(projection_timing_now(&f.timing,f.now),first-rate/5,first);
+        control.datagram(sync,e.control_port); f.until([&]{return f.audio.slots[0].sync_received==1;});
+        uint64_t base=f.now+200*ms,due=base+(aac?uint64_t(duration)*sec/rate:0);
+        auto render=[&](uint64_t at,unsigned starts,const Bytes& pcm,size_t previous) {
+            for(uint64_t n=f.now;n<at;n+=ms) { f.now=n; CHECK(f.poll()==IAP2_OK&&d->starts==starts); }
+            f.now=at-1; CHECK(f.poll()==IAP2_OK&&d->starts==starts);
+            f.now=at; f.until([&]{return d->starts==starts+1;});
+            CHECK(d->start_ns==at&&d->data.size()==previous+pcm.size());
+            CHECK(Bytes(d->data.begin()+previous,d->data.end())==pcm);
+        };
+        render(due,0,expected(bit,packets,first,duration),0); // Sender's play timestamp includes latency; SETUP's 999 ms is not added.
+        ++f.now; control.datagram(audio_sync_packet(projection_timing_now(&f.timing,f.now),first,first+rate/5),e.control_port);
+        f.until([&]{return f.audio.slots[0].sync_received==2;}); CHECK(d->starts==1&&d->start_ns==due); // Later sync cannot rebase an active timeline.
+        uint32_t replacement=first-100000; projection_audio_flush_request q{replacement,0};
+        CHECK(p.flush(p.context,91,e.lease,&q)==IAP2_OK&&f.audio.slots[0].audio.fenced);
+        CHECK(f.audio.slots[0].audio.highest==count-1&&f.audio.slots[0].sync_port==control.port);
+        auto received=f.audio.slots[0].control_received; control.datagram(sync,e.control_port);
+        f.until([&]{return f.audio.slots[0].control_received==received+1;}); CHECK(f.audio.slots[0].sync_received==2);
+        queue(count,replacement); CHECK(p.flush(p.context,91,e.lease,nullptr)==IAP2_OK); f.now+=10*ms;
+        f.until([&]{return f.audio.slots[0].audio.held!=0;}); CHECK(d->starts==1);
+        received=f.audio.slots[0].control_received; control.datagram(sync,e.control_port);
+        f.until([&]{return f.audio.slots[0].control_received==received+1;}); CHECK(f.audio.slots[0].sync_received==2); // Replay stays rejected across FLUSH.
+        control.datagram(audio_sync_packet(projection_timing_now(&f.timing,f.now),replacement-rate/5,replacement),e.control_port);
+        f.until([&]{return f.audio.slots[0].sync_received==3;});
+        due=f.now+200*ms+(aac?uint64_t(duration)*sec/rate:0);
+        render(due,1,expected(bit,packets,replacement,duration),d->data.size());
+        CHECK(f.audio.slots[0].audio.highest==2*count-1&&!f.audio.slots[0].audio.fenced&&f.audio.slots[0].peer_port==phone.port);
+        p.close(p.context,91,e.lease); CHECK(f.closed==1&&!f.audio.wsa);
+    }
+    { auto owner=std::make_unique<Pipeline>(false,true,0,0,true); auto& f=*owner; Socket phone; auto e=f.open(100,0x10000000); f.start(e.lease);
+      uint8_t key[32]; std::fill(key,key+32,9); phone.datagram(audio_packet(key,0,0,v.at("opus20_0")),e.data_port);
+      f.until([&]{return f.audio.slots[0].audio.count==1;}); f.now+=10*ms; f.until([&]{return f.audio.slots[0].audio.held!=0;});
+      f.now+=500*ms; CHECK(f.poll()==PROJECTION_AUDIO_CLOSED); f.cleared(); }
+}
 int main(int argc,char** argv) {
-    try { CHECK(argc==2); Winsock wsa; auto v=load_vectors(argv[1],33); codecs(v,false); codecs(v,true); failures(v); flush_codecs(v); sustained_loss(v); delayed_burst(v); drifting_device(v);
-        std::cout<<"PASS: 7 decode service groups; real IPv4/IPv6 authenticated UDP, AAC/Opus, sustained loss/late-burst/drift recovery, flush epochs and device-clock seam; no physical playback\n"; return 0;
+    try { CHECK(argc==2); Winsock wsa; auto v=load_vectors(argv[1],33); codecs(v,false); codecs(v,true); failures(v); flush_codecs(v); sustained_loss(v); delayed_burst(v); drifting_device(v); sender_anchored(v);
+        std::cout<<"PASS: 8 decode service groups; real IPv4/IPv6 authenticated UDP, AAC/Opus, sender anchors, sustained loss/late-burst/drift recovery, flush epochs and device-clock seam; no physical playback\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

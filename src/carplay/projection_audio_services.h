@@ -8,6 +8,10 @@ extern "C" {
 #endif
 #define PROJECTION_AUDIO_SINK_CONCEALMENT 1u
 #define PROJECTION_AUDIO_SINK_TIMED 2u
+typedef struct projection_audio_anchor {
+    uint64_t local_ns,received_ns;
+    uint32_t sample_time; /* Already latency-adjusted playback sample at local_ns. */
+} projection_audio_anchor;
 typedef struct projection_audio_sink {
     void *context;
     /* Explicit real codec/output backend, no default. Same bounded synchronous,
@@ -36,6 +40,10 @@ typedef struct projection_audio_sink {
      * anchor; timed input uses presentation_ns in the same monotonic domain.
      * Neither flag asserts acoustic latency or sender-clock synchronization. */
     uint8_t features;
+    /* Optional initial sender anchor, local clock domain. Unauthenticated UDP
+     * metadata, NOT playback or a timeline-reset permission. OK copied; MORE
+     * ignored (e.g. already anchored). No retained pointer or reentry. */
+    int (*anchor)(void *,uint64_t,uint64_t,const projection_audio_anchor *);
 } projection_audio_sink;
 typedef struct projection_audio_services_config {
     projection_ip local,peer;
@@ -43,6 +51,8 @@ typedef struct projection_audio_services_config {
     projection_audio_config audio; /* format ignored here; each SETUP selects it. */
     projection_audio_sink sink;
     uint32_t poll_ms; /* 1..1000 */
+    const projection_timing *timing; /* Optional borrowed enclosing root clock, read-only. */
+    uint32_t sync_ms,max_sync_latency_ms; /* Both0 off; 1..5000 freshness/window, 1..60000 latency. */
 } projection_audio_services_config;
 typedef struct projection_audio_services_slot {
     projection_audio audio;
@@ -50,6 +60,8 @@ typedef struct projection_audio_services_slot {
     uintptr_t data_socket,control_socket;
     uint32_t type,control_received;
     uint16_t peer_port;
+    uint16_t sync_port; uint64_t sync_ntp; uint32_t sync_sample,sync_received;
+    uint8_t synced;
     uint8_t occupied,started,flushing;
 } projection_audio_services_slot;
 typedef struct projection_audio_services {
@@ -73,8 +85,17 @@ typedef struct projection_audio_services {
  * device, DNS, wildcard bind, SO_REUSEADDR or inherited socket handles.
  * Explicit local/peer IPv4 or IPv6, same family. Data source port pins only after
  * first authenticated accepted datagram; thereafter exact peer IP/port.
- * Control UDP currently bounded drain only from pinned peer IP: no RTCP parser,
- * retransmission, sync/flush handler or automatic success response.
+ * Control UDP defaults to bounded drain from the configured peer IP. Explicit
+ * sync_ms enables ONLY the classic 20-byte D4/flags4 initial timestamp form;
+ * first valid fresh anchor pins its separate source port. No retransmission,
+ * legacy flags7 latency guess, control-UDP FLUSH or automatic response.
+ * Timing/control UDP is NOT cryptographically authenticated. The borrowed root
+ * timing owner must outlive this owner, run on the same serial thread/ns clock
+ * domain, and be initialized before the first poll. No root callbacks/reentry.
+ * NTP freshness and monotonic NTP/RTP history are checked; a FLUSH fence permits
+ * a new RTP base, retaining NTP history/port. In-flight control packets still
+ * cannot prove which FLUSH epoch they belong to. Sink anchors are initial
+ * scheduling hints only, never playback evidence or permission to reset replay.
  * Authenticated session-control FLUSH is separate, exposed only if sink.flush
  * is supplied: stop/clear first, preserve sockets/keys/replay/source pinning,
  * then resume on encrypted reply drain. New packets may queue while suspended;

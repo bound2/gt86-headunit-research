@@ -3,6 +3,14 @@
 static void copy(void *d,const void *p,size_t n) { size_t i; for(i=0;i<n;++i) ((uint8_t *)d)[i]=((const uint8_t *)p)[i]; }
 static uint32_t be32(const uint8_t *p) { return ((uint32_t)p[0]<<24)|((uint32_t)p[1]<<16)|((uint32_t)p[2]<<8)|p[3]; }
 static uint64_t le64(const uint8_t *p) { uint64_t n=0; unsigned i; for(i=0;i<8;++i) n|=(uint64_t)p[i]<<(8*i); return n; }
+int projection_audio_sync_parse(const uint8_t *p,size_t n,projection_audio_sync *out) {
+    projection_audio_sync value={0,0,0,0};
+    if(!p||!out) return IAP2_ARGUMENT;
+    if(n!=20||(p[0]!=0x80&&p[0]!=0x90)||p[1]!=0xd4||p[2]||p[3]!=4) return IAP2_INVALID;
+    value.ntp=((uint64_t)be32(p+8)<<32)|be32(p+12);
+    value.play_sample=be32(p+4); value.sender_sample=be32(p+16); value.initial=(uint8_t)(p[0]==0x90);
+    *out=value; return IAP2_OK;
+}
 int projection_audio_format_get(uint32_t bit,projection_audio_format *out) {
     static const uint32_t bits[]={4,8,16,32,64,128,256,512,1024,2048,16384,32768};
     static const uint32_t rates[]={8000,16000,24000,32000,44100,48000};

@@ -143,11 +143,22 @@ static void flush_epochs() {
     { Audio empty; CHECK(projection_audio_flush(&empty.s,91,0,0)==IAP2_INVALID); empty.start(); CHECK(projection_audio_flush(&empty.s,91,0,0)==IAP2_OK&&!empty.s.received);
       empty.push(0,0); empty.start(); empty.now=20*ms; CHECK(empty.take(0).sample_time==0); }
 }
+static void sync_wire() {
+    auto p=hex("90d40004fffffff01234567889abcdef00000010"); projection_audio_sync out{};
+    CHECK(projection_audio_sync_parse(p.data(),p.size(),&out)==IAP2_OK&&out.initial&&out.play_sample==UINT32_MAX-15&&out.sender_sample==16&&out.ntp==UINT64_C(0x1234567889abcdef));
+    p[0]=0x80; CHECK(projection_audio_sync_parse(p.data(),20,&out)==IAP2_OK&&!out.initial);
+    auto before=out;
+    for(unsigned mode=0;mode<7;++mode) { auto bad=p;
+        if(mode==0) bad[0]=0xa0; if(mode==1) bad[1]=0x54; if(mode==2) bad[2]=1;
+        if(mode==3) bad[3]=7; if(mode==4) bad.resize(19); if(mode==5) bad.push_back(0); if(mode==6) bad[3]=0;
+        CHECK(projection_audio_sync_parse(bad.data(),bad.size(),&out)==IAP2_INVALID&&std::memcmp(&out,&before,sizeof(out))==0);
+    }
+}
 int main(int argc,char** argv) {
     try { CHECK(argc==2||argc==3); vectors=load_vectors(argv[1],13);
         bool output=argc==3; if(output) CHECK(std::string(argv[2])=="--emit"); formats(output); external_packets(output); if(output) return 0;
-        order_and_gaps(); authentication_and_headers(); ownership_and_limits(); malformed(); flush_epochs();
-        std::cout<<"PASS: 7 audio groups; exact formats, real AEAD, RTP/replay/order/gaps, PCM conversion, ownership/limits, flush epochs and 5000 mutations; no playback claim\n";
+        order_and_gaps(); authentication_and_headers(); ownership_and_limits(); malformed(); flush_epochs(); sync_wire();
+        std::cout<<"PASS: 8 audio groups; exact formats, real AEAD, RTP/replay/order/gaps, PCM conversion, sync wire, flush epochs and 5000 mutations; no playback claim\n";
         std::cout<<"x64 audio owner bytes: "<<sizeof(projection_audio)<<"; caller packet storage additional\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

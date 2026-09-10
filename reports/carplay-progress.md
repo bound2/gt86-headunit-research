@@ -78,7 +78,7 @@ now adds seven groups and optional owned SETUP/RECORD/TEARDOWN/FLUSH routes: adv
 capability gates, explicit endpoint leases, event/media key derivation, ID-reuse
 prevention and rollback/teardown/drain-start ownership. A real Windows endpoint
 provider now supplies peer-bound UDP timing, encrypted TCP events and optional
-UDP keepalive, with explicit polling, deadlines and cleanup. Four pure timing
+UDP keepalive, with explicit polling, deadlines and cleanup. Five pure timing
 and nine real IPv4/IPv6 loopback service groups pass; media delegates and MFi
 providers in the integrated tests remain synthetic. An owned bidirectional
 event-message layer now adds atomic command batches, correlated replies,
@@ -87,13 +87,13 @@ six pure groups and expanded real-socket tests. Optional typed control feedback
 now reports owned audio descriptors and fresh observed playback anchors using
 the real timing clock, with seven independently decoded output states. No
 played sample is inferred from a received packet or socket send. Encrypted audio
-RTP reception now adds seven core and seven actual UDP-service test groups, with
+RTP reception now adds eight core and nine actual UDP-service test groups, with
 17 explicit format mappings, nonce replay/reordering, gap reporting, PCM byte
 conversion and session/feedback integration. An explicit Windows WASAPI PCM sink
 now adds bounded queues, prefilled startup and device-clock observations, with
 thirteen output groups and separate COM/thread/clock checks. The final device in
 automated playback tests remains synthetic. Optional real AAC-LC/Opus decoders
-and an owning PCM bridge now add seven decoder and seven loopback integration
+and an owning PCM bridge now add eight decoder and eight loopback integration
 groups, 33 synthetic packets and 1,000 mutation checks. A separate reference
 compares 59,648 samples, with explicitly documented noise/hybrid limitations.
 An optional two-phase authenticated FLUSH now retires queued media and codec/
@@ -104,8 +104,10 @@ add Opus PLC, marked PCM/AAC silence, timed startup and concealment-aware feedba
 Four sustained real-UDP timelines pass with a synthetic progressing device;
 opt-in late PCM discard now also recovers delayed bursts without resetting codec
 history or replay state. Bounded output-clock drift correction now uses per-stream
-rate adjustment and observed clocks; sender-clock mapping/A-V sync and selective
-buffering remain work. Drift response tests also use synthetic devices.
+rate adjustment and observed clocks. Explicit classic D4 sender anchors can now
+establish an initial audio base; that opt-in wire form has no handset validation.
+Continuous sender-clock/A-V sync and selective buffering remain work. Timing and
+drift response tests use synthetic clocks/devices.
 Physical playback verification, video/mic/input, control modes,
 target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
@@ -126,7 +128,7 @@ service, two audio suites, PCM output/Windows argument checks and three TLS/cark
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-72, [the persistent-store report](pair-store.md),
+Steps 22-73, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
@@ -134,7 +136,7 @@ and [event commands](projection-events.md) / [observed feedback](projection-feed
 / [audio reception](projection-audio.md) / [PCM output](projection-pcm-output.md)
 / [compressed decoding](projection-decode.md) / [authenticated FLUSH](projection-flush.md)
 / [relative playout](projection-playout.md) / [late PCM recovery](projection-late-audio.md)
-/ [output-clock drift](projection-drift.md). Hosted TLS
+/ [output-clock drift](projection-drift.md) / [initial sender alignment](projection-sender-anchor.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
@@ -3064,6 +3066,57 @@ validation; they do not run automatically. Next establish sender timing/media
 mapping and A/V synchronization. Factory execution/recovery, native transport,
 Apple-chip access, remaining media/input/focus and handset acceptance remain gates.
 
+## Step 73 - Anchor initial audio to a bounded sender timestamp
+
+Date: 2026-09-10. Added [projection-sender-anchor.md](projection-sender-anchor.md).
+The pinned CarPlay reference drains control UDP without parsing sync; a separate
+pinned Shairport Sync comparison supplies the classic D4 layout. Therefore the
+new exact 20-byte/flags4 parser is explicitly opt-in and is not asserted to be
+the phone's CarPlay format. No legacy extra-latency guess is implemented.
+
+A read-only inverse of the fresh synchronized timing owner maps bounded NTP
+timestamps into the local ns domain, without reentering the root or renewing its
+deadline. Audio services validate peer/port, latency and NTP/RTP progression before
+copying an initial play-sample/time anchor to the decoder. Timing/control UDP is
+not cryptographically authenticated; none of it becomes media replay authority
+or observed playback. Default control draining/receipt-relative pacing remains.
+
+The explicitly paced decoder can require a fresh initial anchor, with a bounded
+nonrenewable wait. Its base uses signed checked sample/time arithmetic and does
+not add SETUP latency twice. Once committed, later syncs cannot rebase playback.
+Authenticated two-phase FLUSH clears the decoder anchor and requires another
+after resume, while retaining data/control pinning, keys and nonce/NTP history.
+Fresh in-flight control cannot prove its FLUSH epoch; this remains a wire-policy
+limitation, not a solved CarPlay resynchronization claim.
+
+Five timing, eight audio, nine audio-service, eight decoder and eight decoder-
+service groups pass. Real encrypted IPv4/IPv6 AAC/Opus loops verify exact initial
+and post-FLUSH device start times through a synthetic device, including priming,
+timestamp wrap, missing/stale anchors, history retention and callback failures.
+No actual phone, physical output, USB, authentication chip or car was accessed.
+
+Verification: all 42 media and 40 combined crypto/TLS CTest suites pass, including
+the final expanded decoder boundary tests. All 18 protocol, 13 hosted crypto/
+service/output and both codec-enabled ASan/UBSan checks pass. The 25 Python
+regressions, existing 12-value timing reference, 13 audio fixtures/17 formats and
+33-packet/59,648-sample codec comparison pass within their documented limits.
+Strict production C99/C++20 warnings and Clang static analysis pass. The existing
+hybrid-Opus reference difference and privileged-symlink skip remain explicit;
+actual Windows directory-junction rejection still passes.
+
+Commands: `scripts/Build-CarPlayMedia.ps1`, `scripts/Build-CarPlayCrypto.ps1`,
+`scripts/Check-CarPlaySanitizers.ps1`,
+`scripts/Check-CarPlayTlsSanitizers.ps1 -IncludeEnrollment`,
+`scripts/Check-CarPlayMediaSanitizers.ps1`, Python unittest discovery and the
+existing `check_projection_timing.py`, `check_projection_audio.py` and
+`check_projection_decode.py` trusted-local-executable checkers. No physical
+WASAPI endpoint probe mode was selected or run.
+
+Next validate actual sender wire/lifetime behavior before enabling this path,
+then continuous sender-clock/A-V handling. Factory execution/recovery, native
+transport, usable Apple-chip access and the remaining media/input/control paths
+still prevent an installable software-only CarPlay claim.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -3074,9 +3127,12 @@ Apple-chip access, remaining media/input/focus and handset acceptance remain gat
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Validate the explicit PCM device/rate-adjustment backend, implement sender
-   clock mapping/A-V synchronization, selective buffered
+3. Validate the explicit PCM device/rate-adjustment backend and actual sender
+   timing form, implement continuous sender-clock/A-V synchronization, selective buffered
    flush, remaining media/input backends and control mode/resource semantics.
+   Step 73 adds explicitly opt-in initial classic sender anchoring; its wire form
+   and FLUSH lifetime are unverified with a CarPlay phone, and later anchors do
+   not rebase playback. It is not continuous sender synchronization.
    Step 72 adds bounded local output-clock drift correction using observed clocks
    and per-stream rate adjustment; the sender's timing mapping remains separate.
    Step 71 adds opt-in late PCM discard/device restart on the original timeline,

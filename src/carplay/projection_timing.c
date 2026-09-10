@@ -25,6 +25,21 @@ int projection_timing_check(projection_timing *s,uint64_t now) {
 uint64_t projection_timing_now(const projection_timing *s,uint64_t now) {
     return s&&s->active&&now>=s->mono_origin?s->ntp_origin+ticks(now-s->mono_origin):0;
 }
+int projection_timing_to_local(const projection_timing *s,uint64_t ntp,uint64_t now,uint32_t bound,uint64_t *out) {
+    uint64_t delta,magnitude,ns; int negative;
+    if(out) *out=0;
+    if(!s||!out||!bound||bound>60000||now==UINT64_MAX) return IAP2_ARGUMENT;
+    if(!s->active||!s->synced) return IAP2_MORE;
+    if(now<s->now_ns) return IAP2_ARGUMENT;
+    if(now-s->last_sync_ns>=ms(s->config.sync_ms)) return IAP2_MORE;
+    delta=ntp-projection_timing_now(s,now); negative=(int)(delta>>63);
+    magnitude=negative?UINT64_C(0)-delta:delta;
+    if(magnitude>ticks(ms(bound))) return IAP2_INVALID;
+    ns=(magnitude>>32)*UINT64_C(1000000000)+(((magnitude&UINT32_MAX)*UINT64_C(1000000000)+(UINT64_C(1)<<31))>>32);
+    if(negative) { if(ns>now) return IAP2_INVALID; *out=now-ns; }
+    else { if(now>=UINT64_MAX-ns) return IAP2_INVALID; *out=now+ns; }
+    return IAP2_OK;
+}
 int projection_timing_probe(projection_timing *s,uint64_t now,uint8_t out[32]) {
     int r; if(!out) return IAP2_ARGUMENT; r=projection_timing_check(s,now); if(r) return r;
     if(s->pending||(s->sent&&now-s->last_sent_ns<ms(s->config.interval_ms))) return IAP2_MORE;

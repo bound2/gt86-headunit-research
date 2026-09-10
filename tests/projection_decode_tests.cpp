@@ -104,9 +104,9 @@ struct Bridge {
     Renderer renderer; uint64_t now=100*ms; projection_decode_sink *p=nullptr; projection_audio_sink api{};
     projection_audio_format format{}; uint64_t lease=0;
     uint32_t latency=0;
-    explicit Bridge(uint32_t bit=0x40000000,uint32_t gap=0,bool paced=false,uint32_t ahead=0,uint32_t delay=0):latency(delay) {
+    explicit Bridge(uint32_t bit=0x40000000,uint32_t gap=0,bool paced=false,uint32_t ahead=0,uint32_t delay=0,uint32_t sync=0):latency(delay) {
         CHECK(projection_audio_format_get(bit,&format)==IAP2_OK);
-        projection_decode_sink_config c{renderer.api,clock,this,100,gap,ahead,static_cast<uint8_t>(paced)}; CHECK(projection_decode_sink_create(&c,91,&p)==IAP2_OK); api=projection_decode_sink_provider(p);
+        projection_decode_sink_config c{renderer.api,clock,this,100,gap,ahead,static_cast<uint8_t>(paced),sync}; CHECK(projection_decode_sink_create(&c,91,&p)==IAP2_OK); api=projection_decode_sink_provider(p);
     }
     ~Bridge() { projection_decode_sink_destroy(p); }
     static uint64_t clock(void* p) { return static_cast<Bridge*>(p)->now; }
@@ -264,12 +264,62 @@ static void recovery_and_pacing() {
     { Bridge b(0x10000000,120,true,0,60); b.now=UINT64_MAX-50*ms; b.ready();
       CHECK(b.submit(vectors.at("opus20_0"),0,0)==IAP2_INVALID&&b.renderer.live.empty()); }
 }
+static void initial_sender_anchor() {
+    { Renderer r; uint64_t now=ms; projection_decode_sink* p=nullptr;
+      projection_decode_sink_config cfg{r.api,[](void* c)->uint64_t { return *static_cast<uint64_t*>(c); },&now,100,0,0,0,500};
+      CHECK(projection_decode_sink_create(&cfg,91,&p)==IAP2_ARGUMENT&&!p); cfg.paced=1; cfg.sender_sync_ms=5001;
+      CHECK(projection_decode_sink_create(&cfg,91,&p)==IAP2_ARGUMENT&&!p&&r.live.empty()); }
+    for(int32_t frames:{-1,0,1,-4410,4410}) {
+        Bridge b(1024,0,true,0,0,500); b.now=1000*ms; b.ready(); projection_audio_anchor a{b.now,b.now,0};
+        CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_OK);
+        CHECK(b.submit({0,1},0,static_cast<uint32_t>(frames))==IAP2_OK);
+        uint64_t magnitude=uint64_t(std::abs(frames))*1000000000;
+        uint64_t due=frames<0?b.now-(magnitude+44099)/44100:b.now+magnitude/44100;
+        if(due>b.now) b.now=due;
+        CHECK(b.poll()==IAP2_OK&&b.renderer.due.back()==due); // Signed floor, including a fractional ns and wrap before sample zero.
+    }
+    for(unsigned mode=0;mode<5;++mode) {
+        Bridge b(1024,0,true,0,0,500); b.ready(); if(mode==3) b.now=UINT64_MAX-100*ms;
+        projection_audio_anchor a{b.now,b.now,0}; CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_OK);
+        uint32_t sample=mode==0?UINT32_C(0x80000000):mode==1?44100*60+1:mode==2?0u-44100:mode==3?44100:0u-(44100*60+1);
+        CHECK(b.submit({0,1},0,sample)!=IAP2_OK&&b.renderer.live.empty()); // Half range, +/-bound, local underflow/overflow.
+    }
+    { Bridge b(1024,0,true,0,0,500); b.now=1000*ms; b.ready();
+      for(unsigned mode=0;mode<4;++mode) { projection_audio_anchor a{b.now,b.now,0};
+          if(mode==0) ++a.received_ns; if(mode==1) a.local_ns=UINT64_MAX; if(mode==2) a.local_ns+=500*ms+1; if(mode==3) a.received_ns-=500*ms;
+          CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_INVALID&&b.renderer.live.size()==1); }
+      projection_audio_anchor a{b.now,b.now,0}; CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_OK);
+      CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_MORE); }
+    for(uint32_t bit:{0x10000000u,0x400000u}) {
+        Bridge b(bit,0,true,0,999,500); b.ready(); uint32_t first=UINT32_MAX-500;
+        const auto name=bit==0x400000?"aac44100_":"opus20_";
+        CHECK(b.submit(vectors.at(std::string(name)+"0"),0,first)==IAP2_MORE&&b.renderer.bytes.empty());
+        b.now+=10*ms; projection_audio_anchor a{b.now,b.now,first-b.format.clock_rate/5};
+        CHECK(b.api.anchor(b.api.context,92,b.lease,&a)==IAP2_INVALID);
+        CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_OK); a.sample_time=0; // Copy, not borrowed.
+        CHECK(b.submit(vectors.at(std::string(name)+"0"),0,first)==IAP2_OK);
+        uint64_t due=b.now+200*ms;
+        if(bit==0x400000) { CHECK(b.submit(vectors.at("aac44100_1"),1,first+1024)==IAP2_OK); due+=UINT64_C(1024)*1000000000/44100; }
+        CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_MORE); // No live timeline rebase.
+        b.now=due-1; CHECK(b.poll()==IAP2_MORE); ++b.now; CHECK(b.poll()==IAP2_OK&&b.renderer.due.back()==due);
+        projection_audio_flush_request q{}; CHECK(b.api.flush(b.api.context,91,b.lease,&q)==IAP2_OK);
+        CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_MORE);
+        CHECK(b.api.flush(b.api.context,91,b.lease,nullptr)==IAP2_OK);
+        CHECK(b.submit(vectors.at(std::string(name)+"0"),2,0)==IAP2_MORE); b.now+=500*ms;
+        CHECK(b.poll()==IAP2_PROVIDER_FAILED&&b.renderer.live.empty());
+    }
+    { Bridge b(0x10000000,0,true,0,0,500); b.ready(); projection_audio_anchor a{b.now,b.now,0};
+      CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_OK); b.now+=500*ms;
+      CHECK(b.submit(vectors.at("opus20_0"),0,0)==IAP2_MORE); b.now+=499*ms; CHECK(b.poll()==IAP2_MORE);
+      ++b.now; a={b.now,b.now,0}; CHECK(b.api.anchor(b.api.context,91,b.lease,&a)==IAP2_OK); // Before original wait deadline, not renewed by an anchor.
+      b.now+=ms-1; CHECK(b.poll()==IAP2_PROVIDER_FAILED); }
+}
 int main(int argc,char** argv) {
     try {
         CHECK(argc==2||argc==3); vectors=load_vectors(argv[1],33); bool emit=argc==3&&std::string(argv[2])=="--emit";
         packets(emit); if(emit) return 0;
-        formats_and_invalid(); bridge_chunks(); bridge_failures(); mutations(); concealment(); recovery_and_pacing();
-        std::cout<<"PASS: 7 decode/adapter groups, 33 synthetic packets, bounded loss recovery, timed delivery, ownership/clock/cleanup and 1000 mutations; no device playback\n";
+        formats_and_invalid(); bridge_chunks(); bridge_failures(); mutations(); concealment(); recovery_and_pacing(); initial_sender_anchor();
+        std::cout<<"PASS: 8 decode/adapter groups, 33 synthetic packets, initial sender anchor, bounded recovery/pacing and 1000 mutations; no device playback\n";
         std::cout<<"Code from FAAD2 is copyright (c) Nero AG, www.nero.com\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

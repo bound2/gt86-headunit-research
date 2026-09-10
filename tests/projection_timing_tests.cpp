@@ -114,9 +114,32 @@ static void deadlines_and_validation() {
     for(unsigned i=0;i<10000;++i) { Packet input{}; for(auto& b:input) { rng=rng*1664525+1013904223; b=static_cast<uint8_t>(rng>>24); }
         (void)projection_timing_feed(&s,input.data(),32,i,i,out.data()+1); CHECK(out.front()==0xed&&out.back()==0xed&&!s.synced); }
 }
+static void inverse_mapping() {
+    auto s=fresh(); uint64_t out=99; auto before=s;
+    CHECK(projection_timing_to_local(&s,epoch,0,1000,&out)==IAP2_MORE&&!out&&std::memcmp(&s,&before,sizeof(s))==0);
+    for(uint64_t origin:{epoch,UINT64_MAX-(UINT64_C(1)<<30)}) {
+        s=fresh(0,origin); CHECK(sample(s,0,second/4,UINT64_C(1)<<30,0)==IAP2_OK);
+        CHECK(sample(s,second,second/4,UINT64_C(1)<<30,0)==PROJECTION_TIMING_SAMPLE); before=s;
+        for(uint64_t target:{second,2*second-1,2*second,2*second+1,3*second}) {
+            CHECK(projection_timing_to_local(&s,projection_timing_now(&s,target),2*second,1000,&out)==IAP2_OK);
+            CHECK((out>target?out-target:target-out)<=1&&std::memcmp(&s,&before,sizeof(s))==0);
+        }
+        uint64_t now=projection_timing_now(&s,2*second);
+        for(uint64_t bad:{now+(UINT64_C(1)<<63),now+(UINT64_C(2)<<32),now-(UINT64_C(2)<<32)})
+            CHECK(projection_timing_to_local(&s,bad,2*second,1000,&out)==IAP2_INVALID&&!out);
+        CHECK(projection_timing_to_local(&s,now,2*second,0,&out)==IAP2_ARGUMENT&&!out);
+        CHECK(projection_timing_to_local(&s,now,0,1000,&out)==IAP2_ARGUMENT&&!out);
+        CHECK(projection_timing_to_local(&s,now,s.last_sync_ns+30*second,1000,&out)==IAP2_MORE&&!out&&s.active);
+        CHECK(projection_timing_to_local(&s,projection_timing_now(&s,0)-(UINT64_C(1)<<32),2*second,5000,&out)==IAP2_INVALID&&!out);
+    }
+    s=fresh(UINT64_MAX-4*second,epoch); auto base=s.now_ns;
+    CHECK(sample(s,base,second/4,UINT64_C(1)<<30,0)==IAP2_OK);
+    CHECK(sample(s,base+second,second/4,UINT64_C(1)<<30,0)==PROJECTION_TIMING_SAMPLE);
+    CHECK(projection_timing_to_local(&s,projection_timing_now(&s,UINT64_MAX-1000)+(UINT64_C(1)<<32),UINT64_MAX-1000,2000,&out)==IAP2_INVALID&&!out);
+}
 int main(int argc,char** argv) {
     try { if(argc==2&&std::string(argv[1])=="--trace") { filter_and_modular_clock(true); return 0; } CHECK(argc==1);
-        wire_and_commit(); malformed_and_matching(); filter_and_modular_clock(); deadlines_and_validation();
-        std::cout<<"PASS: 4 timing groups; exact wire, bounded modular clock/filter, validation/deadlines and 10000 malformed packets\n"; return 0;
+        wire_and_commit(); malformed_and_matching(); filter_and_modular_clock(); deadlines_and_validation(); inverse_mapping();
+        std::cout<<"PASS: 5 timing groups; exact wire, bounded modular clock/filter/inverse, validation/deadlines and 10000 malformed packets\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

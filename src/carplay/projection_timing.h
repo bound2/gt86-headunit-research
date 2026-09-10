@@ -32,6 +32,10 @@ void projection_timing_default_config(projection_timing_config *);
 int projection_timing_init(projection_timing *,const projection_timing_config *,uint64_t mono_ns,uint64_t ntp);
 int projection_timing_check(projection_timing *,uint64_t now_ns);
 uint64_t projection_timing_now(const projection_timing *,uint64_t now_ns);
+/* Read-only inverse near now, only while synchronized and unexpired. Bound
+ * 1..60000 ms excludes ambiguous eras; nearest ns, no deadline renewal.
+ * MORE means no current synchronization; no wall-clock fallback. */
+int projection_timing_to_local(const projection_timing *,uint64_t ntp,uint64_t now_ns,uint32_t bound_ms,uint64_t *local_ns);
 /* Make a probe without committing it; MORE when not due. On successful atomic
  * datagram send call sent with the SAME time/value. On would-block discard it
  * and make a fresh timestamp later. No pending probe before send acceptance. */

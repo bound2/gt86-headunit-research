@@ -637,6 +637,13 @@ against the local schedule, not the phone clock; the real endpoint/resampler
 path is still unvalidated. See [clock drift](reports/projection-drift.md) for
 control limits, opt-in physical probes and remaining synchronization work.
 
+Optional classic sender-sync support can now establish the initial decoded PCM
+timeline from a bounded NTP/play-sample anchor. It waits for fresh synchronization
+and requires another anchor after FLUSH, without resetting replay protection.
+The exact D4 form is experimental and disabled by default; it has not been
+verified with a CarPlay phone and does not provide continuous sender/A-V sync.
+See [initial sender alignment](reports/projection-sender-anchor.md).
+
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayMedia.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayMediaSanitizers.ps1

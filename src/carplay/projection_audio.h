@@ -5,6 +5,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+typedef struct projection_audio_sync {
+    uint64_t ntp;
+    uint32_t play_sample,sender_sample;
+    uint8_t initial;
+} projection_audio_sync;
+/* Optional classic 20-byte D4 sync, flags4 only; flags7 legacy latency is not
+ * guessed. Not authenticated media or a CarPlay format-conformance claim. */
+int projection_audio_sync_parse(const uint8_t *,size_t,projection_audio_sync *);
 #define PROJECTION_AUDIO_SLOTS 64u
 #define PROJECTION_AUDIO_PAYLOAD 8192u
 #define PROJECTION_AUDIO_PACKET 24

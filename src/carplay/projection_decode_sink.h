@@ -13,7 +13,8 @@ typedef struct projection_decode_sink_config {
     uint32_t hold_ms; /* 1..60000, absolute decoded-output backpressure budget. */
     uint32_t max_gap_ms; /* 0=strict; 1..1000 enables bounded nonce-gap recovery. */
     uint32_t ahead_ms; /* 0..500 PCM delivery lookahead, requires paced=1. */
-    uint8_t paced; /* 1: RTP-relative local timeline + SETUP audio_latency_ms. */
+    uint8_t paced; /* 1: RTP-relative timed PCM; sender_sync_ms selects initial base. */
+    uint32_t sender_sync_ms; /* 0=receipt base; 1..5000 requires fresh initial anchor, paced=1. */
 } projection_decode_sink_config;
 /* Owning codec adapter between authenticated audio services and a PCM sink.
  * Fresh serial, non-reentrant owner, same thread/lifetime as the supplied sink.
@@ -51,16 +52,23 @@ typedef struct projection_decode_sink_config {
  * The PCM sink must attest concealment-aware feedback; source anchors cannot
  * refer to replacement frames. No missing duration is inferred from RTP seq.
  *
- * paced=1 requires a timed PCM sink. Base = max(first nonempty packet receipt,
+ * paced=1 requires a timed PCM sink. Default base = max(first nonempty packet receipt,
  * start authorization) + SETUP audio_latency_ms. Exact accumulated frame counts
  * produce local presentation_ns; ahead_ms bounds early chunk delivery. PCM must
  * not start a prefilled epoch before its first presentation time. Deadlines allow
  * the scheduled gap plus a maximum decode block, then hold_ms; nonpaced mode
  * retains the original now+hold_ms budget. Neither mode renews on partial work.
  * FLUSH clears copied AU/recovery/scheduling state, not outer replay history.
- * This is relative local pacing, NOT peer-NTP or A/V sync. Adaptive clock drift,
- * late-packet drop/resync, trailing loss without a following authenticated packet,
- * FEC/retransmission, selective buffered flush and handset validation remain work.
+ * sender_sync_ms explicitly replaces the receipt base with a fresh initial
+ * latency-adjusted sender anchor in this monotonic domain. No SETUP latency is
+ * added twice. The first nonempty packet waits at most sender_sync_ms (MORE,
+ * no copy/consume); new anchors do not renew that absolute wait budget. Sample
+ * differences must be within +/-60 seconds, never the ambiguous half range.
+ * Once committed, later anchors are ignored; only FLUSH clears the base/anchor.
+ * This is initial alignment, NOT continuous sender-clock or A/V sync. Downstream
+ * PCM may independently enable late recovery/local drift correction. Trailing
+ * loss without a following authenticated packet, FEC/retransmission, selective
+ * buffered flush and handset validation remain work.
  *
  * Destroy after closing the borrowing audio provider and before destroying the
  * downstream PCM owner. Destroy consumes the non-NULL owner exactly once.

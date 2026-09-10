@@ -60,7 +60,8 @@ int projection_audio_services_init(projection_audio_services *s,const projection
     size_t i,bytes; const projection_audio_sink *p;
     if(!s||!c||!storage||!network||!gen||!ip_valid(&c->local)||!ip_valid(&c->peer)||c->local.family!=c->peer.family||!c->clock_ns||!c->poll_ms||c->poll_ms>1000||
        !c->audio.slots||c->audio.slots>PROJECTION_AUDIO_SLOTS||!c->audio.payload_capacity||c->audio.payload_capacity>PROJECTION_AUDIO_PAYLOAD||
-       c->audio.reorder_ms>1000||!c->audio.hold_ms||c->audio.hold_ms>60000) return IAP2_ARGUMENT;
+       c->audio.reorder_ms>1000||!c->audio.hold_ms||c->audio.hold_ms>60000||c->sync_ms>5000||c->max_sync_latency_ms>60000||
+       (c->sync_ms?(!c->timing||!c->sink.anchor||!c->max_sync_latency_ms):(c->timing||c->max_sync_latency_ms))) return IAP2_ARGUMENT;
     p=&c->sink; if(!p->open||!p->start||!p->submit||!p->poll||!p->playback||!p->close) return IAP2_ARGUMENT;
     bytes=c->audio.slots*c->audio.payload_capacity; if(capacity<3*bytes||network_capacity<c->audio.payload_capacity+36) return IAP2_NO_SPACE;
     pair_crypto_wipe(s,sizeof(*s)); s->config=*c; s->storage=storage; s->network=network; s->stream_bytes=bytes; s->network_size=c->audio.payload_capacity+36;
@@ -119,13 +120,36 @@ static int start_resources(void *context,uint64_t gen,const uint64_t *leases,siz
         r=projection_audio_start(&slots[i]->audio,gen,s->now_ns); if(r) return fail(s,r); slots[i]->started=1;
     } return IAP2_OK;
 }
+static int sync_packet(projection_audio_services *s,projection_audio_services_slot *slot,uint16_t port,size_t n) {
+    projection_audio_sync sync; projection_audio_anchor anchor={0,0,0}; uint64_t delta; uint32_t latency; int r;
+    if(!s->config.sync_ms||slot->flushing||(slot->sync_port&&slot->sync_port!=port)||
+       projection_audio_sync_parse(s->network,n,&sync)) return IAP2_OK;
+    latency=sync.sender_sample-sync.play_sample;
+    if(latency>(uint64_t)slot->audio.format.clock_rate*s->config.max_sync_latency_ms/1000) return IAP2_OK;
+    if(slot->synced) {
+        delta=sync.ntp-slot->sync_ntp;
+        if(!delta||(delta>>63)||(!slot->audio.fenced&&(sync.sender_sample-slot->sync_sample)>=UINT32_C(0x80000000))) return IAP2_OK;
+    }
+    if(slot->audio.fenced&&(sync.sender_sample-slot->audio.flush_sample)>=UINT32_C(0x80000000)) return IAP2_OK;
+    r=refresh(s); if(r) return r;
+    r=projection_timing_to_local(s->config.timing,sync.ntp,s->now_ns,s->config.sync_ms,&anchor.local_ns);
+    if(r==IAP2_MORE||r==IAP2_INVALID) return IAP2_OK;
+    if(r) return fail(s,r);
+    anchor.received_ns=s->now_ns; anchor.sample_time=sync.play_sample;
+    r=s->config.sink.anchor(s->config.sink.context,s->generation,slot->child,&anchor);
+    if(r!=IAP2_OK&&r!=IAP2_MORE) return fail(s,r);
+    if(refresh(s)) return PROJECTION_AUDIO_CLOSED;
+    slot->sync_port=port; slot->synced=1; slot->sync_ntp=sync.ntp; slot->sync_sample=sync.sender_sample;
+    if(slot->sync_received!=UINT32_MAX) ++slot->sync_received;
+    return IAP2_OK;
+}
 static int receive(projection_audio_services *s,projection_audio_services_slot *slot,int control) {
     SOCKADDR_STORAGE a; uint16_t port=0; int size=sizeof(a),n,r;
     if(!control&&slot->audio.count==slot->audio.config.slots) return IAP2_OK;
     n=recvfrom((SOCKET)(control?slot->control_socket:slot->data_socket),(char *)s->network,(int)s->network_size,0,(SOCKADDR *)&a,&size);
     if(n==SOCKET_ERROR) { r=WSAGetLastError(); pair_crypto_wipe(s->network,s->network_size); return r==WSAEWOULDBLOCK||r==WSAEMSGSIZE||r==WSAECONNRESET?IAP2_OK:fail(s,r); }
     if(peer(&s->config.peer,&a,size,&port)&&port) {
-        if(control) { if(slot->control_received!=UINT32_MAX) ++slot->control_received; }
+        if(control) { if(slot->control_received!=UINT32_MAX) ++slot->control_received; r=sync_packet(s,slot,port,(size_t)n); if(r) return r; }
         else if(!slot->peer_port||slot->peer_port==port) {
             r=refresh(s); if(r) return r;
             r=projection_audio_feed(&slot->audio,s->generation,s->network,(size_t)n,s->now_ns);

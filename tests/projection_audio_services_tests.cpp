@@ -2,6 +2,7 @@
 #include "projection_socket_fixture.h"
 #include "projection_audio_services.h"
 #include "projection_audio_fixture.h"
+#include "projection_sync_fixture.h"
 #include "projection_pcm_output.hpp"
 #include <memory>
 struct Sink {
@@ -9,6 +10,7 @@ struct Sink {
     uint64_t next=1; unsigned opens=0,starts=0,submits=0,polls=0,observations=0; int failure=0; bool busy=false;
     std::map<uint64_t,projection_audio_format> live; std::vector<uint64_t> closed; std::vector<Seen> seen;
     projection_playback_position position{};
+    std::vector<projection_audio_anchor> anchors; int anchor_result=IAP2_OK;
     unsigned start_failure_at=0;
     projection_audio_sink provider() { return {this,open,start,submit,poll,playback,close}; }
     static int open(void* p,uint64_t gen,const projection_session_resource* q,const projection_audio_format* f,uint64_t* lease) {
@@ -31,6 +33,9 @@ struct Sink {
         *out=s.position; out->sample_rate=s.live.at(lease).clock_rate; if(s.failure==7) ++out->sample_rate; return s.failure==6?-55:IAP2_OK;
     }
     static void close(void* p,uint64_t gen,uint64_t lease) { auto& s=*static_cast<Sink*>(p); CHECK(gen==91&&s.live.erase(lease)==1); s.closed.push_back(lease); }
+    static int anchor(void* p,uint64_t gen,uint64_t lease,const projection_audio_anchor* a) {
+        auto& s=*static_cast<Sink*>(p); CHECK(gen==91&&s.live.contains(lease)); s.anchors.push_back(*a); return s.anchor_result;
+    }
 };
 struct AudioService {
     Sink sink; projection_audio_services s{}; projection_audio_services_config cfg{};
@@ -93,6 +98,45 @@ static void datagrams(bool v6,const Vectors& v) {
     p.close(p.context,91,e.lease); CHECK(f.sink.closed==std::vector<uint64_t>{1}&&!f.s.count&&!f.s.wsa);
     Socket reuse(SOCK_DGRAM,v6,1,e.data_port); // Actual port released, not only logical lease.
     projection_audio_services_close(&f.s); f.closed(); CHECK(zeroed(f.storage.data(),f.storage.size()-1)&&f.storage.back()==0xaa);
+}
+static void sender_sync(bool v6) {
+    for(unsigned mode=0;mode<7;++mode) {
+        AudioService f(v6,false); projection_timing timing{}; f.cfg.timing=&timing; f.cfg.sync_ms=500; f.cfg.max_sync_latency_ms=1000; f.cfg.sink.anchor=Sink::anchor;
+        if(mode==0) f.cfg.sync_ms=0; if(mode==1) f.cfg.sync_ms=5001; if(mode==2) f.cfg.max_sync_latency_ms=0;
+        if(mode==3) f.cfg.max_sync_latency_ms=60001; if(mode==4) f.cfg.timing=nullptr; if(mode==5) f.cfg.sink.anchor=nullptr;
+        if(mode==6) { f.cfg.timing=nullptr; f.cfg.sync_ms=0; }
+        auto before=snapshot(f.s); auto storage=f.storage,network=f.network;
+        CHECK(projection_audio_services_init(&f.s,&f.cfg,f.storage.data(),f.storage.size(),f.network.data(),f.network.size(),91)==IAP2_ARGUMENT);
+        CHECK(snapshot(f.s)==before&&storage==f.storage&&network==f.network&&!f.clocks);
+    }
+    AudioService f(v6,false); projection_timing timing{}; f.cfg.timing=&timing; f.cfg.sync_ms=500; f.cfg.max_sync_latency_ms=1000; f.cfg.sink.anchor=Sink::anchor; f.init();
+    auto e=f.open(); Socket phone(SOCK_DGRAM,v6),other(SOCK_DGRAM,v6); auto& slot=f.s.slots[0];
+    auto send=[&](Socket& peer,const Bytes& packet) { auto n=slot.control_received; peer.datagram(packet,e.control_port); f.until([&]{return slot.control_received==n+1;}); };
+    send(other,audio_sync_packet(0,0,0)); CHECK(!slot.sync_port&&f.sink.anchors.empty()); // Unsynchronized root cannot anchor or pin.
+    audio_sync_clock(timing,f.now);
+    uint32_t sender=UINT32_MAX-10,play=sender-1600; auto ntp=projection_timing_now(&timing,f.now); auto valid=audio_sync_packet(ntp,play,sender);
+    if(!v6) { Socket foreign(SOCK_DGRAM,false,2); foreign.datagram(valid,e.control_port); f.poll(); CHECK(!slot.sync_port&&f.sink.anchors.empty()); }
+    auto bad=valid; bad[3]=7; send(other,bad); send(other,audio_sync_packet(ntp,0,16001));
+    send(other,audio_sync_packet(ntp+(UINT64_C(1)<<32),play,sender)); CHECK(!slot.sync_port&&f.sink.anchors.empty());
+    send(phone,valid); CHECK(slot.sync_port==phone.port&&slot.sync_received==1&&f.sink.anchors.size()==1);
+    CHECK(f.sink.anchors.back().local_ns==f.now&&f.sink.anchors.back().received_ns==f.now&&f.sink.anchors.back().sample_time==play);
+    CHECK(!slot.peer_port&&!slot.audio.received&&!f.sink.starts); // Control anchor is not authenticated media or playback authorization.
+    send(phone,valid); ++f.now; ntp=projection_timing_now(&timing,f.now);
+    send(phone,audio_sync_packet(ntp,play-1,sender-1)); send(other,audio_sync_packet(ntp,play+1,sender+1));
+    CHECK(slot.sync_received==1&&f.sink.anchors.size()==1);
+    f.sink.anchor_result=IAP2_MORE; send(phone,audio_sync_packet(ntp,play+32,sender+32)); // Modulo32 wrap; ignored child anchor isn't an error.
+    CHECK(slot.sync_received==2&&f.sink.anchors.size()==2&&!f.s.failed);
+    f.now=timing.last_sync_ns+uint64_t(timing.config.sync_ms)*ms;
+    send(phone,audio_sync_packet(projection_timing_now(&timing,f.now),play+64,sender+64));
+    CHECK(slot.sync_received==2&&timing.active); // Inverse is read-only at exact freshness expiry.
+    projection_timing_close(&timing); audio_sync_clock(timing,f.now); f.sink.anchor_result=IAP2_PROVIDER_FAILED;
+    // The new synthetic root epoch is older than the retained anchor: still a drop.
+    send(phone,audio_sync_packet(projection_timing_now(&timing,f.now),play+64,sender+64)); CHECK(!f.s.failed);
+    f.now+=ms;
+    phone.datagram(audio_sync_packet(projection_timing_now(&timing,f.now),play+64,sender+64),e.control_port);
+    int r=IAP2_OK; auto end=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    while(r==IAP2_OK) { CHECK(std::chrono::steady_clock::now()<end); r=projection_audio_services_poll(&f.s,91); }
+    CHECK(r==PROJECTION_AUDIO_CLOSED); f.closed();
 }
 static void backpressure_and_failure(const Vectors& v) {
     for(int failure=1;failure<=9;++failure) { AudioService f; f.sink.failure=failure;
@@ -281,13 +325,13 @@ static void receiver_flush(const Vectors& v,const Vectors& setup,const Vectors& 
 }
 int main(int argc,char** argv) {
     try { CHECK(argc==4); Winsock wsa; auto v=load_vectors(argv[1],39),setup=load_vectors(argv[2],51),av=load_vectors(argv[3],13);
-        configuration(); datagrams(false,av); datagrams(true,av); backpressure_and_failure(av); receiver_integration(v,setup,av); pcm_output_integration(av); receiver_flush(v,setup,av);
+        configuration(); datagrams(false,av); datagrams(true,av); sender_sync(false); sender_sync(true); backpressure_and_failure(av); receiver_integration(v,setup,av); pcm_output_integration(av); receiver_flush(v,setup,av);
         bool unwound=false;
         // No named catch parameter: Clang 19 Windows ASan corrupts that binding
         // even in an independent minimal throw/catch. No sanitizer is disabled.
         try { pcm_output_integration(av,true); } catch(const PcmFixtureUnwind&) { unwound=true; }
         CHECK(unwound); // Exercise assertion/exception cleanup with the large PCM owner on the heap.
-        std::cout<<"PASS: 7 audio service groups; real IPv4/IPv6 UDP, source-port pinning, PCM output engine, errors and paired/MFi/session/timing/feedback/FLUSH integration\n";
+        std::cout<<"PASS: 9 audio service groups; real IPv4/IPv6 UDP, sender sync/source-port pinning, PCM output engine, errors and paired/MFi/session/timing/feedback/FLUSH integration\n";
         std::cout<<"Synthetic credentials/sinks only; no compressed decoder or physical playback claim; x64 service bytes: "<<sizeof(projection_audio_services)<<'\n'; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

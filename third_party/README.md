@@ -549,3 +549,14 @@ no upstream body or new library is copied/linked. Windows performs per-stream
 conversion; its physical mapping/quality and sender synchronization remain
 unverified. See [projection-drift.md](../reports/projection-drift.md) for primary
 sources, exact policy, synthetic validation and remaining hardware requirements.
+
+## Initial sender alignment (Step 73)
+
+The timing inverse, opt-in classic D4 parser, audio/decoder integration and tests
+retain GPL-3.0-only. Pinned LIVI source shows an unparsed control socket; pinned
+Shairport Sync source supplies a classic timestamp-layout comparison, not proof
+of CarPlay behavior. No upstream body, additional dependency, credential or media
+recording is copied. Bounds, ownership, initial-only scheduling and retained
+replay/FLUSH policy are local choices. See
+[projection-sender-anchor.md](../reports/projection-sender-anchor.md) for exact
+primary references, synthetic validation and interoperability/security limits.
