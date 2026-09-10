@@ -165,10 +165,12 @@ finds a persisted part-number path with default/truncation limitations and a
 stateful NaviSync export. Neither establishes passive PC access to complete
 hardware identity or Apple-chip metadata; no on-car operation was performed.
 
-The next offline investigation follows the native display request/release and
-ownership-notification path. A method name or immediate success response is not
-proof of granted display ownership or actual rendering. Keep later-corpus findings
-separate from verified behavior on the installed `6.9.0WL` unit.
+The [Step 80 display trace](factory-display-control.md) now follows the native
+request/release path. Neither the immediate success reply nor the shared
+`displayState` signal proves physical ownership: local restoration emits the
+same signal. The next offline investigation follows the native consumer and
+rendering surface, with observation provenance kept explicit. Keep later-corpus
+findings separate from verified behavior on the installed `6.9.0WL` unit.
 
 No VIN, device activation code, private key, dashboard disassembly, changed
 service-menu flag or logging marker is requested. The MEDIA/lights sequence

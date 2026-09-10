@@ -113,3 +113,10 @@ Only this report, its progress entry and a follow-up link in the original
 download report changed. Checked local Markdown file links and Git whitespace.
 No receiver code, firmware files, activation data or owner identifiers changed;
 no new receiver or on-car test result is claimed.
+
+## Step 6 - Follow-up on the official route
+
+The [subsequent display-control report](factory-display-control.md#step-1---close-the-public-stock-update-check-without-assuming-eligibility)
+records the current Toyota customer update route and retrofit-generation limits.
+No account-specific offer was verified. Offline factory-display research resumed
+without treating a paid map update as a demonstrated CarPlay prerequisite.

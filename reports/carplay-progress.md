@@ -3280,11 +3280,38 @@ is requested, and native display research remains available offline.
 Only Markdown changed. Checked local file links and whitespace; no USB, vehicle,
 license, receiver-code or firmware-file changes were made.
 
+## Step 80 - Trace factory display control and distinguish local status from hardware evidence
+
+Continued the public stock-update check and the planned native display research;
+details and reproducible commands are in
+[factory-display-control.md](factory-display-control.md). Toyota's current
+customer guidance routes Touch 2 with Go map updates through MyToyota, but no
+account-specific eligible package was available to verify. The advertised
+17MM-family CarPlay retrofit is not established for the known GT86 unit.
+
+Pinned `modemanager.lua` and cross-checked four Lua inputs against the extraction
+inventory. Followed the service request/release wrappers into the mode manager,
+AVCLAN request/confirmation and callback paths. The immediate `allowed=true`
+reply discards the mode-manager result. Importantly, `restoreDisplay` also emits
+the shared display-state signal after assigning it locally, so the signal alone
+is not fresh physical-ownership evidence. RGB status reporting is not rendering.
+
+Added a read-only listing tool selecting 14 complete routines, with full input
+hash checks and parse-only host compiler invocation. All 40 Python regression
+tests pass, including 11 new checks. No vendor function executed, firmware bytes
+changed, update USB prepared or target capability enabled. This is a factory
+integration trace, not completed CarPlay or a verified QNX display backend.
+
+Next offline work follows the native display-state consumer and rendering
+surface, with source/freshness, cancellation and restoration requirements kept
+explicit. No more unavailable hardware-label information is requested.
+
 ## Next checks
 
-1. Trace the existing native navigation display request/release and ownership
-   notifications offline, then define the target adapter around observed state,
-   not the immediate `allowed=true` wrapper reply. The owner has no further
+1. Follow the native display-state consumer and rendering surface offline.
+   Step 80 traces request/release and finds that even `displayState` can be emitted
+   from local restoration: establish observation provenance and renderer readiness,
+   not just `allowed=true` or a shared state value. The owner has no further
    module-identification information; do not repeatedly request it. Record exact
    part/revision as unknown. Target matching and recovery must still be resolved
    before preparing anything intended to execute on the car. Do not substitute
