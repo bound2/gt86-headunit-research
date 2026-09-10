@@ -111,7 +111,7 @@ drift response tests use synthetic clocks/devices.
 Physical playback verification, video/mic/input, control modes,
 target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
-Python regression checks total 25, plus independent
+Python regression checks total 29, plus independent
 checkers for 21 pair-verification, 12 control-frame, 51 setup and 39 combined
 MFi/pair-verification fixture values, plus 42 session fixture values, 16 session
 directional key/zero values and three independently parsed session replies,
@@ -128,7 +128,7 @@ service, two audio suites, PCM output/Windows argument checks and three TLS/cark
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-73, [the persistent-store report](pair-store.md),
+Steps 22-74, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
@@ -3116,6 +3116,39 @@ Next validate actual sender wire/lifetime behavior before enabling this path,
 then continuous sender-clock/A-V handling. Factory execution/recovery, native
 transport, usable Apple-chip access and the remaining media/input/control paths
 still prevent an installable software-only CarPlay claim.
+
+## Step 74 - Return to factory readiness and trace the remaining media reader
+
+Date: 2026-09-10. Added [factory-integration-gates.md](factory-integration-gates.md).
+The prior implementation step `f6b981b` is verified on local and remote `master`.
+Rechecked the owner-specified photo folder and existing build/installation evidence:
+the same seven photos identify software and the separate audio unit, not the Go
+module's model/part number/hardware revision. There is still no exact installed
+image, demonstrated recovery/execution route or native factory receiver process.
+
+The official public-source check does not establish a GT86 CarPlay update or an
+exact original 6.9.0WL download. No account, purchase, activation or vehicle action
+was performed. The new report separates those missing facts from passing host
+protocol/codec tests instead of treating a Windows prototype as the final outcome.
+
+Followed Step 21's outstanding native `MediaService` information-file lead.
+The pinned 1,118,933-byte executable matches the recorded imagefs CRC32 and is
+now SHA256-pinned by the existing inspector's new `--module service` mode.
+Selected disassembly traces the `/.FS_info./info.xml` reader, Expat handlers
+for model/id/productid/product, and a flash/harddrive classification result.
+This consumer does not establish an Apple-chip metadata export to the PC.
+The result is a limited static trace, not execution or an audit of every API.
+
+Four new static-trace regression checks pass; total Python tests are now 29.
+Input-hash refusal includes the new module. No vendor process/driver was executed,
+no private identifier collected and no production receiver code changed. The
+new inspector is reproducible with bounded optional LLVM disassembly.
+
+Requested the Go-module model/part number and hardware revision from an already
+accessible label or existing paperwork, without VIN/serial/activation data,
+dashboard disassembly or configuration changes. That evidence is needed to narrow the
+factory integration path; it will not by itself prove chip compatibility or safe
+installation. The full software-only CarPlay goal remains unachieved.
 
 ## Next checks
 

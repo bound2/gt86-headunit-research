@@ -10,6 +10,12 @@ Continued in [the step-by-step CarPlay progress record](carplay-progress.md),
 which includes complete stock-manifest evaluation, resident-dispatch tests and
 the current receiver integration requirements.
 
+The current [factory integration audit](factory-integration-gates.md) separates
+host implementation from the still-missing installed-version identity,
+execution/recovery and hardware-interface evidence. It also traces the remaining
+native media-information reader; that consumer is not a demonstrated chip-data
+export to the PC. There is still no installation procedure for this car.
+
 ## What the normal update path does
 
 The resident Lua loader is in:

@@ -37,6 +37,11 @@ Read [the initial findings](reports/findings.md) and
 Continue with the [step-by-step CarPlay progress record](reports/carplay-progress.md)
 for the current findings, mock test outcomes and remaining requirements.
 
+For the gap between the host prototype and software-only CarPlay on the actual
+car, see [factory integration gates](reports/factory-integration-gates.md). The
+Go-module identity, installed-version execution/recovery, native transport/chip
+access and target media integration remain unverified. No factory update is ready.
+
 ## Build and verify (Windows)
 
 Uses the installed VS2022 C++ tools and CMake. miniLZO 2.10 is vendored for QNX

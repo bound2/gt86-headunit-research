@@ -18,6 +18,7 @@ PINS = {
     "ipod": ("lib/dll/iofs-ipod.so", "f0598ab13b10ad77fca2a309a484453512c0c9094ff726de77d54416c74cf629"),
     "media": ("usr/sbin/io-fs-media", "92c92ef5a41c1a4ed15ab7bc89167b94def45a31d526afe5ca6c6f4214f4a6c5"),
     "usb": ("lib/dll/iofs-usb-ipod.so", "45c140270c8e168ecfbca426fb86e0bf5780bc40010b2ee313117a00e4b2a1f8"),
+    "service": ("usr/bin/MediaService", "882e55fae0958f2a3d04d20ed9140d3777c8e798f1f7c9db710cfa6783f89796"),
 }
 LLVM = Path("C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/llvm-objdump.exe")
 
@@ -97,6 +98,51 @@ class PinnedElf:
                 + result.stdout.decode("utf-8", errors="replace"))
 
 
+def arm_call_target(elf, address):
+    """Decode a selected ARM-state BL; not a general disassembler or CFG."""
+    if address < 0 or address % 4:
+        raise ValueError("Expected an aligned nonnegative ARM instruction address")
+    instruction = elf.uint(address)
+    if instruction >> 24 != 0xEB:
+        raise ValueError(f"Expected unconditional ARM BL at {address:#x}")
+    displacement = instruction & 0xFFFFFF
+    if displacement & 0x800000:
+        displacement -= 0x1000000
+    return (address + 8 + 4 * displacement) & 0xFFFFFFFF
+
+
+def media_service_metadata(elf):
+    """Pin the selected info.xml consumer; no vendor execution or emulation."""
+    symbols = {symbol["value"]: symbol["name"] for symbol in
+               (elf.symbol(i) for i in range(elf.uint(elf.dynamic[4] + 4)))
+               if not symbol["section"] and symbol["value"]}
+    sites = (0x178260, 0x17826C, 0x17827C, 0x178288, 0x178294,
+             0x1782AC, 0x1782C0, 0x1782DC, 0x17830C, 0x178348)
+    calls = {hex(site): symbols[arm_call_target(elf, site)] for site in sites}
+    if elf.uint(0x17829C) != 0xE3A01000:
+        raise ValueError("Selected open flags no longer equal zero")
+    return {
+        "path": elf.path.relative_to(ROOT).as_posix(), "sha256": elf.sha256,
+        "scope": "Static selected MediaService consumer in 6.17.0WL, NOT installed 6.9.0WL or a running service",
+        "path_suffix": elf.string(elf.uint(0x17BDA0)),
+        "path_suffix_literal": "0x17bda0",
+        "consumer_call": {"site": "0x17bd20", "target": hex(arm_call_target(elf, 0x17BD20))},
+        "parser_callbacks": {name: hex(elf.uint(slot)) for name, slot in (
+            ("start", 0x178428), ("end", 0x17842C),
+            ("text", 0x178430), ("processing_instruction", 0x178434))},
+        "start_tag_comparison_literals": [elf.string(elf.uint(a)) for a in
+                                          (0x178128, 0x178130, 0x178134, 0x178138)],
+        "selected_import_calls": calls,
+        "open_flags": 0,
+        "storage_result_literals": [elf.string(elf.uint(a)) for a in (0x178440, 0x178444)],
+        "model_configuration_string": elf.string(elf.uint(0x17BDA8)),
+        "authcoproc_ascii_occurrences": elf.data.count(b"authcoproc"),
+        "limits": ["Literal/callsite checks do not execute XML parsing or prove full service dataflow",
+                   "A cached XML read is not a PC export or a chip query",
+                   "No actual mountpoint, Go module identity or phone acceptance is established"],
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--module", choices=PINS, default="i2c")
@@ -111,11 +157,12 @@ def main():
     elf = PinnedElf(args.module)
     if args.disassemble:
         defaults = {"i2c": (0x600, 0xABC), "ipod": (0x2F58, 0x41A0),
-                    "media": (0x115870, 0x115930), "usb": (0x11CC, 0x1920)}[args.module]
+                    "media": (0x115870, 0x115930), "usb": (0x11CC, 0x1920),
+                    "service": (0x17BC00, 0x17BDAC)}[args.module]
         rendered = elf.disassemble(args.llvm, defaults[0] if args.start is None else args.start,
                                   defaults[1] if args.stop is None else args.stop)
     else:
-        evidence = elf.metadata()
+        evidence = media_service_metadata(elf) if args.module == "service" else elf.metadata()
         if args.module == "i2c":
             evidence["descriptor"] = {
                 "address": "0x1c28", "name": elf.string(elf.uint(0x1C28)),
