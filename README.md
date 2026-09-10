@@ -811,6 +811,12 @@ tar.exe -xf downloads/6.17.0L/swdl.iso -C extracted/swdl etc usr/share/scripts u
 tar.exe -xf downloads/6.17.0L/swdlInstall.iso -C extracted/install etc usr/share/scripts usr/share/IFS usr/share/MMC_PROG_DATA/bin usr/share/MMC_PROG_DATA/usr/lib
 ```
 
+Those are selective extractions, not the complete ISO contents. The later
+[WiCoME graphics investigation](reports/mirrorlink-graphics-producer.md#step-2---extract-and-verify-only-the-selected-additional-inputs)
+adds four specifically verified files from `MMC_PROG_DATA/wicome` in a separate
+fresh directory. On this host use `C:/Windows/System32/tar.exe` for ISO support;
+the GNU tar found earlier on PATH cannot read these images.
+
 Only operate on the pinned, checksum-verified corpus when using these extraction
 commands. The scripts and analyzer are research tooling, not a general archive
 security audit or a firmware flasher. Raw firmware, extracted vendor files and

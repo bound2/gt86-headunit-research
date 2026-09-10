@@ -171,8 +171,11 @@ request/release path. Neither the immediate success reply nor the shared
 same signal. The [Step 81 graphics trace](factory-graphics-path.md) follows HMI
 screen selection into named-window visibility/order and native QNX Screen
 property calls. It identifies a visibility-cache constraint, not a working
-renderer or the Toyota signal's consumer. Next follow the MirrorLink window
-producer's buffer creation/posting/teardown. Keep observation provenance and
+renderer or the Toyota signal's consumer. The
+[Step 82 producer trace](mirrorlink-graphics-producer.md) recovers WiCoME
+libraries omitted by the original selective extraction and follows CPU pixel
+staging, GLES drawing, EGL swapping and native cleanup. Next determine what
+supplies decoded pixels; no usable CarPlay decoder is established. Keep observation provenance and
 later-corpus findings separate from verified behavior on the installed `6.9.0WL`
 unit.
 

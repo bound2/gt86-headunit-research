@@ -3329,12 +3329,37 @@ Next offline work traces the existing MirrorLink window producer's creation,
 buffer posting and teardown. The QNX Screen interface is now a concrete
 candidate for the eventual renderer, not a verified deployable backend.
 
+## Step 82 - Recover the omitted WiCoME libraries and trace native frame presentation
+
+Found that the original selective ISO extraction omitted `MMC_PROG_DATA/wicome`.
+Revalidated the existing installation ISO, extracted four selected files into a
+fresh ignored directory and compared each with a second in-memory extraction.
+No firmware was downloaded or overwritten. Details and reproduction are in
+[mirrorlink-graphics-producer.md](mirrorlink-graphics-producer.md).
+
+Traced MirrorLink's resource manager to `IGraphicWindow` creation/destruction in
+`libpal_graphic.so`. Its native implementation creates two Screen window buffers,
+keeps the window hidden, uses a separate CPU pixel staging buffer, uploads pixels
+through GLES and presents through `eglSwapBuffers`. Selected cleanup paths
+separate CPU, GL, EGL and Screen resource lifetimes. Searching only for direct
+`screen_post_window` calls would miss this presentation path.
+
+Added a pinned inspector with ARM PLT/relocation and static-symbol-table checks.
+All 58 Python tests pass, including nine new checks. Original firmware bytes
+remain unchanged and no vendor program or car operation ran. These are concrete
+native integration findings, not a working CarPlay renderer or installable image.
+
+Next trace what supplies decoded pixels to this interface: RFB/HSML graphics
+handling and WFD/H.264 negotiation names are not proof of a reusable video decoder.
+
 ## Next checks
 
-1. Trace the existing MirrorLink window producer and its Screen buffer creation,
-   posting and teardown offline. Step 81 links HMI selection to native window
-   properties and identifies a visibility-cache recreation constraint; it does
-   not establish a decoder, usable CarPlay window or Toyota signal consumer.
+1. Trace the remote-UI pixel producer and decoder boundary in the newly extracted
+   WiCoME libraries. Step 82 identifies CPU pixel staging, GLES upload/draw,
+   EGL presentation and separate cleanup paths. RFB/HSML handling and WFD/H.264
+   negotiation names do not establish an available CarPlay decoder. Step 81's
+   window-name/visibility-cache constraints remain; the complete caption/event
+   path and Toyota signal consumer are still not established.
    Step 80 finds that `displayState` can be emitted from local restoration:
    establish observation provenance and renderer readiness, not just
    `allowed=true` or a shared state value. The owner has no further

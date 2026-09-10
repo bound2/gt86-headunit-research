@@ -6,6 +6,11 @@ and the [display-control trace](factory-display-control.md).
 Scope: static inspection of the later `6.17.0WL` corpus, not the installed
 `6.9.0WL` unit. No QNX executable, service method or display command was run.
 
+Follow-up: [Step 82](mirrorlink-graphics-producer.md) corrects the original
+selective extraction's omission of WiCoME libraries and traces CPU pixel upload
+and EGL presentation. Searches in this report cover the earlier extracted set,
+not all files inside the installation ISO.
+
 ## Step 1 - Separate the renderer lead from a misleading string match
 
 The previous step established that ToyotaMGR's shared `displayState` signal can
