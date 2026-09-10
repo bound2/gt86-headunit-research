@@ -29,8 +29,12 @@ typedef struct projection_wasapi_config {
  * consumes none. Empty packets are no-ops. Within a continuous run, timestamps
  * must be contiguous modulo 2^32; gaps/overlaps are UNSUPPORTED, not guessed.
  * A new timestamp origin is allowed only after the device drains and queue is
- * empty. No adaptive jitter, loss concealment, negotiated latency, NTP pacing,
- * flush/focus semantics or compressed decoding is claimed by this backend.
+ * empty or after authenticated FLUSH. The optional decoder bridge supplies
+ * bounded loss recovery and local timed delivery; this PCM backend does not
+ * invent those policies. Timed packets can prefill before presentation_ns, but
+ * the device starts no earlier than that bound. It preserves contiguous time
+ * metadata within one ns of rounding. No peer-NTP/A-V sync or drift correction.
+ * Two-phase FLUSH clears prefilled/playing media and re-arms on reply drain.
  *
  * Low buffer headroom stops appending: drain known frames, Stop/Reset, then
  * prefill a new epoch. This can cause an audible gap, not a false clock anchor.
@@ -38,6 +42,9 @@ typedef struct projection_wasapi_config {
  * accurate IAudioClock position/QPC pairs inside released media, never padding,
  * receipt counts, queued samples or wall-clock extrapolation. Position zero,
  * delayed/inaccurate readings and drained epochs report no position.
+ * Concealed PCM has bounded queue/device provenance bitmaps: an observed device
+ * position inside replacement or overwritten history reports no source anchor.
+ * This requires the matching explicit sink feature flags, never a wire claim.
  *
  * Use projection_wasapi_clock_ns as the EXACT ns clock for enclosing audio and
  * timing services; anchor their origin using it as well. It is absolute QPC ns,

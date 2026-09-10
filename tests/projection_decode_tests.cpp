@@ -71,11 +71,12 @@ static void formats_and_invalid() {
     }
 }
 struct Renderer {
-    projection_audio_sink api{this,open,start,submit,poll,playback,close,flush};
+    projection_audio_sink api{this,open,start,submit,poll,playback,close,flush,PROJECTION_AUDIO_SINK_CONCEALMENT|PROJECTION_AUDIO_SINK_TIMED};
     uint64_t next=1; std::map<uint64_t,projection_audio_format> live; std::vector<uint64_t> closed;
     std::vector<Bytes> bytes; std::vector<uint32_t> samples,frames; unsigned starts=0,polls=0;
     bool busy=false; int fault=0,flush_fault=0; projection_playback_position position{};
     unsigned flushes=0,resumes=0;
+    std::vector<uint8_t> concealed,timed; std::vector<uint64_t> due,counters;
     static int open(void* p,uint64_t gen,const projection_session_resource* r,const projection_audio_format* f,uint64_t* lease) {
         auto& s=*static_cast<Renderer*>(p); CHECK(gen==91&&f->codec==PROJECTION_AUDIO_PCM16&&r->audio_format==f->bit&&r->frames_per_packet==0);
         if(s.fault==1) return IAP2_PROVIDER_FAILED;
@@ -85,7 +86,8 @@ struct Renderer {
     static int submit(void* p,uint64_t,uint64_t lease,const projection_audio_format* f,const projection_audio_packet* packet) {
         auto& s=*static_cast<Renderer*>(p); CHECK(s.live.contains(lease)&&f->bit==s.live.at(lease).bit&&packet->frames*2*f->channels==packet->size&&packet->size<=8192);
         if(s.fault==4) return IAP2_PROVIDER_FAILED; if(s.busy) return IAP2_MORE;
-        s.bytes.emplace_back(packet->data,packet->data+packet->size); s.samples.push_back(packet->sample_time); s.frames.push_back(packet->frames); return IAP2_OK;
+        s.bytes.emplace_back(packet->data,packet->data+packet->size); s.samples.push_back(packet->sample_time); s.frames.push_back(packet->frames);
+        s.concealed.push_back(packet->concealed); s.timed.push_back(packet->timed); s.due.push_back(packet->presentation_ns); s.counters.push_back(packet->counter); return IAP2_OK;
     }
     static int poll(void* p,uint64_t,uint64_t lease,uint64_t) { auto& s=*static_cast<Renderer*>(p); CHECK(s.live.contains(lease)); ++s.polls; return s.fault==5?IAP2_PROVIDER_FAILED:IAP2_OK; }
     static int playback(void* p,uint64_t,uint64_t lease,projection_playback_position* out) {
@@ -101,16 +103,17 @@ struct Renderer {
 struct Bridge {
     Renderer renderer; uint64_t now=100*ms; projection_decode_sink *p=nullptr; projection_audio_sink api{};
     projection_audio_format format{}; uint64_t lease=0;
-    explicit Bridge(uint32_t bit=0x40000000) {
+    uint32_t latency=0;
+    explicit Bridge(uint32_t bit=0x40000000,uint32_t gap=0,bool paced=false,uint32_t ahead=0,uint32_t delay=0):latency(delay) {
         CHECK(projection_audio_format_get(bit,&format)==IAP2_OK);
-        projection_decode_sink_config c{renderer.api,clock,this,100}; CHECK(projection_decode_sink_create(&c,91,&p)==IAP2_OK); api=projection_decode_sink_provider(p);
+        projection_decode_sink_config c{renderer.api,clock,this,100,gap,ahead,static_cast<uint8_t>(paced)}; CHECK(projection_decode_sink_create(&c,91,&p)==IAP2_OK); api=projection_decode_sink_provider(p);
     }
     ~Bridge() { projection_decode_sink_destroy(p); }
     static uint64_t clock(void* p) { return static_cast<Bridge*>(p)->now; }
-    int open(uint32_t type=100,uint64_t* child=nullptr) { projection_session_resource r{}; r.type=type; r.audio_format=format.bit; return api.open(api.context,91,&r,&format,child?child:&lease); }
+    int open(uint32_t type=100,uint64_t* child=nullptr) { projection_session_resource r{}; r.type=type; r.audio_format=format.bit; r.audio_latency_ms=latency; return api.open(api.context,91,&r,&format,child?child:&lease); }
     void ready() { CHECK(open()==IAP2_OK&&api.start(api.context,91,lease)==IAP2_OK); }
     int submit(const Bytes& data,uint64_t counter=0,uint32_t sample=UINT32_MAX-5000) {
-        projection_audio_packet q{}; q.data=data.data(); q.size=data.size(); q.counter=counter; q.sample_time=sample;
+        projection_audio_packet q{}; q.data=data.data(); q.size=data.size(); q.counter=counter; q.sample_time=sample; q.received_ns=now;
         if(format.codec==PROJECTION_AUDIO_PCM16) q.frames=static_cast<uint32_t>(data.size()/(2*format.channels));
         return api.submit(api.context,91,lease,&format,&q);
     }
@@ -183,12 +186,90 @@ static void mutations() {
         else CHECK(!out.samples&&!out.frames);
     }
 }
+static void concealment() {
+    for(uint32_t bit:{4u,8u,2048u,32768u,0x10000000u,0x20000000u,0x40000000u}) {
+        Decoder d(bit); projection_decoded_audio out{};
+        CHECK(projection_decode_conceal(d.p,91,120,&out)==IAP2_INVALID&&!out.samples);
+        auto raw=d.format.codec==PROJECTION_AUDIO_OPUS?vectors.at("opus20_0"):hex("1234567801234567");
+        uint32_t start=UINT32_MAX-999; CHECK(d.decode(raw,10,start,out)==IAP2_OK); uint32_t next=start+out.duration;
+        auto before=pcm_bytes(out); auto borrowed=out.samples;
+        CHECK(projection_decode_conceal(d.p,92,120,&out)==IAP2_INVALID&&!out.samples);
+        CHECK(Bytes(reinterpret_cast<const uint8_t*>(borrowed),reinterpret_cast<const uint8_t*>(borrowed)+before.size())==before);
+        CHECK(projection_decode_conceal(d.p,91,0,&out)==IAP2_ARGUMENT);
+        CHECK(projection_decode_conceal(d.p,91,5761,&out)==IAP2_ARGUMENT);
+        if(d.format.codec==PROJECTION_AUDIO_OPUS) CHECK(projection_decode_conceal(d.p,91,121,&out)==IAP2_ARGUMENT);
+        CHECK(projection_decode_conceal(d.p,91,5760,&out)==IAP2_OK&&out.concealed&&out.frames==5760&&out.sample_time==next);
+        if(d.format.codec==PROJECTION_AUDIO_PCM16) CHECK(zeroed(out.samples,out.frames*out.channels*2));
+        else CHECK(!zeroed(out.samples,out.frames*out.channels*2)); // Real Opus PLC, not a zero-fill stand-in.
+        CHECK(d.decode(raw,12,next+5760,out)==IAP2_OK&&!out.concealed);
+    }
+    { Decoder d(0x10000000); projection_decoded_audio out{}; CHECK(d.decode(vectors.at("opus20_0"),10,0,out)==IAP2_OK);
+      CHECK(projection_decode_conceal(d.p,91,960,&out)==IAP2_OK); CHECK(d.decode(vectors.at("opus20_1"),10,1920,out)==IAP2_UNSUPPORTED); } // PLC cannot reset nonce checks.
+    for(auto name:{std::string("aac44100"),std::string("aac48000")}) {
+        uint32_t bit=name=="aac44100"?0x400000:0x800000; Decoder d(bit),fresh(bit); projection_decoded_audio out{},reference{};
+        CHECK(d.decode(vectors.at(name+"_0"),0,0,out)==IAP2_OK&&!out.frames);
+        CHECK(d.decode(vectors.at(name+"_1"),1,1024,out)==IAP2_OK&&out.frames==1024);
+        CHECK(projection_decode_conceal(d.p,91,1023,&out)==IAP2_ARGUMENT);
+        CHECK(projection_decode_conceal(d.p,91,1024,&out)==IAP2_OK&&out.concealed&&out.sample_time==2048&&zeroed(out.samples,4096));
+        CHECK(d.decode(vectors.at(name+"_3"),3,3072,out)==IAP2_OK&&out.priming&&out.concealed&&out.frames==1024&&zeroed(out.samples,4096));
+        CHECK(fresh.decode(vectors.at(name+"_3"),3,3072,reference)==IAP2_OK&&!reference.frames);
+        CHECK(d.decode(vectors.at(name+"_4"),4,4096,out)==IAP2_OK&&!out.concealed);
+        CHECK(fresh.decode(vectors.at(name+"_4"),4,4096,reference)==IAP2_OK&&pcm_bytes(reference)==pcm_bytes(out));
+    }
+}
+static void recovery_and_pacing() {
+    { Bridge b(0x10000000,120); b.ready(); uint32_t start=UINT32_MAX-500;
+      CHECK(b.submit(vectors.at("opus20_0"),10,start)==IAP2_OK&&b.poll()==IAP2_OK);
+      auto packet=vectors.at("opus20_2"); CHECK(b.submit(packet,12,start+1920)==IAP2_OK); packet.assign(packet.size(),0xff);
+      CHECK(b.submit(packet,13,start+2880)==IAP2_MORE); b.renderer.busy=true; CHECK(b.poll()==IAP2_MORE);
+      b.renderer.busy=false; CHECK(b.poll()==IAP2_OK&&b.poll()==IAP2_OK);
+      CHECK((b.renderer.concealed==std::vector<uint8_t>{0,1,0})&&(b.renderer.counters==std::vector<uint64_t>{10,0,12}));
+      CHECK((b.renderer.samples==std::vector<uint32_t>{start,start+960,start+1920})); }
+    { Bridge b(0x10000000,500); b.ready(); CHECK(b.submit(vectors.at("opus20_0"),0,0)==IAP2_OK&&b.poll()==IAP2_OK);
+      CHECK(b.submit(vectors.at("opus20_2"),26,24960)==IAP2_OK);
+      for(unsigned i=0;i<10;++i) CHECK(b.poll()==IAP2_OK);
+      uint32_t frames=0; for(auto n:b.renderer.frames) frames+=n; CHECK(frames==25920&&b.renderer.concealed.back()==0); }
+    for(unsigned bad=0;bad<5;++bad) { Bridge b(0x10000000,120); b.ready(); CHECK(b.submit(vectors.at("opus20_0"),10,0)==IAP2_OK&&b.poll()==IAP2_OK);
+        uint32_t sample=1920; uint64_t counter=12;
+        if(bad==0) sample=961; if(bad==1) sample=6721; if(bad==2) sample=959;
+        if(bad==3) counter=11; if(bad==4) counter=10;
+        CHECK(b.submit(vectors.at("opus20_2"),counter,sample)==IAP2_UNSUPPORTED&&b.renderer.live.empty()); }
+    { Bridge b(0x10000000,120); b.ready(); CHECK(b.submit(vectors.at("opus20_0"),0,0)==IAP2_OK&&b.poll()==IAP2_OK);
+      CHECK(b.submit(vectors.at("opus20_2"),2,1920)==IAP2_OK); b.renderer.busy=true; b.now+=99*ms; CHECK(b.poll()==IAP2_MORE);
+      b.now+=ms; CHECK(b.poll()==IAP2_PROVIDER_FAILED&&b.renderer.live.empty()); }
+    { Bridge b(0x10000000,120,true,10,60); b.ready(); CHECK(b.submit(vectors.at("opus20_0"),0,0)==IAP2_OK);
+      b.now=150*ms-1; CHECK(b.poll()==IAP2_MORE&&b.renderer.bytes.empty()); ++b.now;
+      CHECK(b.poll()==IAP2_OK&&b.renderer.due.back()==160*ms&&b.renderer.timed.back());
+      CHECK(b.submit(vectors.at("opus20_1"),1,960)==IAP2_OK&&b.poll()==IAP2_MORE);
+      b.now=170*ms; CHECK(b.poll()==IAP2_OK&&b.renderer.due.back()==180*ms); }
+    { Bridge b(0x400000,120,true,0,100); b.ready(); uint32_t start=UINT32_MAX-511;
+      for(unsigned i=0;i<50;++i) { CHECK(b.submit(vectors.at("aac44100_"+std::to_string(i%5)),i,start+i*1024)==IAP2_OK);
+        if(!i) { CHECK(b.poll()==IAP2_MORE); continue; }
+        uint64_t due=200*ms+uint64_t(i)*1024*1000000000/44100; b.now=due-1; CHECK(b.poll()==IAP2_MORE); ++b.now;
+        CHECK(b.poll()==IAP2_OK&&b.renderer.due.back()==due&&b.renderer.samples.back()==start+i*1024); } }
+    { Bridge b(0x10000000,120,true,0,20); b.ready(); CHECK(b.submit(vectors.at("opus20_0"),0,0)==IAP2_OK);
+      b.now=120*ms; CHECK(b.poll()==IAP2_OK&&b.submit(vectors.at("opus20_2"),2,1920)==IAP2_OK&&b.poll()==IAP2_MORE);
+      projection_audio_flush_request q{9999,0}; CHECK(b.api.flush(b.api.context,91,b.lease,&q)==IAP2_OK&&b.api.flush(b.api.context,91,b.lease,nullptr)==IAP2_OK);
+      b.now=150*ms; CHECK(b.submit(vectors.at("opus20_0"),3,9999)==IAP2_OK&&b.poll()==IAP2_MORE&&b.renderer.bytes.size()==1);
+      b.now=170*ms; CHECK(b.poll()==IAP2_OK&&b.renderer.samples.back()==9999&&b.renderer.due.back()==170*ms&&!b.renderer.concealed.back()); }
+    { Bridge b(0x10000000,120,true,0,60000); b.ready(); CHECK(b.submit(vectors.at("opus20_0"),0,0)==IAP2_OK);
+      b.now=60100*ms-1; CHECK(b.poll()==IAP2_MORE&&b.renderer.bytes.empty());
+      b.renderer.busy=true; b.now=60320*ms-1; CHECK(b.poll()==IAP2_MORE); ++b.now;
+      CHECK(b.poll()==IAP2_PROVIDER_FAILED&&b.renderer.live.empty()); }
+    for(unsigned bad=0;bad<5;++bad) { Renderer r; uint64_t now=0; projection_decode_sink *out=reinterpret_cast<projection_decode_sink*>(1);
+        projection_decode_sink_config c{r.api,[](void* p)->uint64_t{return *static_cast<uint64_t*>(p);},&now,100,120,10,1};
+        if(bad==0) c.max_gap_ms=1001; if(bad==1) c.ahead_ms=501; if(bad==2) c.paced=2;
+        if(bad==3) c.paced=0; if(bad==4) c.pcm.features=0;
+        CHECK(projection_decode_sink_create(&c,91,&out)==IAP2_ARGUMENT&&!out); }
+    { Bridge b(0x10000000,120,true,0,60); b.now=UINT64_MAX-50*ms; b.ready();
+      CHECK(b.submit(vectors.at("opus20_0"),0,0)==IAP2_INVALID&&b.renderer.live.empty()); }
+}
 int main(int argc,char** argv) {
     try {
         CHECK(argc==2||argc==3); vectors=load_vectors(argv[1],33); bool emit=argc==3&&std::string(argv[2])=="--emit";
         packets(emit); if(emit) return 0;
-        formats_and_invalid(); bridge_chunks(); bridge_failures(); mutations();
-        std::cout<<"PASS: 5 decode/adapter groups, 33 synthetic encoded packets, all formats, real AAC/Opus PCM, chunk backpressure/clock/cleanup and 1000 mutations; no device playback\n";
+        formats_and_invalid(); bridge_chunks(); bridge_failures(); mutations(); concealment(); recovery_and_pacing();
+        std::cout<<"PASS: 7 decode/adapter groups, 33 synthetic packets, bounded loss recovery, timed delivery, ownership/clock/cleanup and 1000 mutations; no device playback\n";
         std::cout<<"Code from FAAD2 is copyright (c) Nero AG, www.nero.com\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

@@ -91,15 +91,18 @@ RTP reception now adds seven core and seven actual UDP-service test groups, with
 17 explicit format mappings, nonce replay/reordering, gap reporting, PCM byte
 conversion and session/feedback integration. An explicit Windows WASAPI PCM sink
 now adds bounded queues, prefilled startup and device-clock observations, with
-eight output groups and separate COM/thread/clock checks. The final device in
+nine output groups and separate COM/thread/clock checks. The final device in
 automated playback tests remains synthetic. Optional real AAC-LC/Opus decoders
-and an owning PCM bridge now add five decoder and four loopback integration
+and an owning PCM bridge now add seven decoder and five loopback integration
 groups, 33 synthetic packets and 1,000 mutation checks. A separate reference
 compares 59,648 samples, with explicitly documented noise/hybrid limitations.
 An optional two-phase authenticated FLUSH now retires queued media and codec/
 device history without resetting keys or replay state, and resumes only after
 encrypted reply drain. Its single-audio classic AirPlay form is not verified
-CarPlay behavior; selective buffering and full timestamp pacing/loss remain work.
+CarPlay behavior. Explicit relative pacing and bounded nonce-gap recovery now
+add Opus PLC, marked PCM/AAC silence, timed startup and concealment-aware feedback.
+Four sustained real-UDP timelines pass with a synthetic progressing device;
+adaptive drift, late-media policy, sender/A-V sync and selective buffering remain work.
 Physical playback verification, video/mic/input, control modes,
 target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
@@ -120,13 +123,14 @@ service, two audio suites, PCM output/Windows argument checks and three TLS/cark
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-69, [the persistent-store report](pair-store.md),
+Steps 22-70, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
 and [event commands](projection-events.md) / [observed feedback](projection-feedback.md)
 / [audio reception](projection-audio.md) / [PCM output](projection-pcm-output.md)
-/ [compressed decoding](projection-decode.md) / [authenticated FLUSH](projection-flush.md). Hosted TLS
+/ [compressed decoding](projection-decode.md) / [authenticated FLUSH](projection-flush.md)
+/ [relative playout](projection-playout.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
@@ -2951,6 +2955,52 @@ media/input/control semantics. Factory identification, execution/recovery, nativ
 USB/network, existing authentication-chip access and real-phone acceptance remain
 unresolved. No vehicle, USB, physical playback or firmware operation occurred.
 
+## Step 70 - Pace decoded audio and recover bounded packet loss
+
+Date: 2026-09-10. Added [projection-playout.md](projection-playout.md), explicit
+relative scheduling and bounded loss recovery through the owned decoder/PCM
+pipeline. The pinned LIVI/GStreamer pipeline and Opus public API supply primary
+references. No new dependency or real-phone/physical-playback claim is added.
+
+The opt-in recovery policy requires an authenticated nonce gap plus a bounded
+forward timestamp gap with valid codec geometry. It owns a copied future AU
+while bounded polls produce actual Opus PLC or marked PCM/AAC silence. AAC also
+recreates decoder history and marks its recovery priming interval. Counter/replay
+state is not reset; malformed, excessive or unsignaled discontinuities fail closed.
+
+An explicit paced mode anchors exact accumulated frame counts to local receipt/
+start time plus SETUP latency. Checked arithmetic avoids per-AU rounding drift.
+Lookahead bounds early PCM delivery; a prefilled device waits until the first
+presentation time to start. Bounded provenance maps follow replacement frames
+through software/device rings and suppress source feedback during concealment.
+Only actual device-clock observations of genuine media can yield an anchor.
+
+FLUSH retires future AUs, recovery state, presentation offsets and prefilled/
+playing media without changing keys, leases or replay protection. Per-AU absolute
+deadlines include scheduled waiting when pacing is enabled and cannot be renewed
+by partial chunks or busy responses. New features/config fields require explicit
+sink support; zero initialization preserves the prior strict/unpaced behavior.
+
+Seven decoder, nine PCM-output and five integration groups pass. Four sustained
+160-slot AAC/Opus timelines use actual IPv4/IPv6 encrypted UDP with bursts, two
+losses and a late replay each. A synthetic 1 ms advancing device clock verifies
+one Start per stream, exact frame counts, timestamp wrap and concealment-aware
+feedback. Unit tests also cover 500 ms multi-chunk gaps, exact scheduling bounds,
+44.1 kHz arithmetic, timed/recovery flush, overflow and a 60-second scheduled wait.
+
+Forty-two media, forty combined, twenty-two ordinary and twenty-five TLS-only
+CTest suites pass, plus twenty-five Python regressions and existing audio/codec
+reference checks. Two codec-enabled and thirteen hosted sanitizer checks pass;
+strict production C99/C++20 warnings and static analysis pass. Existing codec
+comparison, AAC quality and toolchain limitations remain documented.
+
+This is local relative pacing, not acoustic-latency verification or peer-NTP/A-V
+sync. Next implement late-media/drop-resynchronization and clock-drift policy.
+Trailing loss, DTX/FEC/retransmission, adaptive jitter and selective flushing need
+more work. Factory execution/recovery, native USB/network, existing Apple-chip
+access, remaining media/input/focus and handset acceptance remain unresolved.
+No car, physical output, default device, firmware or USB operation occurred.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2961,9 +3011,12 @@ unresolved. No vehicle, USB, physical playback or firmware operation occurred.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Validate the explicit PCM device backend and implement timestamp-aware pacing,
-   latency/loss, selective buffered flush, remaining media/input backends and
-   control mode/resource semantics. Step 69 adds authenticated two-phase classic
+3. Validate the explicit PCM device backend, implement late-media/drop-resync and
+   adaptive clock-drift policy, sender/A-V synchronization, selective buffered
+   flush, remaining media/input backends and control mode/resource semantics.
+   Step 70 adds opt-in relative timed PCM delivery and bounded packet-loss recovery
+   with concealment-aware feedback; sustained tests still use a synthetic device.
+   Step 69 adds authenticated two-phase classic
    FLUSH and media-state retirement without resetting replay protection; its
    single-stream form and all-queue discard policy need actual phone validation.
    Step 68 adds source-pinned AAC-LC/Opus decoding and owned PCM delivery,

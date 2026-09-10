@@ -585,7 +585,7 @@ See [the audio reception report](reports/projection-audio.md).
 Windows output endpoint, bounded PCM queues, prefilled RECORD-gated startup and
 actual device-clock position queries. It requires contiguous PCM timestamps;
 full pacing/loss handling and factory QNX integration are
-still missing. Eight output groups, Windows COM/clock argument checks and real
+still missing. Nine output groups, Windows COM/clock argument checks and real
 encrypted-UDP-to-output-engine integration use a synthetic final device. A
 separate opt-in probe can enumerate, prepare or silently exercise an explicitly
 selected physical endpoint. No physical playback test runs in CTest.
@@ -594,7 +594,7 @@ See [the PCM output report](reports/projection-pcm-output.md) for wiring and che
 `projection_decode.h` and `projection_decode_sink.h` now add optional real
 AAC-LC/Opus decoding and owned, bounded delivery into that PCM sink. Source-pinned
 Opus 1.6.1 and FAAD2 2.11.3 are explicit opt-ins; normal builds do not download or
-enable codecs. Five decoder and four actual-UDP integration groups pass, with
+enable codecs. Seven decoder and five actual-UDP integration groups pass, with
 33 synthetic packets and 1,000 malformed-input mutations. The media build has
 42 passing CTest suites, and both new suites pass with codec dependencies under
 ASan/UBSan. A separate PyAV reference checks 59,648 samples and explicitly records
@@ -613,6 +613,15 @@ verified CarPlay handset behavior; all already-queued media is discarded, not
 selectively retained beyond the boundary. Full latency/loss/pacing remains work.
 See [the step-by-step FLUSH report](reports/projection-flush.md) for its evidence,
 state transitions, regressions and limits.
+
+Explicit relative pacing and bounded loss recovery now connect the codec bridge
+to timed PCM startup. Opus uses actual PLC; PCM/AAC gaps use marked silence, with
+AAC history restarted. Replacement frames never become source playback feedback.
+Four sustained real-UDP tests cover AAC/Opus, IPv4/IPv6, burst arrival, dropped
+packets and a late replay using a synthetic progressing device. Adaptive clock
+drift, late-packet policy, sender/A-V sync and physical validation remain work.
+See [the playout report](reports/projection-playout.md) for opt-in configuration,
+ownership, evidence and remaining limits.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayMedia.ps1

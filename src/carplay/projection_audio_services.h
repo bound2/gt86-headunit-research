@@ -6,6 +6,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define PROJECTION_AUDIO_SINK_CONCEALMENT 1u
+#define PROJECTION_AUDIO_SINK_TIMED 2u
 typedef struct projection_audio_sink {
     void *context;
     /* Explicit real codec/output backend, no default. Same bounded synchronous,
@@ -20,6 +22,9 @@ typedef struct projection_audio_sink {
      * PCM is S16BE. Use packet timestamps/counter gaps, not unprotected sequence
      * as authority. Implement decoding, pacing, resampling and loss handling;
      * submission is NOT playback. Peer-supplied payload is untrusted media. */
+    /* On decoded PCM, concealed/timed metadata requires the matching features
+     * below. Concealed counter=0 is a placeholder, NOT an authenticated nonce.
+     * Received RTP never sets these flags or a local presentation time. */
     int (*submit)(void *,uint64_t,uint64_t,const projection_audio_format *,const projection_audio_packet *);
     int (*poll)(void *,uint64_t,uint64_t,uint64_t now_ns); /* OK/MORE; bounded device/decoder work. */
     int (*playback)(void *,uint64_t,uint64_t,projection_playback_position *);
@@ -27,6 +32,10 @@ typedef struct projection_audio_sink {
     /* Optional two-phase FLUSH, same stop/clear then reply-drained resume
      * contract as session provider. No nonce reset or inferred played samples. */
     int (*flush)(void *,uint64_t,uint64_t,const projection_audio_flush_request *);
+    /* Explicit PCM input support: concealment must NEVER become a feedback
+     * anchor; timed input uses presentation_ns in the same monotonic domain.
+     * Neither flag asserts acoustic latency or sender-clock synchronization. */
+    uint8_t features;
 } projection_audio_sink;
 typedef struct projection_audio_services_config {
     projection_ip local,peer;

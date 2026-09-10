@@ -181,8 +181,10 @@ codec/device allocations and stack usage are additional; none is a QNX ARM size.
 
 ## Step 6 - Continue toward usable playback and the factory target
 
-Next implement explicit timestamp-aware latency/pacing and loss policy with
-bounded scheduling, retaining real-device-only feedback. Selective buffering,
+Step 70 now adds [relative pacing and bounded loss recovery](projection-playout.md),
+including timed prefill and concealment-aware feedback. The results above record
+the Step 69 checkpoint. Adaptive drift/late-media policy and sender/A-V sync remain
+unfinished. Selective buffering,
 partial-packet boundaries, codec restart/priming and actual phone control forms
 need interoperability evidence; the current FLUSH form is not a replacement for
 that work. Physical output validation still requires an explicitly selected

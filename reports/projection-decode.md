@@ -222,9 +222,11 @@ It is a bounded single-stream classic AirPlay form, not verified CarPlay behavio
 or selective buffered flushing. The tests/results above record the Step 68
 checkpoint; Step 69 expands the same executables with flush regressions.
 
-Next add timestamp-aware playout: explicit latency, gaps/overlaps, loss policy,
-selective buffering and synchronized pacing. Preserve actual-device-only feedback
-and the new history/queue retirement gates when changing media state.
+Step 70 adds [relative paced delivery and bounded gap recovery](projection-playout.md),
+including timed startup and concealment-aware feedback. Adaptive clock drift,
+late-media policy, selective buffering and sender/A-V synchronization remain work.
+Preserve actual-device-only feedback and history/queue retirement gates when
+changing media state.
 Further codec interoperability work should investigate the hybrid reference
 discrepancy and actual phone AAC priming/timestamp behavior. None of these local
 tests establishes safe sustained playback or A/V synchronization on the car.

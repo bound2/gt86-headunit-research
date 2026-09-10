@@ -5,30 +5,33 @@
 #include "projection_pcm_output.hpp"
 #include <memory>
 struct Pipeline {
-    uint64_t now=ms; unsigned closed=0;
+    uint64_t now=ms; unsigned closed=0; bool automatic=false;
     struct Device final:projection_pcm::Device {
         Pipeline& owner; projection_audio_format format; Bytes pending,data;
-        uint32_t pad=0; uint64_t pos=0; unsigned starts=0; bool broken=false;
+        uint32_t pad=0; uint64_t pos=0,released=0,start_ns=0; unsigned starts=0; bool broken=false,running=false;
         Device(Pipeline& p,const projection_audio_format& f):owner(p),format(f) { capacity=6000; frequency=uint64_t(f.clock_rate)*4; period_ns=ms; }
         ~Device() noexcept override { ++owner.closed; }
-        int padding(uint32_t& n) noexcept override { n=pad; return broken?IAP2_PROVIDER_FAILED:IAP2_OK; }
+        void tick() noexcept { if(owner.automatic&&running) { uint64_t frames=(owner.now-start_ns)*format.clock_rate/1000000000;
+            pos=frames*4; pad=frames<released?static_cast<uint32_t>(released-frames):0; } }
+        int padding(uint32_t& n) noexcept override { tick(); n=pad; return broken?IAP2_PROVIDER_FAILED:IAP2_OK; }
         int acquire(uint32_t n,uint8_t*& p) noexcept override { pending.resize(size_t(n)*2*format.channels); p=pending.data(); return IAP2_OK; }
-        int release(uint32_t n) noexcept override { data.insert(data.end(),pending.begin(),pending.end()); pad+=n; return IAP2_OK; }
-        int start() noexcept override { ++starts; return IAP2_OK; }
-        int reset() noexcept override { pad=0; pos=0; return IAP2_OK; }
-        int position(uint64_t& p,uint64_t& q) noexcept override { p=pos; q=owner.now; return IAP2_OK; }
+        int release(uint32_t n) noexcept override { data.insert(data.end(),pending.begin(),pending.end()); pad+=n; released+=n; return IAP2_OK; }
+        int start() noexcept override { ++starts; running=true; start_ns=owner.now; return IAP2_OK; }
+        int reset() noexcept override { pad=0; pos=released=0; running=false; return IAP2_OK; }
+        int position(uint64_t& p,uint64_t& q) noexcept override { tick(); p=pos; q=owner.now; return IAP2_OK; }
     };
     std::vector<Device*> devices;
     projection_pcm::Output output{{this,open_device,clock,thread},91,100,0};
     std::unique_ptr<projection_decode_sink,decltype(&projection_decode_sink_destroy)> decoder{nullptr,projection_decode_sink_destroy};
     projection_audio_services audio{};
     Bytes storage=Bytes(3*8*8192+1,0xaa),network=Bytes(8192+36+1,0xaa);
-    explicit Pipeline(bool v6=false) {
-        projection_decode_sink_config dc{output.sink(),clock,this,100}; projection_decode_sink* raw=nullptr;
+    explicit Pipeline(bool v6=false,bool paced=false):automatic(paced) {
+        projection_decode_sink_config dc{output.sink(),clock,this,100,paced?120u:0u,paced?40u:0u,static_cast<uint8_t>(paced)}; projection_decode_sink* raw=nullptr;
         CHECK(projection_decode_sink_create(&dc,91,&raw)==IAP2_OK); decoder.reset(raw);
         projection_audio_services_config cfg{}; cfg.local=cfg.peer=loopback(v6); cfg.clock_ns=clock; cfg.clock_context=this; cfg.poll_ms=2;
         cfg.sink=projection_decode_sink_provider(decoder.get()); projection_audio_default_config(&cfg.audio);
-        cfg.audio.slots=8; cfg.audio.payload_capacity=8192; cfg.audio.reorder_ms=10;
+        cfg.audio.slots=paced?64:8; cfg.audio.payload_capacity=8192; cfg.audio.reorder_ms=10;
+        if(paced) storage.resize(3*64*8192+1,0xaa);
         CHECK(projection_audio_services_init(&audio,&cfg,storage.data(),storage.size(),network.data(),network.size(),91)==IAP2_OK);
     }
     ~Pipeline() { projection_audio_services_close(&audio); }
@@ -37,8 +40,8 @@ struct Pipeline {
     static int open_device(void* p,const projection_audio_format& f,uint32_t,projection_pcm::Device*& out) noexcept {
         auto& s=*static_cast<Pipeline*>(p); auto device=new Device(s,f); s.devices.push_back(device); out=device; return IAP2_OK;
     }
-    projection_session_endpoint open(unsigned type,uint32_t bit) {
-        projection_session_resource q{}; q.type=type; q.audio_format=bit; q.audio_type=PROJECTION_AUDIO_MEDIA;
+    projection_session_endpoint open(unsigned type,uint32_t bit,uint32_t latency=0) {
+        projection_session_resource q{}; q.type=type; q.audio_format=bit; q.audio_type=PROJECTION_AUDIO_MEDIA; q.audio_latency_ms=latency;
         projection_session_keys keys{}; std::fill(keys.read,keys.read+32,9); auto provider=projection_audio_services_provider(&audio);
         projection_session_endpoint e{}; CHECK(provider.open(provider.context,91,&q,0,&keys,&e)==IAP2_OK&&e.lease); return e;
     }
@@ -127,8 +130,44 @@ static void flush_codecs(const Vectors& v) {
         p.close(p.context,91,e.lease); CHECK(f.closed==1&&!f.audio.wsa);
     }
 }
+static void sustained_loss(const Vectors& v) {
+    for(bool ipv6:{false,true}) for(bool aac:{false,true}) {
+        auto owner=std::make_unique<Pipeline>(ipv6,true); auto& f=*owner; Socket phone(SOCK_DGRAM,ipv6);
+        uint32_t bit=aac?0x400000:0x10000000,duration=aac?1024:960,rate=aac?44100:48000,start=UINT32_MAX-999;
+        const unsigned count=160; auto e=f.open(100,bit,100); auto d=f.devices[0]; auto p=projection_audio_services_provider(&f.audio);
+        f.start(e.lease); uint64_t beginning=f.now; unsigned sent=0,source_positions=0,concealed_positions=0; uint8_t key[32]; std::fill(key,key+32,9);
+        auto packet=[&](unsigned i) { return audio_packet(key,i,start+i*duration,v.at(std::string(aac?"aac44100_":"opus20_")+std::to_string(i%5))); };
+        uint64_t finish=uint64_t(count)*duration*1000000000/rate+200*ms;
+        for(uint64_t elapsed=0;elapsed<=finish;elapsed+=ms) {
+            f.now=beginning+elapsed;
+            if(sent<count&&elapsed>=uint64_t(sent)*duration*1000000000/rate) {
+                for(unsigned end=std::min(count,sent+5);sent<end;++sent) {
+                    if(sent==17||sent==67) continue;
+                    phone.datagram(packet(sent),e.data_port);
+                    f.until([&]{return f.audio.slots[0].audio.received&&f.audio.slots[0].audio.highest==sent;});
+                    if(sent==70) { auto seen=f.audio.slots[0].audio.seen; phone.datagram(packet(17),e.data_port);
+                        CHECK(f.poll()==IAP2_OK&&f.audio.slots[0].audio.highest==sent&&f.audio.slots[0].audio.seen==seen); }
+                }
+            }
+            CHECK(f.poll()==IAP2_OK); projection_playback_position observed{};
+            CHECK(p.playback(p.context,91,e.lease,&observed)==IAP2_OK);
+            if(elapsed<100*ms) CHECK(!d->starts&&!observed.has_position);
+            uint64_t frame=d->pos/4;
+            if(d->running&&frame&&frame<d->released) {
+                uint64_t source_frame=frame+(aac?1024:0),index=source_frame/duration;
+                bool concealed=index==17||index==67||(aac&&(index==18||index==68));
+                if(concealed) { CHECK(!observed.has_position); ++concealed_positions; }
+                else { CHECK(observed.has_position&&observed.sample_time==start+static_cast<uint32_t>(source_frame)); ++source_positions; }
+            }
+        }
+        CHECK(sent==count&&d->starts==1&&source_positions>1000&&concealed_positions>30);
+        CHECK(d->data.size()==size_t(count-(aac?1:0))*duration*(aac?4:2)&&!f.audio.slots[0].audio.count);
+        CHECK(f.audio.slots[0].audio.highest==count-1&&f.audio.slots[0].peer_port==phone.port);
+        p.close(p.context,91,e.lease); CHECK(f.closed==1&&!f.audio.wsa); Socket reuse(SOCK_DGRAM,ipv6,1,e.data_port);
+    }
+}
 int main(int argc,char** argv) {
-    try { CHECK(argc==2); Winsock wsa; auto v=load_vectors(argv[1],33); codecs(v,false); codecs(v,true); failures(v); flush_codecs(v);
-        std::cout<<"PASS: 4 decode service groups; real IPv4/IPv6 authenticated UDP, AAC/Opus, PCM ownership, flush epochs and device-clock seam; no physical playback\n"; return 0;
+    try { CHECK(argc==2); Winsock wsa; auto v=load_vectors(argv[1],33); codecs(v,false); codecs(v,true); failures(v); flush_codecs(v); sustained_loss(v);
+        std::cout<<"PASS: 5 decode service groups; real IPv4/IPv6 authenticated UDP, AAC/Opus, sustained timed loss recovery, flush epochs and device-clock seam; no physical playback\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

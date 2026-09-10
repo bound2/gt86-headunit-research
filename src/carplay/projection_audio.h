@@ -22,8 +22,10 @@ typedef struct projection_audio_key { uint64_t generation,token; } projection_au
 typedef struct projection_audio_packet {
     const uint8_t *data; size_t size;
     uint64_t counter,received_ns,skipped_packets;
+    uint64_t presentation_ns; /* Local PCM scheduling only, never an RTP wire field. */
     uint32_t sample_time,ssrc,frames;
     uint16_t sequence; uint8_t payload_type,marker;
+    uint8_t concealed,timed; /* Decoder-to-PCM metadata; both zero on received RTP. */
 } projection_audio_packet;
 typedef struct projection_audio_slot { projection_audio_packet packet; uint8_t occupied; } projection_audio_slot;
 typedef struct projection_audio {

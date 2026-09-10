@@ -92,6 +92,7 @@ int projection_audio_feed(projection_audio *s,uint64_t gen,const uint8_t *p,size
     slot->packet.counter=counter; slot->packet.received_ns=now; slot->packet.sample_time=be32(p+4); slot->packet.ssrc=ssrc;
     slot->packet.sequence=(uint16_t)(((uint16_t)p[2]<<8)|p[3]); slot->packet.payload_type=(uint8_t)(p[1]&0x7f); slot->packet.marker=(uint8_t)(p[1]>>7);
     slot->packet.frames=s->format.codec==PROJECTION_AUDIO_PCM16?(uint32_t)(size/(2u*s->format.channels)):0;
+    slot->packet.presentation_ns=0; slot->packet.concealed=slot->packet.timed=0;
     slot->occupied=1; ++s->count; return PROJECTION_AUDIO_PACKET;
 }
 static size_t first(const projection_audio *s) {

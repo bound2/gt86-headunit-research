@@ -11,6 +11,9 @@ typedef struct projection_decode_sink_config {
     projection_audio_sink pcm; /* Explicit real PCM renderer, e.g. WASAPI. */
     uint64_t (*clock_ns)(void *); void *clock_context;
     uint32_t hold_ms; /* 1..60000, absolute decoded-output backpressure budget. */
+    uint32_t max_gap_ms; /* 0=strict; 1..1000 enables bounded nonce-gap recovery. */
+    uint32_t ahead_ms; /* 0..500 PCM delivery lookahead, requires paced=1. */
+    uint8_t paced; /* 1: RTP-relative local timeline + SETUP audio_latency_ms. */
 } projection_decode_sink_config;
 /* Owning codec adapter between authenticated audio services and a PCM sink.
  * Fresh serial, non-reentrant owner, same thread/lifetime as the supplied sink.
@@ -25,8 +28,10 @@ typedef struct projection_decode_sink_config {
  * authenticated packet counter (it may repeat across chunks), not a fabricated
  * authentication identity. Their sample timestamps advance by exact decoded
  * frames. Priming/empty inputs produce no dummy PCM. No view is borrowed from
- * the upstream packet after submit returns. Pending PCM has an absolute deadline
- * sampled around work/callbacks; trickle consumption cannot renew it. Backend
+ * the upstream packet after submit returns. A gap retains one copied <=8192-byte
+ * future AU while poll emits bounded replacement chunks before decoding it.
+ * Pending PCM/AU has an absolute deadline sampled around work/callbacks; trickle
+ * consumption cannot renew it. Backend
  * calls/decodes are finite, synchronous work, not a hard CPU time guarantee.
  *
  * Playback delegates only actual downstream device observations at the original
@@ -37,9 +42,25 @@ typedef struct projection_decode_sink_config {
  * resume: discard pending PCM and recreate the codec at its original format,
  * retaining the PCM lease. The enclosing audio owner MUST preserve replay/key
  * state and fence incoming timestamps; codec reset grants no nonce reset.
- * AAC re-primes; generic start cannot bypass the held flush. Unsignaled codec
- * discontinuities still fail closed. Full jitter/loss/buffered flush/pacing and
- * actual phone validation remain work.
+ * AAC re-primes; generic start cannot bypass the held flush.
+ *
+ * max_gap_ms explicitly enables recovery only for forward timestamp gaps WITH
+ * a nonce gap, within the budget and codec frame geometry. Opus uses PLC; PCM/
+ * AAC use marked silence, AAC additionally recreates overlap history and marks
+ * the next priming AU. Overlap, nonce reuse, oversized/unsignaled gaps fail closed.
+ * The PCM sink must attest concealment-aware feedback; source anchors cannot
+ * refer to replacement frames. No missing duration is inferred from RTP seq.
+ *
+ * paced=1 requires a timed PCM sink. Base = max(first nonempty packet receipt,
+ * start authorization) + SETUP audio_latency_ms. Exact accumulated frame counts
+ * produce local presentation_ns; ahead_ms bounds early chunk delivery. PCM must
+ * not start a prefilled epoch before its first presentation time. Deadlines allow
+ * the scheduled gap plus a maximum decode block, then hold_ms; nonpaced mode
+ * retains the original now+hold_ms budget. Neither mode renews on partial work.
+ * FLUSH clears copied AU/recovery/scheduling state, not outer replay history.
+ * This is relative local pacing, NOT peer-NTP or A/V sync. Adaptive clock drift,
+ * late-packet drop/resync, trailing loss without a following authenticated packet,
+ * FEC/retransmission, selective buffered flush and handset validation remain work.
  *
  * Destroy after closing the borrowing audio provider and before destroying the
  * downstream PCM owner. Destroy consumes the non-NULL owner exactly once.

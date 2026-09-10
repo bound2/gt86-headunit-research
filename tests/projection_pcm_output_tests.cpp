@@ -51,10 +51,11 @@ struct Fixture {
         return api.open(api.context,91,&r,&format,out?out:&lease);
     }
     void ready() { CHECK(prepare()==IAP2_OK&&lease); CHECK(api.start(api.context,91,lease)==IAP2_OK); }
-    int submit(uint32_t sample,size_t frames=100,uint8_t high=0x12,uint8_t low=0x34) {
+    int submit(uint32_t sample,size_t frames=100,uint8_t high=0x12,uint8_t low=0x34,bool concealed=false,uint64_t due=0,bool timed=false) {
         std::vector<uint8_t> data(frames*2*format.channels);
         for(size_t i=0;i<data.size();i+=2) { data[i]=high; data[i+1]=low; }
         projection_audio_packet p{}; p.data=data.data(); p.size=data.size(); p.frames=static_cast<uint32_t>(frames); p.sample_time=sample;
+        p.concealed=static_cast<uint8_t>(concealed); p.presentation_ns=due; p.timed=static_cast<uint8_t>(timed);
         return api.submit(api.context,91,lease,&format,&p);
     }
     int poll() { return api.poll(api.context,91,lease,now); }
@@ -225,10 +226,37 @@ static void flush_epochs() {
       CHECK(f.api.start(f.api.context,91,second)==IAP2_OK); projection_audio_flush_request q{};
       CHECK(f.api.flush(f.api.context,91,second,&q)==-55&&f.closed==2); }
 }
+static void timed_and_concealed() {
+    Fixture f; f.ready(); auto& d=*f.last; uint64_t due=f.now+50*ms;
+    CHECK(f.api.features==(PROJECTION_AUDIO_SINK_CONCEALMENT|PROJECTION_AUDIO_SINK_TIMED));
+    CHECK(f.submit(100,400,0x12,0x34,false,due,true)==IAP2_OK&&f.poll()==IAP2_MORE);
+    CHECK(!d.starts&&d.pad==400&&!f.observe().has_position);
+    CHECK(f.submit(500,400,0,0,true,due+50*ms,true)==IAP2_OK);
+    f.now=due-1; CHECK(f.poll()==IAP2_MORE&&!d.starts&&d.pad==400);
+    ++f.now; CHECK(f.poll()==IAP2_OK&&d.starts==1); CHECK(f.poll()==IAP2_OK&&d.pad==800);
+    d.pos=4; ++f.now; CHECK(f.observe().has_position&&f.observe().sample_time==101);
+    d.pos=1600; f.now+=50*ms; CHECK(!f.observe().has_position); // Actual device progress inside replacement PCM is not a source anchor.
+    d.pad=400; CHECK(f.submit(900,400,0x55,0x66,false,due+100*ms,true)==IAP2_OK&&f.poll()==IAP2_OK);
+    d.pos=3196; ++f.now; CHECK(!f.observe().has_position);
+    d.pos=3200; ++f.now; CHECK(f.observe().has_position&&f.observe().sample_time==900);
+    projection_audio_flush_request q{}; CHECK(f.api.flush(f.api.context,91,f.lease,&q)==IAP2_OK&&!f.observe().has_position);
+    CHECK(f.api.flush(f.api.context,91,f.lease,nullptr)==IAP2_OK); due=f.now+20*ms;
+    CHECK(f.submit(0,400,0x12,0x34,false,due,true)==IAP2_OK&&f.poll()==IAP2_MORE);
+    CHECK(d.starts==1); CHECK(f.api.flush(f.api.context,91,f.lease,&q)==IAP2_OK&&d.pad==0); // Reset a prefilled, not-yet-started device.
+    CHECK(f.api.flush(f.api.context,91,f.lease,nullptr)==IAP2_OK); f.now=due;
+    CHECK(f.submit(1000,400)==IAP2_OK&&f.poll()==IAP2_OK&&d.starts==2); d.pos=4; ++f.now;
+    CHECK(f.observe().has_position&&f.observe().sample_time==1001);
+    for(unsigned bad=0;bad<3;++bad) { Fixture b; b.ready(); uint64_t start=b.now+ms;
+        CHECK(b.submit(0,100,0,0,false,start,true)==IAP2_OK);
+        if(bad==0) CHECK(b.submit(100,100,0,0,false,start+12500002,true)==IAP2_UNSUPPORTED);
+        if(bad==1) CHECK(b.submit(100,100)==IAP2_UNSUPPORTED);
+        if(bad==2) CHECK(b.submit(100,100,0,0,false,UINT64_MAX,true)==IAP2_INVALID);
+    }
+}
 int main() {
     try {
-        arithmetic(); startup_and_pcm(); queue_and_wrap(); drain_and_restart(); cleanup_and_failure(); observations(); validation(); flush_epochs();
-        std::cout<<"PASS: 8 PCM output groups including flush epochs; device seam is synthetic, no speaker/microphone access.\n";
+        arithmetic(); startup_and_pcm(); queue_and_wrap(); drain_and_restart(); cleanup_and_failure(); observations(); validation(); flush_epochs(); timed_and_concealed();
+        std::cout<<"PASS: 9 PCM output groups including scheduled startup and concealment-aware feedback; device seam is synthetic, no speaker/microphone access.\n";
         std::cout<<"x64 PCM output owner bytes: "<<sizeof(Output)<<" (includes three 65536-byte queues; device/OS allocations additional)\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

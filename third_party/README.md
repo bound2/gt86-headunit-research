@@ -508,3 +508,21 @@ decoder recreation and fail-closed cleanup are local policies, not Apple
 conformance guarantees. Existing codec licenses/limitations remain unchanged.
 See [projection-flush.md](../reports/projection-flush.md) for pinned file/blob
 references, evidence boundaries and tests.
+
+## Relative playout and loss recovery (Step 70)
+
+The codec/bridge/PCM scheduling and provenance extensions retain GPL-3.0-only.
+They use existing pinned Opus/FAAD2 public APIs and the existing local packet/
+output ownership model. The pinned LIVI player and official GStreamer
+rtpjitterbuffer documentation supply pipeline references; GStreamer is not linked
+or copied. The Opus API documents exact-duration PLC; FAAD source was inspected
+before choosing fresh AAC history and explicitly marked silence for recovery.
+
+Gap budgets, authenticated-counter/timestamp gates, copied future-AU ownership,
+relative frame-count scheduling, timed startup and concealment-aware feedback
+are local policies, not reference equivalence or Apple conformance claims.
+No new dependency, actual media recording or credential is added, and no upstream
+implementation body is copied. Existing codec notices, the hybrid reference discrepancy and opaque FAAD
+heap-erasure limitation remain unchanged. See
+[projection-playout.md](../reports/projection-playout.md) for exact scope,
+primary sources, tests and unfinished timing/factory requirements.

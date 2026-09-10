@@ -10,6 +10,7 @@
  * prefilled startup, never fabricates a played position or recalls played audio. */
 namespace projection_pcm {
 constexpr size_t queue_bytes=65536;
+constexpr size_t device_frames=48000;
 struct Device {
     uint32_t capacity=0; uint64_t frequency=0,period_ns=0;
     virtual ~Device() noexcept = default;
@@ -39,10 +40,14 @@ private:
     struct Slot {
         Device *device=nullptr; projection_audio_format format{};
         std::array<uint8_t,queue_bytes> bytes{};
+        std::array<uint8_t,queue_bytes/16> concealed_queue{};
+        std::array<uint8_t,device_frames/8> concealed_device{};
         size_t head=0,size=0;
         uint64_t lease=0,queued_ns=0,written=0,started_ns=0,last_position=0,last_qpc=0;
+        uint64_t time_origin_ns=0,input_frames=0,start_due=0;
         uint32_t type=0,next_sample=0,origin=0;
         bool armed=false,running=false,draining=false,has_input=false,observed=false,flushing=false;
+        bool timed=false,primed=false;
     };
     Bindings bindings_; uint64_t generation_,serial_=0,now_=0;
     uint32_t buffer_ms_,startup_ms_; bool failed_=false;
@@ -54,6 +59,7 @@ private:
     void clear(Slot&) noexcept;
     int observe(Slot&,projection_playback_position&,uint64_t&) noexcept;
     int pump(Slot&) noexcept;
+    int activate(Slot&) noexcept;
     static int open(void*,uint64_t,const projection_session_resource*,const projection_audio_format*,uint64_t*) noexcept;
     static int start(void*,uint64_t,uint64_t) noexcept;
     static int submit(void*,uint64_t,uint64_t,const projection_audio_format*,const projection_audio_packet*) noexcept;

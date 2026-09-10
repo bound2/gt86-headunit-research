@@ -4,6 +4,11 @@
 #include <cstring>
 namespace projection_pcm {
 static constexpr uint64_t ms=1000000;
+static bool marked(const uint8_t *p,size_t bit) noexcept { return (p[bit/8]&(1u<<(bit%8)))!=0; }
+static void mark(uint8_t *p,size_t bit,bool value) noexcept {
+    uint8_t mask=static_cast<uint8_t>(1u<<(bit%8));
+    p[bit/8]=static_cast<uint8_t>(value?(p[bit/8]|mask):(p[bit/8]&~mask));
+}
 bool scale(uint64_t value,uint64_t frequency,uint32_t rate,uint64_t& out) noexcept {
     if(!frequency||!rate||frequency>UINT64_MAX/rate) return false;
     const uint64_t whole=value/frequency,part=(value%frequency)*rate/frequency;
@@ -36,7 +41,7 @@ Output::Slot *Output::find(uint64_t lease) noexcept {
     for(auto& s:slots_) if(lease&&s.lease==lease) return &s;
     return nullptr;
 }
-projection_audio_sink Output::sink() noexcept { return {this,open,start,submit,poll,playback,close,flush}; }
+projection_audio_sink Output::sink() noexcept { return {this,open,start,submit,poll,playback,close,flush,PROJECTION_AUDIO_SINK_CONCEALMENT|PROJECTION_AUDIO_SINK_TIMED}; }
 int Output::open(void *ctx,uint64_t gen,const projection_session_resource *r,const projection_audio_format *f,uint64_t *lease) noexcept {
     auto& o=*static_cast<Output*>(ctx); projection_audio_format expected{};
     if(lease) *lease=0;
@@ -51,7 +56,7 @@ int Output::open(void *ctx,uint64_t gen,const projection_session_resource *r,con
     int result=o.bindings_.open(o.bindings_.context,*f,o.buffer_ms_,device);
     if(result!=IAP2_OK||!device) { delete device; return o.fail(result==IAP2_OK?IAP2_PROVIDER_FAILED:result); }
     s.device=device; // Owned before any subsequent failure, including sibling cleanup.
-    if(!device->capacity||device->capacity>48000||!device->frequency||device->frequency>UINT64_MAX/48000||
+    if(!device->capacity||device->capacity>device_frames||!device->frequency||device->frequency>UINT64_MAX/48000||
        !device->period_ns||device->period_ns>100*ms)
         return o.fail(IAP2_UNSUPPORTED);
     const uint64_t guard=(device->period_ns*f->clock_rate+999999999)/1000000000;
@@ -71,18 +76,31 @@ int Output::submit(void *ctx,uint64_t gen,uint64_t lease,const projection_audio_
     if(!o.valid(gen)||!f||!p) return IAP2_INVALID;
     Slot *s=o.find(lease); if(!s||!s->armed||!same(*f,s->format)) return IAP2_INVALID;
     size_t frame=2u*f->channels;
-    if((!p->data&&p->size)||p->size>PROJECTION_AUDIO_PAYLOAD||p->size%frame||p->frames!=p->size/frame) return IAP2_INVALID;
+    if((!p->data&&p->size)||p->size>PROJECTION_AUDIO_PAYLOAD||p->size%frame||p->frames!=p->size/frame||
+       p->concealed>1||p->timed>1||(!p->timed&&p->presentation_ns)||p->presentation_ns==UINT64_MAX) return IAP2_INVALID;
     if(o.refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
     if(!p->size) return IAP2_OK;
     if(p->size>queue_bytes-s->size) return IAP2_MORE;
     if(s->has_input&&p->sample_time!=s->next_sample) return o.fail(IAP2_UNSUPPORTED);
+    if(!s->has_input) { s->timed=p->timed!=0; s->time_origin_ns=p->presentation_ns; s->input_frames=0; }
+    else {
+        if(s->timed!=(p->timed!=0)) return o.fail(IAP2_UNSUPPORTED);
+        if(s->timed) {
+            uint64_t elapsed=0,expected;
+            if(!scale(s->input_frames,f->clock_rate,1000000000,elapsed)||s->time_origin_ns>UINT64_MAX-elapsed) return o.fail(IAP2_INVALID);
+            expected=s->time_origin_ns+elapsed;
+            if((p->presentation_ns>expected?p->presentation_ns-expected:expected-p->presentation_ns)>1) return o.fail(IAP2_UNSUPPORTED);
+        }
+    }
+    if(s->input_frames>UINT64_MAX-p->frames) return o.fail(IAP2_INVALID);
     if(!s->size) s->queued_ns=o.now_;
     size_t tail=(s->head+s->size)%queue_bytes;
     for(size_t i=0;i<p->size;i+=2) {
         s->bytes[(tail+i)%queue_bytes]=p->data[i+1];
         s->bytes[(tail+i+1)%queue_bytes]=p->data[i];
+        mark(s->concealed_queue.data(),((tail+i)%queue_bytes)/2,p->concealed!=0);
     }
-    s->size+=p->size; s->next_sample=p->sample_time+p->frames; s->has_input=true;
+    s->size+=p->size; s->input_frames+=p->frames; s->next_sample=p->sample_time+p->frames; s->has_input=true;
     return IAP2_OK;
 }
 int Output::observe(Slot& s,projection_playback_position& out,uint64_t& frames) noexcept {
@@ -97,13 +115,23 @@ int Output::observe(Slot& s,projection_playback_position& out,uint64_t& frames) 
        !scale(position,s.device->frequency,s.format.clock_rate,frames)) return fail(IAP2_PROVIDER_FAILED);
     s.observed=true; s.last_position=position; s.last_qpc=qpc;
     // Initial zero can precede physical propagation. End/underrun is not media.
-    if(!position||frames>=s.written) return IAP2_OK;
+    if(!position||frames>=s.written||s.written-frames>s.device->capacity||
+       marked(s.concealed_device.data(),static_cast<size_t>(frames%s.device->capacity))) return IAP2_OK;
     out.raw_ns=qpc; out.sample_time=s.origin+static_cast<uint32_t>(frames); out.has_position=1;
+    return IAP2_OK;
+}
+int Output::activate(Slot& s) noexcept {
+    if(now_<s.start_due) return IAP2_MORE;
+    s.started_ns=now_;
+    int r=s.device->start(); if(r!=IAP2_OK) return fail(r);
+    s.running=true; s.primed=false;
+    if(refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
     return IAP2_OK;
 }
 int Output::pump(Slot& s) noexcept {
     if(!s.armed) return IAP2_OK;
     if(refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
+    if(s.primed) return activate(s);
     uint32_t padding=0;
     uint64_t frames=0;
     projection_playback_position observed{};
@@ -114,6 +142,7 @@ int Output::pump(Slot& s) noexcept {
             r=s.device->reset(); if(r!=IAP2_OK) return fail(r);
             s.running=false; s.draining=false; s.observed=false; s.written=0;
             s.last_position=s.last_qpc=s.started_ns=0;
+            s.concealed_device.fill(0);
             if(!s.size) s.has_input=false;
             if(refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
         }
@@ -142,15 +171,24 @@ int Output::pump(Slot& s) noexcept {
     if(refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
     // A delayed transfer cannot establish continuity with the previous buffer.
     if(s.running&&now_-before>=s.device->period_ns) return fail(IAP2_PROVIDER_FAILED);
-    if(!s.running) s.origin=s.next_sample-static_cast<uint32_t>(s.size/frame);
+    if(!s.running) {
+        s.origin=s.next_sample-static_cast<uint32_t>(s.size/frame); s.start_due=0;
+        if(s.timed) {
+            uint64_t elapsed=0;
+            if(!scale(s.input_frames-s.size/frame,s.format.clock_rate,1000000000,elapsed)||s.time_origin_ns>UINT64_MAX-elapsed) return fail(IAP2_INVALID);
+            s.start_due=s.time_origin_ns+elapsed;
+        }
+    }
+    for(size_t j=0;j<n;++j) {
+        size_t bit=((s.head+j*frame)%queue_bytes)/2;
+        mark(s.concealed_device.data(),static_cast<size_t>((s.written+j)%s.device->capacity),marked(s.concealed_queue.data(),bit));
+        for(size_t channel=0;channel<s.format.channels;++channel) mark(s.concealed_queue.data(),bit+channel,false);
+    }
     pair_crypto_wipe(s.bytes.data()+s.head,first);
     pair_crypto_wipe(s.bytes.data(),bytes-first);
     s.head=(s.head+bytes)%queue_bytes; s.size-=bytes; s.written+=n;
     if(!s.running) {
-        s.started_ns=now_;
-        r=s.device->start(); if(r!=IAP2_OK) return fail(r);
-        s.running=true;
-        if(refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
+        s.primed=true; return activate(s);
     }
     return IAP2_OK;
 }
@@ -187,6 +225,8 @@ int Output::flush(void *ctx,uint64_t gen,uint64_t lease,const projection_audio_f
         pair_crypto_wipe(s->bytes.data(),s->bytes.size()); s->head=s->size=0;
         s->queued_ns=s->written=s->started_ns=s->last_position=s->last_qpc=0;
         s->next_sample=s->origin=0; s->armed=s->running=s->draining=s->has_input=s->observed=false;
+        s->time_origin_ns=s->input_frames=s->start_due=0; s->timed=s->primed=false;
+        s->concealed_queue.fill(0); s->concealed_device.fill(0);
         s->flushing=true;
         if(o.refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
     } else { s->flushing=false; s->armed=true; }

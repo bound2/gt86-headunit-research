@@ -48,6 +48,7 @@ static void external_packets(bool output=false) {
         Audio h(fmt); CHECK(h.feed(vectors.at(n))==PROJECTION_AUDIO_PACKET); projection_audio_packet p{}; projection_audio_key key{};
         h.now=20*ms; CHECK(projection_audio_peek(&h.s,91,&p,&key,h.now)==IAP2_MORE&&!key.token); h.start();
         CHECK(projection_audio_peek(&h.s,91,&p,&key,h.now)==PROJECTION_AUDIO_PACKET&&p.ssrc==0xaabbccdd&&p.sequence==(n=="pcm"?65535:0));
+        CHECK(!p.timed&&!p.concealed&&!p.presentation_ns); // Wire packets cannot supply local PCM provenance/scheduling.
         CHECK(Bytes(p.data,p.data+p.size)==vectors.at(n+"_plain"));
         if(n=="pcm") { CHECK(p.frames==2&&p.sample_time==UINT32_MAX&&p.counter==UINT64_MAX); Bytes le(p.size); size_t used=0;
             CHECK(projection_audio_pcm16le(&h.s.format,p.data,p.size,le.data(),le.size(),&used)==IAP2_OK&&used==le.size()); if(output) emit("pcm_le",le); }
