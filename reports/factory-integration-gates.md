@@ -150,12 +150,13 @@ XML callbacks, query a chip, prove remote accessibility or validate CarPlay.
 Production receiver code is unchanged by this step; its prior test results are
 not relabeled as new factory validation.
 
-## Step 7 - State the evidence needed to resume factory integration
+## Step 7 - Separate offline work from deployment requirements
 
-The next actionable input is the Go module's model/part number and hardware
-revision from an already accessible label or existing service paperwork. This
-can narrow the matching firmware and hardware-interface investigation. It does
-not by itself establish a safe execution route or remove the other gates above.
+The Go module's exact part number and hardware revision remain unknown. They
+would narrow target matching, but the owner has now confirmed that no further
+identification information is available. Do not continue requesting the same
+label or paperwork. This missing evidence limits deployment validation; it is
+not an absolute blocker to offline analysis of the existing firmware corpus.
 Step 75 now supplies its manufacturer, Harman International, and documentation
 leads for navigation part-number families; the Panasonic audio product need not
 be identified again. The generic chip-serial field is not an Apple-chip model.
@@ -164,11 +165,16 @@ finds a persisted part-number path with default/truncation limitations and a
 stateful NaviSync export. Neither establishes passive PC access to complete
 hardware identity or Apple-chip metadata; no on-car operation was performed.
 
-No VIN, device activation code, private key, dashboard disassembly, changed service-menu
-flag or logging marker is requested. If the label is inaccessible, existing
-documentation is preferable; do not dismantle the dashboard for this request.
-If an exact original software package or already collected read-only diagnostic
-record exists, identify it for inspection rather than trying it on the car.
+The next offline investigation follows the native display request/release and
+ownership-notification path. A method name or immediate success response is not
+proof of granted display ownership or actual rendering. Keep later-corpus findings
+separate from verified behavior on the installed `6.9.0WL` unit.
+
+No VIN, device activation code, private key, dashboard disassembly, changed
+service-menu flag or logging marker is requested. The MEDIA/lights sequence
+explains the supplied service-menu photos; it does not establish privileged
+OS access. If matching firmware or an existing diagnostic record becomes
+available later, inspect it offline rather than trying it on the car.
 
 Further host-only features cannot settle the missing physical identity,
 installed-version execution/recovery and transport/chip access. The software-only

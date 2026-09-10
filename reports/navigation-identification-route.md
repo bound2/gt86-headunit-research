@@ -124,3 +124,10 @@ No dashboard disassembly, serial/activation identifier, service-flag change,
 firmware update or added hardware is requested. A matching identity would narrow
 the investigation; execution/recovery and native CarPlay interfaces would still
 need to be established before deployment.
+
+Owner clarification after this trace: no further identification information is
+available, and the photos were obtained through the MEDIA/lights service-menu
+sequence recorded in [the photo report](headunit-debug-photos.md#step-7---owner-clarification-service-menu-entry-no-further-identification).
+The repeated collection request is retired. Unknown target details still limit
+deployment validation; they do not prevent offline analysis of display ownership
+and other native integration interfaces in the existing later corpus.

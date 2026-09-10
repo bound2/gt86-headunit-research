@@ -3203,19 +3203,44 @@ the remaining identification options, not the definition of the CarPlay goal.
 Factory execution/recovery, target interfaces and real phone validation remain
 unestablished; CarPlay is not installable from this repository.
 
+## Step 77 - Record service-menu access and retire the repeated identification request
+
+Date: 2026-09-10. The owner says there is no further identification information
+and explains that the photographed service menu was entered by holding MEDIA
+and flashing the lights three times. Recorded this as owner-reported provenance
+in [headunit-debug-photos.md](headunit-debug-photos.md#step-7---owner-clarification-service-menu-entry-no-further-identification),
+not a tested procedure or evidence of an unlocked OS. No additional label,
+paperwork or duplicate photo request is the immediate next action.
+
+Corrected the plan: exact module identity remains a deployment-validation gap,
+not a prerequisite to all offline implementation research. The known Panasonic
+TAS400 and Harman NAVI BOX identities remain the working context; unknown details
+are not filled with defaults. Full software-only CarPlay, including safe target
+execution and actual phone validation, remains the objective.
+
+Rechecked the later firmware's display-service wrappers with listing-only
+`luac -l -p`. In the already pinned `toyotamanager.lua`, source lines 303-307
+call `modemanager.requestDisplayCtrl()` and then construct `allowed=true` without
+checking a returned ownership result. This immediate reply cannot by itself be
+used as the receiver's display-ready signal. A release wrapper also delegates
+to the mode manager. The next offline task is to trace the request/release
+state transitions and actual ownership notifications before defining the native
+receiver adapter. This is a selected static observation, not an invocation or
+complete display-interface audit.
+
+Only Markdown documentation changed. No firmware, service setting, device state,
+receiver code or original photo was changed. Local Markdown links and Git
+whitespace were checked before committing.
+
 ## Next checks
 
-1. Obtain read-only identification of the actual Go module and establish a
-   recovery route before preparing anything intended to execute on the car.
-   The missing facts are its exact part number and hardware revision; Step 75
-   now confirms Harman International as manufacturer and reconfirms `6.9.0WL`.
-   Panasonic TAS400 audio code `PW600-18001` is now identified separately.
-   Step 76 traces an internal part-number reply but finds default/truncation
-   limitations, not a proven owner-accessible retrieval path. Do not infer the
-   unit's identity from the corpus default or activate the NaviSync export merely
-   because its method name mentions device information.
-   An already accessible module label or ordinary read-only identification is
-   suitable evidence; do not change service-menu flags to obtain it.
+1. Trace the existing native navigation display request/release and ownership
+   notifications offline, then define the target adapter around observed state,
+   not the immediate `allowed=true` wrapper reply. The owner has no further
+   module-identification information; do not repeatedly request it. Record exact
+   part/revision as unknown. Target matching and recovery must still be resolved
+   before preparing anything intended to execute on the car. Do not substitute
+   corpus defaults or activate a NaviSync export to fill those gaps.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
 3. Validate the explicit PCM device/rate-adjustment backend and actual sender

@@ -111,3 +111,24 @@ against Toyota-hosted documentation. Only Markdown reports/indexes are changed.
 Local report links and whitespace are checked before committing. No receiver
 code, firmware, build output or original photograph is added or changed; no
 hardware tests or vehicle operations were performed.
+
+## Step 7 - Owner clarification: service-menu entry, no further identification
+
+On 2026-09-10 the owner explained that these screens came from the service menu,
+entered by holding the MEDIA button and flashing the lights three times. This is
+the owner's report of how the existing photographs were obtained, not an
+independently tested procedure or a request to repeat it. No ignition, vehicle
+movement, update or configuration instructions are inferred from that description.
+
+The owner has no further identification information available. The earlier
+paperwork/label request is therefore no longer the immediate next action; do not
+keep requesting the same unavailable evidence. Record the exact navigation
+part/revision as unknown and continue eligible offline analysis using the confirmed
+Panasonic TAS400 / Harman NAVI BOX / `6.9.0WL` observations.
+
+Service-menu access does not establish a shell, enabled internal service flags,
+arbitrary application installation or CarPlay capability. Exact target matching
+and recovery remain deployment requirements, not prerequisites to reading the
+later firmware. The next offline investigation is the navigation module's display
+request/release and ownership-notification path, with touch and audio integration
+remaining separate requirements. No on-car service call is requested.
