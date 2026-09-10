@@ -439,3 +439,15 @@ environment independently reproduces public crypto/plist fixtures. The test
 sink does not decode compressed audio or play through a device. Source blobs,
 verification and remaining target/media work are in
 [projection-audio.md](../reports/projection-audio.md).
+
+`projection_pcm_output.cpp`/`.hpp`, `projection_wasapi.h`, the Windows WASAPI
+adapter and their tests select GPL-3.0-only. They are local implementations of
+the existing audio sink contract, using Microsoft's Core Audio/COM SDK APIs and
+documentation, not copied sample bodies or additional codec packages. Queuing,
+strict timestamp continuity, drain/reset, ownership and observed-media bounds
+are local policies, not Apple conformance guarantees. Windows SDK interface
+metadata supplies GUID values. Existing Monocypher wiping and the PCM format
+table are reused; Windows COM/GUID libraries are OS dependencies. The automated
+device seam is synthetic, while the opt-in physical probe requires explicit
+endpoint selection. See [projection-pcm-output.md](../reports/projection-pcm-output.md)
+for primary sources, verification and remaining factory/phone requirements.

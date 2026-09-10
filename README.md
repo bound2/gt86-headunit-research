@@ -573,12 +573,23 @@ actual peer-bound IPv4/IPv6 audio UDP ports to the session and an explicit
 decoder/output sink, with RECORD drain gating, backpressure and cleanup.
 Six core and five service groups, 13 independent fixtures and expanded encrypted
 receiver/timing/feedback integration pass. The sink in those tests is synthetic:
-real device playback, AAC/Opus decoders, microphone and video remain missing.
+AAC/Opus decoders, microphone and video remain missing. The next step adds a
+Windows PCM device backend; physical playback is not yet verified.
 See [the audio reception report](reports/projection-audio.md).
 
 ```powershell
 ./build/pair-reference/Scripts/python.exe -B scripts/check_projection_audio.py build/crypto/Release/projection_audio_tests.exe tests/fixtures/projection-audio-vectors.txt
 ```
+
+`projection_wasapi.h` now implements the sink using an explicitly selected
+Windows output endpoint, bounded PCM queues, prefilled RECORD-gated startup and
+actual device-clock position queries. It requires contiguous PCM timestamps;
+compressed decoding, full pacing/loss handling and factory QNX integration are
+still missing. Seven output groups, Windows COM/clock argument checks and real
+encrypted-UDP-to-output-engine integration use a synthetic final device. A
+separate opt-in probe can enumerate, prepare or silently exercise an explicitly
+selected physical endpoint. No physical playback test runs in CTest.
+See [the PCM output report](reports/projection-pcm-output.md) for wiring and checks.
 
 ## Read-only firmware analysis
 

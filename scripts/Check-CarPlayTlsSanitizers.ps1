@@ -52,6 +52,14 @@ foreach ($headunitFile in $headunitSources) {
     if ($LASTEXITCODE -ne 0) { throw "Sanitized compilation failed: $headunitFile" }
     $headunitObjects += $headunitObject
 }
+if ($IncludeEnrollment) {
+    foreach ($headunitName in @('projection_pcm_output','projection_wasapi_win')) {
+        $headunitObject = Join-Path $headunitOutput ($headunitObjects.Count.ToString() + '.obj')
+        & $headunitCpp -std=c++20 @headunitFlags @headunitIncludes -c (Join-Path $headunitRoot "src/carplay/$headunitName.cpp") -o $headunitObject
+        if ($LASTEXITCODE -ne 0) { throw "Sanitized C++ compilation failed: $headunitName" }
+        $headunitObjects += $headunitObject
+    }
+}
 $headunitSavedTlsPath = $env:Path
 try {
     $headunitResource = & $headunitClang --print-resource-dir
@@ -59,10 +67,10 @@ try {
     Remove-Item Env:PATH
     $env:Path = (Join-Path $headunitResource 'lib/windows') + ';' + $headunitSavedTlsPath
     $headunitTests = @('lockdown_tls_tests', 'carkit_tests', 'carkit_iap2_tests')
-    if ($IncludeEnrollment) { $headunitTests += @('pair_setup_tests','pair_store_file_tests','mfi_sap_tests','projection_session_tests','projection_receiver_tests','projection_services_tests','projection_audio_tests','projection_audio_services_tests') }
+    if ($IncludeEnrollment) { $headunitTests += @('pair_setup_tests','pair_store_file_tests','mfi_sap_tests','projection_session_tests','projection_receiver_tests','projection_services_tests','projection_audio_tests','projection_audio_services_tests','projection_pcm_output_tests','projection_wasapi_probe') }
     foreach ($headunitTest in $headunitTests) {
         $headunitExe = Join-Path $headunitOutput "$headunitTest.exe"
-        & $headunitCpp -std=c++20 @headunitFlags @headunitIncludes (Join-Path $headunitRoot "tests/$headunitTest.cpp") @headunitObjects -Xlinker bcrypt.lib -Xlinker advapi32.lib -Xlinker ws2_32.lib -o $headunitExe
+        & $headunitCpp -std=c++20 @headunitFlags @headunitIncludes (Join-Path $headunitRoot "tests/$headunitTest.cpp") @headunitObjects -Xlinker bcrypt.lib -Xlinker advapi32.lib -Xlinker ws2_32.lib -Xlinker ole32.lib -Xlinker uuid.lib -o $headunitExe
         if ($LASTEXITCODE -ne 0) { throw "Sanitized build failed: $headunitTest" }
         $headunitFixture = 'tests/fixtures/lockdown'
         if ($headunitTest -in @('pair_setup_tests','pair_store_file_tests')) { $headunitFixture = 'tests/fixtures/pair-setup-vectors.txt' }
@@ -74,6 +82,8 @@ try {
         if ($headunitTest -in @('mfi_sap_tests','projection_receiver_tests','projection_services_tests','projection_audio_services_tests')) { $headunitTestArguments += (Join-Path $headunitRoot 'tests/fixtures/pair-setup-vectors.txt') }
         if ($headunitTest -eq 'projection_audio_services_tests') { $headunitTestArguments += (Join-Path $headunitRoot 'tests/fixtures/projection-audio-vectors.txt') }
         if ($headunitTest -in @('projection_receiver_tests','projection_services_tests')) { $headunitTestArguments += (Join-Path $headunitRoot 'tests/fixtures/projection-session-vectors.txt') }
+        if ($headunitTest -eq 'projection_pcm_output_tests') { $headunitTestArguments = @() }
+        if ($headunitTest -eq 'projection_wasapi_probe') { $headunitTestArguments = @('--arguments') } # Never auto-select/start an audio device.
         & $headunitExe @headunitTestArguments
         if ($LASTEXITCODE -ne 0) { throw "Sanitized tests failed: $headunitTest" }
     }

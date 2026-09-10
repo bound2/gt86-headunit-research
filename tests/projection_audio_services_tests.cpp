@@ -2,6 +2,8 @@
 #include "projection_socket_fixture.h"
 #include "projection_audio_services.h"
 #include "projection_audio_fixture.h"
+#include "projection_pcm_output.hpp"
+#include <memory>
 struct Sink {
     struct Seen { uint64_t child,counter; uint32_t sample,frames; Bytes data; };
     uint64_t next=1; unsigned opens=0,starts=0,submits=0,polls=0,observations=0; int failure=0; bool busy=false;
@@ -19,7 +21,7 @@ struct Sink {
         auto& s=*static_cast<Sink*>(p); CHECK(gen==91&&s.live.contains(lease)&&s.starts); ++s.submits;
         if(s.failure==4) return -55; if(s.busy) return IAP2_MORE;
         Bytes data(packet->size);
-        if(f->codec==PROJECTION_AUDIO_PCM16) { size_t used=0; CHECK(projection_audio_pcm16le(f,packet->data,packet->size,data.data(),data.size(),&used)==IAP2_OK&&used==data.size()); }
+        if(f->codec==PROJECTION_AUDIO_PCM16&&packet->size) { size_t used=0; CHECK(projection_audio_pcm16le(f,packet->data,packet->size,data.data(),data.size(),&used)==IAP2_OK&&used==data.size()); }
         else data.assign(packet->data,packet->data+packet->size); // Opaque compressed transport test, NOT a decoder.
         s.seen.push_back({lease,packet->counter,packet->sample_time,packet->frames,data}); return IAP2_OK;
     }
@@ -188,10 +190,59 @@ static void receiver_integration(const Vectors& v,const Vectors& setup,const Vec
         CHECK(f.sink.closed.size()==4&&zeroed(f.storage.data(),f.storage.size()-1));
     }
 }
+struct PcmDeviceFixture {
+    uint64_t now=ms; unsigned closed=0;
+    struct Device final:projection_pcm::Device {
+        PcmDeviceFixture& owner; Bytes data; uint32_t pad=0; uint64_t pos=0; unsigned starts=0; bool broken=false;
+        explicit Device(PcmDeviceFixture& p):owner(p) { capacity=1600; frequency=64000; period_ns=ms; }
+        ~Device() noexcept override { ++owner.closed; }
+        int padding(uint32_t& n) noexcept override { n=pad; return broken?IAP2_PROVIDER_FAILED:IAP2_OK; }
+        int acquire(uint32_t n,uint8_t*& p) noexcept override { data.resize(size_t(n)*2); p=data.data(); return IAP2_OK; }
+        int release(uint32_t n) noexcept override { pad+=n; return IAP2_OK; }
+        int start() noexcept override { ++starts; return IAP2_OK; }
+        int reset() noexcept override { pos=pad=0; return IAP2_OK; }
+        int position(uint64_t& p,uint64_t& q) noexcept override { p=pos; q=owner.now; return IAP2_OK; }
+    };
+    Device *device=nullptr;
+    projection_pcm::Output output{{this,open,clock,thread},91,100,0};
+    static bool thread(void*) noexcept { return true; }
+    static uint64_t clock(void* p) noexcept { return static_cast<PcmDeviceFixture*>(p)->now; }
+    static int open(void* p,const projection_audio_format&,uint32_t,projection_pcm::Device*& out) noexcept {
+        auto& f=*static_cast<PcmDeviceFixture*>(p); f.device=new Device(f); out=f.device; return IAP2_OK;
+    }
+};
+struct PcmFixtureUnwind {};
+static void pcm_output_integration(const Vectors& v,bool check_unwind=false) {
+    auto device_owner=std::make_unique<PcmDeviceFixture>(); auto& device=*device_owner;
+    AudioService f(false,false); Socket phone;
+    f.cfg.sink=device.output.sink(); f.cfg.clock_ns=PcmDeviceFixture::clock; f.cfg.clock_context=&device; f.init();
+    auto e=f.open(); auto p=projection_audio_services_provider(&f.s);
+    phone.datagram(audio_packet(v.at("key").data(),0,UINT32_MAX,v.at("pcm_plain")),e.data_port);
+    f.until([&]{return f.s.slots[0].audio.count==1;}); CHECK(device.device->starts==0);
+    f.start(e.lease); device.now+=10*ms;
+    f.until([&]{return device.device->starts==1;});
+    CHECK(device.device->data==hex("008000000100ff7f")&&!f.s.slots[0].audio.count);
+    projection_playback_position position{};
+    CHECK(p.playback(p.context,91,e.lease,&position)==IAP2_OK&&!position.has_position);
+    device.device->pos=4; device.now+=ms;
+    CHECK(p.playback(p.context,91,e.lease,&position)==IAP2_OK&&position.has_position&&position.sample_time==0&&position.raw_ns==device.now&&position.sample_rate==16000);
+    device.device->broken=true;
+    CHECK(projection_audio_services_poll(&f.s,91)==PROJECTION_AUDIO_CLOSED&&device.closed==1&&!f.s.count&&!f.s.wsa);
+    if(check_unwind) throw PcmFixtureUnwind{};
+    CHECK(zeroed(f.storage.data(),f.s.stream_bytes)&&f.storage[f.s.stream_bytes]==0xaa);
+    projection_audio_services_close(&f.s); // Final close also wipes never-opened stream extents.
+    CHECK(zeroed(f.storage.data(),f.storage.size()-1)&&f.storage.back()==0xaa);
+    Socket reused(SOCK_DGRAM,false,1,e.data_port);
+}
 int main(int argc,char** argv) {
     try { CHECK(argc==4); Winsock wsa; auto v=load_vectors(argv[1],39),setup=load_vectors(argv[2],51),av=load_vectors(argv[3],13);
-        configuration(); datagrams(false,av); datagrams(true,av); backpressure_and_failure(av); receiver_integration(v,setup,av);
-        std::cout<<"PASS: 5 audio service groups; real IPv4/IPv6 UDP, authentic source-port pinning, PCM conversion/backpressure, errors and paired/MFi/session/timing/feedback integration\n";
+        configuration(); datagrams(false,av); datagrams(true,av); backpressure_and_failure(av); receiver_integration(v,setup,av); pcm_output_integration(av);
+        bool unwound=false;
+        // No named catch parameter: Clang 19 Windows ASan corrupts that binding
+        // even in an independent minimal throw/catch. No sanitizer is disabled.
+        try { pcm_output_integration(av,true); } catch(const PcmFixtureUnwind&) { unwound=true; }
+        CHECK(unwound); // Exercise assertion/exception cleanup with the large PCM owner on the heap.
+        std::cout<<"PASS: 6 audio service groups; real IPv4/IPv6 UDP, authentic source-port pinning, PCM output engine/device-clock seam, errors and paired/MFi/session/timing/feedback integration\n";
         std::cout<<"Synthetic credentials/sinks only; no compressed decoder or physical playback claim; x64 service bytes: "<<sizeof(projection_audio_services)<<'\n'; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

@@ -87,10 +87,13 @@ six pure groups and expanded real-socket tests. Optional typed control feedback
 now reports owned audio descriptors and fresh observed playback anchors using
 the real timing clock, with seven independently decoded output states. No
 played sample is inferred from a received packet or socket send. Encrypted audio
-RTP reception now adds six core and five actual UDP-service test groups, with
+RTP reception now adds six core and six actual UDP-service test groups, with
 17 explicit format mappings, nonce replay/reordering, gap reporting, PCM byte
-conversion and session/feedback integration. The output sink remains synthetic;
-real playback, compressed decoders, video/mic/input, control modes,
+conversion and session/feedback integration. An explicit Windows WASAPI PCM sink
+now adds bounded queues, prefilled startup and device-clock observations, with
+seven output groups and separate COM/thread/clock checks. The final device in
+automated playback tests remains synthetic; physical playback verification,
+compressed decoders, full timestamp pacing/loss handling, video/mic/input, control modes,
 target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
 Python regression checks total 25, plus independent
@@ -101,25 +104,25 @@ plus 12 independent timing-clock/filter values, eight decoded event commands
 and seven feedback output states, plus 13 independent audio fixtures and 17
 audio format descriptors.
 Native USB and actual phone pairing remain absent.
-All twenty-two ordinary, twenty-five TLS-only and thirty-eight combined crypto/TLS
+All twenty-two ordinary, twenty-five TLS-only and forty combined crypto/TLS
 CTest suites pass. All eighteen protocol/capability/timing/event suites, five pairing/control/store suites,
 the enrollment, real-file, MFiSAP, projection-session, receiver-router, real-socket
-service and two audio suites and three TLS/carkit/integration suites pass under host
+service, two audio suites, PCM output/Windows argument checks and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-66, [the persistent-store report](pair-store.md),
+Steps 22-67, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
 and [event commands](projection-events.md) / [observed feedback](projection-feedback.md)
-/ [audio reception](projection-audio.md). Hosted TLS
+/ [audio reception](projection-audio.md) / [PCM output](projection-pcm-output.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
 not included in either ARM claim. The new capability encoder, hosted MFi/AES and
-receiver/session targets, new timing/services/events/audio and Windows-only filesystem backend are also
+receiver/session targets, new timing/services/events/audio/PCM and Windows-only filesystem backend are also
 excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -2791,6 +2794,55 @@ mode semantics. Factory execution/recovery, native USB, existing authentication
 chip access and real-phone acceptance remain unresolved. No installable update
 or vehicle/audio-device change has been made.
 
+## Step 67 - Implement explicit Windows PCM device output
+
+Date: 2026-09-10. Added [projection-pcm-output.md](projection-pcm-output.md) and
+an actual WASAPI implementation of the audio sink contract. Its explicit active
+render endpoint, shared-mode PCM initialization, device buffer/clock queries and
+private nonpersistent audio session have no default-device, microphone or volume
+fallback. COM ownership and all callbacks remain on the creating STA thread.
+Windows performs requested PCM channel/rate conversion; AAC/Opus are unsupported.
+
+Three per-type output resources each own a 65,536-byte ring. Whole PCM16BE
+packets copy/convert atomically, with bounded backpressure and immediate wiping
+of consumed bytes. RECORD start arms output; actual device start follows media
+prefill. Contiguous sample timestamps, modulo 2^32, are required within a run.
+Low headroom stops appending until the observed tail drains, then resets the
+device epoch. This can introduce gaps; adaptive loss handling, negotiated latency,
+flush and synchronized pacing are not implemented by this basic renderer.
+
+Playback maps an accurate IAudioClock position/frequency pair into the media
+epoch and preserves the device's correlated QPC time. Zero, delayed and beyond-
+media readings report no position. Reversal/future times, overflow and device
+errors fail closed. All enclosing services must use the supplied absolute QPC
+ns clock. Submission, padding and elapsed wall time never become played-sample
+anchors. Lease replacement, error propagation and final cleanup are explicit.
+
+Seven output groups test twelve PCM formats, ring/timestamp wrap, full queues,
+startup/drain/restart, partial allocation, device failures and clock bounds. A
+sixth real-UDP service group now crosses encryption, ordering and the actual PCM
+engine into a synthetic device, then validates observed feedback and fatal port/
+key cleanup. Windows tests check argument rejection, nonexistent explicit
+endpoints without fallback, COM balancing and thread/clock rules without starting
+a speaker. The large integration fixture uses heap ownership, checks both runtime
+and final buffer wiping, and explicitly exercises exception cleanup.
+
+Forty combined, twenty-two ordinary and twenty-five TLS-only CTest suites pass,
+alongside twenty-five Python regressions and the existing independent audio
+checker. Strict warnings/static analysis and thirteen hosted ASan/UBSan suites
+pass, with the documented Clang 19 named-catch limitation avoided in the explicit
+unwind test without disabling instrumentation. The x64 output engine is 197,016
+bytes including its three queues; device/OS allocations are additional.
+Only read-only physical endpoint enumeration has been performed. The explicit
+prepare/silent-smoke commands are available but no endpoint is selected or
+started automatically. This is Windows host implementation, not validated QNX
+audio or a working factory CarPlay installation.
+
+Next validate the selected physical output, add compressed decoders and complete
+timestamp-aware playout, then remaining media/input/control focus semantics.
+Factory execution/recovery, native USB, existing authentication-chip access and
+real-phone acceptance remain unresolved. No vehicle or audio preference changed.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2801,10 +2853,12 @@ or vehicle/audio-device change has been made.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement actual PCM device playback and compressed decoding/pacing, remaining
-   media/input backends and control mode/resource semantics. Step 66 adds real
+3. Validate the new explicit PCM device backend and implement compressed decoding/
+   timestamp-aware pacing, remaining media/input backends and control mode/resource
+   semantics. Step 67 adds Windows WASAPI PCM output and device-clock queries;
+   automated playback tests still use a synthetic final device. Step 66 adds real
    encrypted audio UDP reception and PCM byte conversion through an explicit
-   output-sink boundary; current sinks are synthetic, not physical playback.
+   output-sink boundary; its full receiver tests use synthetic sinks.
    Step 65 adds explicit control feedback
    from typed observed playback and the actual timing service, including lease
    replacement and freshness gates. Real playback observations still require

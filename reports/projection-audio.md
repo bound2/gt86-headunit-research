@@ -200,8 +200,10 @@ sizes, not verified target memory or scheduling guarantees.
 
 ## Step 7 - Implement a real output backend next
 
-Next implement PCM device output that returns actual played-frame observations,
-then AAC-LC/Opus decoding and timestamp-based pacing/resampling/loss handling.
+Step 67 adds a Windows PCM device backend with device-clock observations; see
+[PCM output](projection-pcm-output.md) for its strict continuity profile and
+separate physical-test status. Next add AAC-LC/Opus decoding and timestamp-based
+pacing/loss handling beyond that backend's basic shared-mode PCM conversion.
 Microphone, video/display, physical input and explicit control mode/resource/
 audio-focus semantics remain necessary. A larger codec ecosystem or playback
 driver cannot be replaced by passing opaque compressed bytes to the test sink.
