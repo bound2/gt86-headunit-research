@@ -565,6 +565,21 @@ drivers and an installable target remain missing. See
 python -B scripts/check_projection_feedback.py build/crypto/Release/projection_session_tests.exe tests/fixtures/projection-session-vectors.txt
 ```
 
+`projection_audio.h` adds real encrypted RTP audio reception, 17 explicit format
+mappings, bounded nonce-based replay/reordering, gap reporting and PCM16BE-to-LE
+conversion. The RTP sequence number is not authenticated in this envelope and
+is not used as order/replay authority. `projection_audio_services.h` connects
+actual peer-bound IPv4/IPv6 audio UDP ports to the session and an explicit
+decoder/output sink, with RECORD drain gating, backpressure and cleanup.
+Six core and five service groups, 13 independent fixtures and expanded encrypted
+receiver/timing/feedback integration pass. The sink in those tests is synthetic:
+real device playback, AAC/Opus decoders, microphone and video remain missing.
+See [the audio reception report](reports/projection-audio.md).
+
+```powershell
+./build/pair-reference/Scripts/python.exe -B scripts/check_projection_audio.py build/crypto/Release/projection_audio_tests.exe tests/fixtures/projection-audio-vectors.txt
+```
+
 ## Read-only firmware analysis
 
 ### Apple authentication-driver analysis

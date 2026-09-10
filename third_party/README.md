@@ -426,3 +426,16 @@ are reused without a new dependency. Independent Python plistlib checks cover
 public synthetic feedback values. See
 [projection-feedback.md](../reports/projection-feedback.md) for source blobs,
 verification and the unresolved physical media/target boundary.
+
+`projection_audio.c`/`.h`, the Windows audio-service provider, shared test/socket
+fixtures, audio tests and `check_projection_audio.py` select GPL-3.0-only. The
+same pinned LIVI native audio/microphone/player and `cpStack.ts` supply envelope,
+format and pipeline references. No upstream implementation bodies or real media/
+credentials are copied. Explicit format bounds, replay/ordering, lease/peer
+pinning, backpressure, deadlines and observed-playback-only policies are local
+choices, not conformance claims. Existing Monocypher and Winsock are reused;
+there is no new receiver dependency. The existing pinned PyCA reference
+environment independently reproduces public crypto/plist fixtures. The test
+sink does not decode compressed audio or play through a device. Source blobs,
+verification and remaining target/media work are in
+[projection-audio.md](../reports/projection-audio.md).

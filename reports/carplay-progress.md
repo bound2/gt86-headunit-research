@@ -86,33 +86,40 @@ explicit request handling and typed HID/Siri/night/iAP/keyframe encoders, with
 six pure groups and expanded real-socket tests. Optional typed control feedback
 now reports owned audio descriptors and fresh observed playback anchors using
 the real timing clock, with seven independently decoded output states. No
-played sample is inferred from a received packet or socket send. Control modes,
-actual media, target QNX storage, approval/revocation UI, broader discovery/phone
+played sample is inferred from a received packet or socket send. Encrypted audio
+RTP reception now adds six core and five actual UDP-service test groups, with
+17 explicit format mappings, nonce replay/reordering, gap reporting, PCM byte
+conversion and session/feedback integration. The output sink remains synthetic;
+real playback, compressed decoders, video/mic/input, control modes,
+target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
 Python regression checks total 25, plus independent
 checkers for 21 pair-verification, 12 control-frame, 51 setup and 39 combined
 MFi/pair-verification fixture values, plus 42 session fixture values, 16 session
 directional key/zero values and three independently parsed session replies,
 plus 12 independent timing-clock/filter values, eight decoded event commands
-and seven feedback output states.
+and seven feedback output states, plus 13 independent audio fixtures and 17
+audio format descriptors.
 Native USB and actual phone pairing remain absent.
-All twenty-two ordinary, twenty-five TLS-only and thirty-six combined crypto/TLS
+All twenty-two ordinary, twenty-five TLS-only and thirty-eight combined crypto/TLS
 CTest suites pass. All eighteen protocol/capability/timing/event suites, five pairing/control/store suites,
-the enrollment, real-file, MFiSAP, projection-session, receiver-router and real-socket service suites and three TLS/carkit/integration suites pass under host
+the enrollment, real-file, MFiSAP, projection-session, receiver-router, real-socket
+service and two audio suites and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-65, [the persistent-store report](pair-store.md),
+Steps 22-66, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
-and [event commands](projection-events.md) / [observed feedback](projection-feedback.md). Hosted TLS
+and [event commands](projection-events.md) / [observed feedback](projection-feedback.md)
+/ [audio reception](projection-audio.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
 not included in either ARM claim. The new capability encoder, hosted MFi/AES and
-receiver/session targets, new timing/services/events and Windows-only filesystem backend are also
+receiver/session targets, new timing/services/events/audio and Windows-only filesystem backend are also
 excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -2732,6 +2739,58 @@ media, input and control mode/resource semantics. Factory execution/recovery,
 USB-network ownership, actual authentication-chip access and phone acceptance
 remain unresolved. This is not an installable CarPlay update or a vehicle change.
 
+## Step 66 - Receive encrypted audio through real UDP services
+
+Date: 2026-09-10. Added [projection-audio.md](projection-audio.md), tracing the
+pinned native receiver/player beyond control SETUP. The envelope authenticates
+the timestamp, SSRC and payload, but not RTP sequence/flags/type. The new pure
+owner therefore uses verified nonce counters for ordering and a 64-packet replay
+window. Fixed-header/dynamic-payload and increasing-counter requirements are
+explicit local profile bounds still requiring actual-phone validation.
+
+Seventeen exact format mappings cover PCM16, AAC-LC and Opus without unknown-bit
+fallbacks. Opus downlink has a 48 kHz clock even when negotiated microphone input
+is 16 or 24 kHz. PCM frame alignment and big-to-little-endian conversion are
+implemented; compressed bytes remain raw units awaiting a real decoder.
+Caller-owned bounded queues handle reordering, gaps, pre-start reception and
+atomic held-output consumption with generation/token/deadline protections.
+Late packets cannot move delivery backwards after a packet is borrowed. No
+received, converted or accepted sample is misreported as played audio.
+
+The Windows audio delegate binds actual nonblocking, exclusive, non-inheritable
+data/control UDP ports per audio stream. Peer IP must match; source port pins
+only after authentication. A required sink prepares and validates actual format/
+device support, starts after RECORD drain, handles packets and supplies observed
+playback. Callback/backpressure failures and partial start close all audio
+resources. Root receiver cleanup still owns other services. This delegate is
+audio-only: no screen/iAP/mic fallback. Control UDP is currently bounded drain,
+not implemented retransmission/flush/synchronization semantics.
+
+Six core and five service groups pass, including actual IPv4/IPv6 reception,
+5,000 malformed inputs, independent decryption, all 64 slots, counter/timestamp
+wrap, PCM conversion, source-port pinning, backpressure, exact expiry, partial
+start failure and synthetic pairing/MFi/session/timing/feedback integration.
+Replacement-stream tests reject old-key data before accepting the new key.
+The independent PyCA checker reproduces 13 public fixture values and checks all
+17 formats/four decrypted outputs. It found a fixture transcription error; the
+capability validator also caught an omitted audio resource declaration. Both
+fixtures were corrected without weakening validation.
+
+Validation passes 38 combined, 22 ordinary, 25 TLS-only suites, 25 Python
+regressions, the independent checker, strict warnings and static analysis.
+Eleven hosted ASan/UBSan suites pass with both crypto dependencies instrumented.
+The x64 audio owner is 4,288 bytes and three-stream service context 13,288,
+before caller storage, stack and device/kernel allocations. No receiver
+dependency version changes; audio remains outside existing ARM portability
+claims. All sinks/observations in these tests are explicitly synthetic, and
+compressed fixture transport does not prove decoding or physical playback.
+
+Next implement real PCM device output and played-position reporting, then
+compressed decoders, timestamp pacing, remaining media/input and control focus/
+mode semantics. Factory execution/recovery, native USB, existing authentication
+chip access and real-phone acceptance remain unresolved. No installable update
+or vehicle/audio-device change has been made.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2742,8 +2801,11 @@ remain unresolved. This is not an installable CarPlay update or a vehicle change
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement actual audio reception/playback and remaining media/input backends,
-   plus control mode/resource semantics. Step 65 adds explicit control feedback
+3. Implement actual PCM device playback and compressed decoding/pacing, remaining
+   media/input backends and control mode/resource semantics. Step 66 adds real
+   encrypted audio UDP reception and PCM byte conversion through an explicit
+   output-sink boundary; current sinks are synthetic, not physical playback.
+   Step 65 adds explicit control feedback
    from typed observed playback and the actual timing service, including lease
    replacement and freshness gates. Real playback observations still require
    an actual audio backend; current media-provider tests are synthetic.
@@ -2752,8 +2814,8 @@ remain unresolved. This is not an installable CarPlay update or a vehicle change
    in Step 65. Physical input capture, control mode/resource
    semantics and media drivers are still missing. Step 63 adds actual
    peer-bound Windows timing/event/keepalive sockets and receiver polling, tested
-   over loopback. Stream record/packet processing and a QNX socket backend remain
-   missing.
+   over loopback. Audio packet processing is added in Step 66; video/iAP stream
+   processing and a QNX socket backend remain missing.
    Step 62 adds
    typed session/resource ownership and key derivation, with strict capability/
    state gates, lease cleanup and reply-drain/start handling. Media allocation

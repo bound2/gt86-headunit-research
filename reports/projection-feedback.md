@@ -164,6 +164,11 @@ that unchanged core's prior portability result is not a QNX integration test.
 
 ## Step 6 - Implement media reception and real playback next
 
+Update: [Step 66 adds encrypted audio reception and real UDP integration](projection-audio.md),
+including PCM byte conversion and the output-sink boundary. Physical playback,
+compressed decoding and the other media/control paths remain outstanding.
+The original next-step plan follows for continuity.
+
 Next implement bounded audio packet/record reception and sequence/timestamp
 handling against the pinned reference, then connect a real decoder and output
 device capable of returning a played-frame observation. Buffered audio, loss/
