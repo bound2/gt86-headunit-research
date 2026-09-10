@@ -3232,6 +3232,32 @@ Only Markdown documentation changed. No firmware, service setting, device state,
 receiver code or original photo was changed. Local Markdown links and Git
 whitespace were checked before committing.
 
+## Step 78 - Retry the original 6.9.0WL download and find the version-specific portal route
+
+Date: 2026-09-10. The owner explicitly asked to try downloading `6.9.0`.
+The service-menu clarification was committed/pushed first as `342f1b0`.
+Added [6.9.0-download-attempt.md](6.9.0-download-attempt.md) with the exact
+candidate paths, request types and results. No original archive was obtained.
+
+All six inferred 6.9.0 L/WL archive paths returned HTTPS HEAD 403; two bounded
+ranged GET attempts also returned 403/curl exit 22. The known later archive
+returned HEAD 200 with its established 5,224,629,268-byte length, distinguishing
+host reachability from the failed old candidates. No XML error body was saved
+as a ZIP and no newer image was substituted.
+
+Found Toyota's official version-specific map-reconfiguration workflow, whose
+guide describes obtaining the package for the existing software version.
+The public current TechDoc access table places it under Standard Subscription.
+No signed-in catalogue was available to confirm whether 6.9.0WL remains offered;
+no account, purchase, entitlement change or external message was attempted.
+The next official acquisition lead is existing authorized access or confirmation
+of archive availability, not more unavailable hardware-label information.
+
+This is a documented download attempt, not a successful acquisition, installation
+or CarPlay update. Only Markdown files changed; local links and whitespace were
+checked. The offline display-ownership investigation below remains available
+independently of obtaining the original archive.
+
 ## Next checks
 
 1. Trace the existing native navigation display request/release and ownership
