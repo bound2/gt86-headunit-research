@@ -5,6 +5,10 @@ Continues [CarPlay progress, Step 80](carplay-progress.md#step-80---trace-factor
 Scope: static inspection of the existing later `6.17.0WL` corpus, not execution
 on the owner's installed `6.9.0WL` system.
 
+Follow-up: [Step 81's native window-manager trace](factory-graphics-path.md)
+links HMI screen selection to QNX Screen properties and extends the inspection
+tool. The test/routine counts below describe the original Step 80 checkpoint.
+
 ## Step 1 - Close the public stock-update check without assuming eligibility
 
 Toyota's current UK customer guidance directs Touch 2 with Go owners without

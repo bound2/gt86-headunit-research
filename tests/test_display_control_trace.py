@@ -96,7 +96,7 @@ class DisplayControlTraceTests(unittest.TestCase):
 
     def test_selected_listings_are_complete_and_repeatable(self):
         second = display.inspect()
-        self.assertEqual(len(second["sections"]), 14)
+        self.assertEqual(len(second["sections"]), 18)
         for key, section in second["sections"].items():
             self.assertNotIn("instructions", section)
             first = self.evidence["sections"][key]
@@ -137,7 +137,7 @@ class DisplayControlTraceTests(unittest.TestCase):
         with patch.object(display.subprocess, "run", wraps=real_run) as run:
             display.inspect()
         self.assertEqual(before, display.read_inputs())
-        self.assertEqual(run.call_count, 4)
+        self.assertEqual(run.call_count, len(display.PINS))
         for call, name in zip(run.call_args_list, display.PINS):
             self.assertEqual(call.args[0], [str(display.LUAC), "-l", "-p",
                                            str(ROOT / display.DIRECTORY / name)])
@@ -149,6 +149,28 @@ class DisplayControlTraceTests(unittest.TestCase):
             with patch.object(display.subprocess, "run", side_effect=error), \
                     self.assertRaises(type(error)):
                 display.inspect()
+
+    def test_hmi_current_screen_controls_named_windows_not_frame_buffers(self):
+        rows = self.section("hmiClient.lua:current_screen")
+        self.assertEqual(rows[22]["comment"], '- "com.harman.screen.apps.extApps.AppTemplate"')
+        self.assertEqual(rows[52]["comment"], '- "com.harman.screen.apps.mirrorlinkApps.MirrorLinkApps"')
+        commands = [row["comment"] for row in rows
+                    if row["opcode"] == "LOADK" and "DisplayManager:0" in row.get("comment", "")]
+        self.assertEqual(len(commands), 7)
+        for index, row in enumerate(rows):
+            if row["opcode"] == "LOADK" and "DisplayManager:0" in row.get("comment", ""):
+                following = rows[index + 1]
+                self.assertEqual((following["opcode"], following["operands"]), ("CALL", "2 2 1"))
+        self.assertEqual([rows[i]["comment"] for i in (36, 50, 66, 76)],
+                         ["AMS_visible", "AMS_visible", "ML_visible", "ML_visible"])
+        for token in ("FlashWindow:AMS,v,1;", ":map,v,0;", "mlc,o,1;", "mlc,v,1;", "mlc,v,0;"):
+            self.assertTrue(any(token in command for command in commands))
+        available = self.section("hmiClient.lua:service_available")
+        self.assertEqual(available[17]["comment"], '"currentScreen"')
+        self.assertEqual(available[18]["comment"], "hmiCurrentScreenHandler")
+        self.assertIn("flashHMILoaded", available[2]["comment"])
+        ready = self.section("hmiClient.lua:first_map_ready")
+        self.assertIn("/tmp/firstMapReady", ready[2]["comment"])
 
 
 if __name__ == "__main__":

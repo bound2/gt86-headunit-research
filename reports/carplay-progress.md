@@ -3306,12 +3306,38 @@ Next offline work follows the native display-state consumer and rendering
 surface, with source/freshness, cancellation and restoration requirements kept
 explicit. No more unavailable hardware-label information is requested.
 
+## Step 81 - Trace factory window management and the native Screen boundary
+
+Followed the factory HMI's `currentScreen` handler into named-window visibility
+and ordering, then resolved the selected native `DisplayManager` setters to
+QNX Screen property calls. The new step-by-step report is
+[factory-graphics-path.md](factory-graphics-path.md).
+
+The later corpus configures an initially hidden 800 x 480 RGBA8888 MirrorLink
+window class. The manager's documented visibility cache and startup without
+its disable option introduce a recreation constraint for any future owned
+CarPlay window. Named-window changes are distinct from physical display
+ownership, video decoding and frame submission. Generic AIR `displayState`
+literals do not establish the still-missing Toyota signal consumer.
+
+Added a pinned read-only graphics inspector and extended the Lua inspector to
+five inputs/18 routines. All 49 Python tests pass, including nine added checks;
+the optional bounded native listing leaves firmware bytes unchanged. No vendor
+routine ran and no target renderer or installation package was produced.
+
+Next offline work traces the existing MirrorLink window producer's creation,
+buffer posting and teardown. The QNX Screen interface is now a concrete
+candidate for the eventual renderer, not a verified deployable backend.
+
 ## Next checks
 
-1. Follow the native display-state consumer and rendering surface offline.
-   Step 80 traces request/release and finds that even `displayState` can be emitted
-   from local restoration: establish observation provenance and renderer readiness,
-   not just `allowed=true` or a shared state value. The owner has no further
+1. Trace the existing MirrorLink window producer and its Screen buffer creation,
+   posting and teardown offline. Step 81 links HMI selection to native window
+   properties and identifies a visibility-cache recreation constraint; it does
+   not establish a decoder, usable CarPlay window or Toyota signal consumer.
+   Step 80 finds that `displayState` can be emitted from local restoration:
+   establish observation provenance and renderer readiness, not just
+   `allowed=true` or a shared state value. The owner has no further
    module-identification information; do not repeatedly request it. Record exact
    part/revision as unknown. Target matching and recovery must still be resolved
    before preparing anything intended to execute on the car. Do not substitute

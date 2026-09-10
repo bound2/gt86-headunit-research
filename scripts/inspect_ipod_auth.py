@@ -24,9 +24,9 @@ LLVM = Path("C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Ll
 
 
 class PinnedElf:
-    def __init__(self, module):
-        name, self.sha256 = PINS[module]
-        self.path = DIRECTORY / name
+    def __init__(self, module, *, pins=None, directory=None):
+        name, self.sha256 = (PINS if pins is None else pins)[module]
+        self.path = (DIRECTORY if directory is None else directory) / name
         self.data = self.path.read_bytes()
         if hashlib.sha256(self.data).hexdigest() != self.sha256:
             raise ValueError(f"Not the pinned research input: {self.path}")

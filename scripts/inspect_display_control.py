@@ -20,6 +20,7 @@ PINS = {
     "modemanager.lua": "dc8f8437a02153f5e36ab2bb3a8a39a291b6b1e23a537f116d6e69d4a62c1ed5",
     "avclan.lua": "2a0fa72645758ebcac0f92544a2408a3c41567c42794349138f22ff3e27ae1e6",
     "properties.lua": "34aeacac5faae28cacbdafb1b7a2f28272fd4ff7fc66e7694bdc832060cc9b7b",
+    "hmiClient.lua": "d9baa99d7c4bfaa43c41313f14b2d3e8798457c7e5812629736bf85fb0066dec",
 }
 # Source spans and complete instruction counts verified in the pinned listings.
 SECTIONS = {
@@ -43,6 +44,12 @@ SECTIONS = {
         "device_start": (2060, 2081, 67),
     },
     "properties.lua": {"defaults": (0, 0, 105)},
+    "hmiClient.lua": {
+        "current_screen": (53, 90, 78),
+        "first_map_ready": (93, 95, 5),
+        "service_available": (97, 117, 72),
+        "service_init": (119, 124, 20),
+    },
 }
 HEADER = re.compile(
     r"^(?:main|function) <(.+\.lua):(\d+),(\d+)> \((\d+) instructions?,")

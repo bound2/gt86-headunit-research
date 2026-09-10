@@ -168,9 +168,13 @@ hardware identity or Apple-chip metadata; no on-car operation was performed.
 The [Step 80 display trace](factory-display-control.md) now follows the native
 request/release path. Neither the immediate success reply nor the shared
 `displayState` signal proves physical ownership: local restoration emits the
-same signal. The next offline investigation follows the native consumer and
-rendering surface, with observation provenance kept explicit. Keep later-corpus
-findings separate from verified behavior on the installed `6.9.0WL` unit.
+same signal. The [Step 81 graphics trace](factory-graphics-path.md) follows HMI
+screen selection into named-window visibility/order and native QNX Screen
+property calls. It identifies a visibility-cache constraint, not a working
+renderer or the Toyota signal's consumer. Next follow the MirrorLink window
+producer's buffer creation/posting/teardown. Keep observation provenance and
+later-corpus findings separate from verified behavior on the installed `6.9.0WL`
+unit.
 
 No VIN, device activation code, private key, dashboard disassembly, changed
 service-menu flag or logging marker is requested. The MEDIA/lights sequence
