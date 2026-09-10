@@ -16,6 +16,7 @@ struct Mock final:Device {
     int starts=0,resets=0,paddings=0,positions=0;
     int bad_padding=0,bad_acquire=0,bad_release=0,bad_start=0,bad_reset=0,bad_position=0;
     bool null_buffer=false; uint64_t release_delay=0;
+    std::vector<int32_t> rates; int bad_adjust=0;
     explicit Mock(Fixture&,uint32_t);
     ~Mock() noexcept override;
     int padding(uint32_t& n) noexcept override { ++paddings; n=pad; return bad_padding; }
@@ -26,16 +27,17 @@ struct Mock final:Device {
     int start() noexcept override { ++starts; return bad_start; }
     int reset() noexcept override { ++resets; pos=pad=0; return bad_reset; }
     int position(uint64_t& p,uint64_t& q) noexcept override;
+    int adjust(int32_t ppm) noexcept override { rates.push_back(ppm); return bad_adjust; }
 };
 struct Fixture {
     uint64_t now=100*ms; int opened=0,closed=0,open_error=0; bool thread=true,partial=true;
-    uint32_t device_capacity=800; uint64_t device_frequency=32000,device_period=5*ms;
+    uint32_t device_capacity=800; uint64_t device_frequency=32000,device_period=5*ms; bool adjustable=true;
     std::unique_ptr<Output> output;
     projection_audio_sink api{}; projection_audio_format format{}; uint64_t lease=0;
     Mock *last=nullptr;
-    explicit Fixture(uint32_t startup=0,uint32_t bit=4,uint32_t late=0) {
+    explicit Fixture(uint32_t startup=0,uint32_t bit=4,uint32_t late=0,uint32_t drift=0) {
         CHECK(projection_audio_format_get(bit,&format)==IAP2_OK);
-        output=std::make_unique<Output>(projection_pcm::Bindings{this,open,clock,on_thread},91,100,startup,late);
+        output=std::make_unique<Output>(projection_pcm::Bindings{this,open,clock,on_thread},91,100,startup,late,drift);
         api=output->sink();
     }
     ~Fixture() { output.reset(); }
@@ -63,7 +65,7 @@ struct Fixture {
         projection_playback_position p{}; CHECK(api.playback(api.context,91,lease,&p)==IAP2_OK); return p;
     }
 };
-Mock::Mock(Fixture& owner,uint32_t):f(owner) { capacity=f.device_capacity; frequency=f.device_frequency; period_ns=f.device_period; }
+Mock::Mock(Fixture& owner,uint32_t):f(owner) { capacity=f.device_capacity; frequency=f.device_frequency; period_ns=f.device_period; rate_adjustable=f.adjustable; }
 Mock::~Mock() noexcept { ++f.closed; }
 int Mock::release(uint32_t n) noexcept {
     f.now+=release_delay; pad+=n; emitted.insert(emitted.end(),buffer.begin(),buffer.begin()+size_t(n)*2*f.format.channels); return bad_release;
@@ -324,10 +326,86 @@ static void late_device() {
       CHECK(f.api.flush(f.api.context,91,f.lease,nullptr)==IAP2_OK); d.release_delay=0;
       CHECK(f.submit(9000,800)==IAP2_OK&&f.poll()==IAP2_OK&&d.starts==1); }
 }
+static void drift_servo() {
+    for(uint32_t rate:{8000u,44100u,48000u}) for(int native:{-300,0,300}) {
+        projection_pcm::Drift s; double frame=1; uint64_t now=1000*ms;
+        CHECK(!s.update(1,now,0,rate,1000)); double maximum=0;
+        for(unsigned i=1;i<=90;++i) { // 180 seconds, piecewise actual applied consumption rate.
+            int old=s.ppm; frame+=2.0*rate*(1.0+native/1000000.0)*(1.0+old/1000000.0); now+=2000*ms;
+            auto frames=static_cast<uint64_t>(frame); uint64_t due=1000*ms+(frames-1)*1000000000/rate;
+            int64_t phase=now>=due?static_cast<int64_t>(now-due):-static_cast<int64_t>(due-now);
+            s.update(frames,now,phase,rate,1000); CHECK(std::abs(s.ppm-old)<=100&&std::abs(s.ppm)<=1000);
+            if(i>30) maximum=std::max(maximum,std::abs(double(phase)));
+        }
+        CHECK(maximum<600000&&std::abs(s.estimate-native)<100&&std::abs(s.ppm+native)<120);
+        int previous=s.ppm; CHECK(s.update(s.frames+rate,s.ns+5000*ms,0,rate,1000)==(previous!=0));
+        CHECK(!s.anchored&&!s.ppm&&!s.estimated); // Observation gap never becomes a slope.
+    }
+    projection_pcm::Drift s; CHECK(!s.update(1,1,0,48000,200));
+    CHECK(!s.update(2,2000*ms,0,48000,200)&&!s.estimated); // Before exact 2-second boundary.
+    CHECK(s.update(96001,2000*ms+1,100*ms,48000,200)&&s.ppm==100);
+    CHECK(!s.update(96001,2000*ms+1,100*ms,48000,200)); // Same observation cannot adjust twice.
+    CHECK(s.update(192001,4000*ms+1,100*ms,48000,200)&&s.ppm==200);
+    CHECK(s.update(192001,6000*ms+1,0,48000,200)&&!s.ppm&&!s.anchored); // Frozen clock invalidates evidence.
+    for(unsigned bad=0;bad<5;++bad) { s.clear(); s.update(1,1,0,48000,1000); s.update(96001,2000*ms+1,ms,48000,1000); CHECK(s.ppm);
+        bool changed=false;
+        if(bad==0) changed=s.update(192001,4000*ms+1,100*ms+1,48000,1000);
+        if(bad==1) changed=s.update(0,4000*ms+1,0,48000,1000);
+        if(bad==2) changed=s.update(192001,1,0,48000,1000);
+        if(bad==3) changed=s.update(UINT64_MAX,4000*ms+1,0,48000,1000);
+        if(bad==4) changed=s.update(192001,4000*ms+1,0,48000,1001);
+        CHECK(changed&&!s.ppm&&!s.anchored); }
+    // Dense observations with correlated-time noise and a changing oscillator.
+    for(uint32_t rate:{8000u,44100u,48000u}) {
+        s.clear(); double exact=1; uint64_t maximum=0; unsigned updates=0;
+        s.update(1,1000*ms,0,rate,1000);
+        for(unsigned i=1;i<=1800;++i) {
+            int native=i<=600?500:-500,old=s.ppm;
+            exact+=0.1*rate*(1.0+native/1000000.0)*(1.0+old/1000000.0);
+            uint64_t frame=static_cast<uint64_t>(exact),actual=1000*ms+uint64_t(i)*100*ms;
+            int64_t jitter=(static_cast<int64_t>(i%5)-2)*10000;
+            uint64_t qpc=static_cast<uint64_t>(static_cast<int64_t>(actual)+jitter),due=1000*ms+(frame-1)*1000000000/rate;
+            int64_t phase=static_cast<int64_t>(qpc)-static_cast<int64_t>(due);
+            if(s.update(frame,qpc,phase,rate,1000)) { ++updates; CHECK(std::abs(s.ppm-old)<=100); }
+            if(i>1200) maximum=std::max(maximum,qpc>due?qpc-due:due-qpc);
+        }
+        CHECK(updates>10&&maximum<600000&&std::abs(s.estimate+500)<100&&std::abs(s.ppm-500)<120);
+    }
+}
+static void drift_output() {
+    { Fixture f(0,4,0,1001); CHECK(f.prepare()==IAP2_ARGUMENT&&!f.opened); }
+    { Fixture f(0,4,0,500); f.adjustable=false; CHECK(f.prepare()==IAP2_UNSUPPORTED&&f.closed==1); }
+    for(unsigned mode=0;mode<6;++mode) {
+        Fixture f(0,4,30,500); f.ready(); auto& d=*f.last; uint64_t beginning=f.now; uint32_t sample=0;
+        if(mode==4) { uint64_t sibling=0; CHECK(f.prepare(101,&sibling)==IAP2_OK); }
+        CHECK(d.rates==std::vector<int32_t>{0});
+        auto send=[&] { CHECK(f.submit(sample,400,0,0,false,beginning+uint64_t(sample)*125000,true)==IAP2_OK); sample+=400; };
+        send(); send(); CHECK(f.poll()==IAP2_OK); send();
+        for(unsigned i=1;i<=45;++i) {
+            f.now=beginning+uint64_t(i)*50*ms+ms; d.pos=uint64_t(i)*1600; d.pad=400;
+            if(mode==4&&i==41) d.bad_adjust=-66;
+            int r=f.poll();
+            if(mode==4&&i==41) { CHECK(r==-66&&f.closed==2); break; }
+            CHECK(r==IAP2_OK); send();
+        }
+        if(mode==4) continue;
+        CHECK(d.rates.size()==2&&d.rates.back()==100&&d.starts==1);
+        auto calls=d.rates.size(); f.observe(); f.observe(); CHECK(d.rates.size()==calls); // Feedback query is not an actuator.
+        if(mode==0) { projection_audio_flush_request q{}; CHECK(f.api.flush(f.api.context,91,f.lease,&q)==IAP2_OK&&d.rates.back()==0);
+            CHECK(f.api.flush(f.api.context,91,f.lease,nullptr)==IAP2_OK); }
+        if(mode==1||mode==5) {
+            f.now+=50*ms; d.pos+=1600; d.pad=400; CHECK(f.poll()==IAP2_OK); // Empty the software queue first.
+            if(mode==1) d.bad_position=IAP2_MORE; else d.qpc=f.now;
+            f.now+=1000*ms; CHECK(f.poll()==IAP2_MORE&&d.rates.back()==0&&!d.resets); // No late-drop/reset can mask an outage bug.
+        }
+        if(mode==2) { d.pos+=400; f.now+=100*ms; int r=f.poll(); CHECK((r==IAP2_OK||r==IAP2_MORE)&&d.resets==1&&d.rates.back()==0); }
+        if(mode==3) { d.bad_adjust=-77; projection_audio_flush_request q{}; CHECK(f.api.flush(f.api.context,91,f.lease,&q)==-77&&f.closed==1); }
+    }
+}
 int main() {
     try {
-        arithmetic(); startup_and_pcm(); queue_and_wrap(); drain_and_restart(); cleanup_and_failure(); observations(); validation(); flush_epochs(); timed_and_concealed(); late_queue(); late_device();
-        std::cout<<"PASS: 11 PCM output groups including scheduled startup, late-media recovery and concealment-aware feedback; device seam is synthetic, no speaker/microphone access.\n";
+        arithmetic(); startup_and_pcm(); queue_and_wrap(); drain_and_restart(); cleanup_and_failure(); observations(); validation(); flush_epochs(); timed_and_concealed(); late_queue(); late_device(); drift_servo(); drift_output();
+        std::cout<<"PASS: 13 PCM output groups including bounded clock drift, late-media recovery and concealment-aware feedback; device seam is synthetic, no speaker/microphone access.\n";
         std::cout<<"x64 PCM output owner bytes: "<<sizeof(Output)<<" (includes three 65536-byte queues; device/OS allocations additional)\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

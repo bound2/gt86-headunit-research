@@ -27,8 +27,8 @@ struct Owner {
 static void arguments() {
     projection_wasapi *p=reinterpret_cast<projection_wasapi*>(1);
     CHECK(projection_wasapi_create(nullptr,91,&p)==IAP2_ARGUMENT&&!p);
-    projection_wasapi_config config{L"not-a-real-render-endpoint-gt86-test",100,20,50};
-    for(int bad=0;bad<7;++bad) {
+    projection_wasapi_config config{L"not-a-real-render-endpoint-gt86-test",100,20,50,500};
+    for(int bad=0;bad<8;++bad) {
         auto c=config; uint64_t gen=91;
         if(bad==0) c.endpoint_id=nullptr;
         if(bad==1) c.endpoint_id=L"";
@@ -37,6 +37,7 @@ static void arguments() {
         if(bad==4) c.startup_ms=501;
         if(bad==5) gen=0;
         if(bad==6) c.late_ms=1001;
+        if(bad==7) c.drift_ppm=1001;
         CHECK(projection_wasapi_create(&c,gen,&p)==IAP2_ARGUMENT&&!p);
     }
     std::wstring long_id(1024,L'x'); auto c=config; c.endpoint_id=long_id.c_str();
@@ -76,8 +77,8 @@ static void list() {
         std::wcout<<id<<L'\n'; CoTaskMemFree(id);
     }
 }
-static void device(const wchar_t *id,bool silent) {
-    Owner owner; projection_wasapi_config config{id,100,20,0};
+static void device(const wchar_t *id,bool silent,bool drift=false) {
+    Owner owner; projection_wasapi_config config{id,100,20,drift?30u:0u,drift?500u:0u};
     CHECK(projection_wasapi_create(&config,91,&owner.p)==IAP2_OK);
     auto sink=projection_wasapi_sink(owner.p);
     projection_audio_format f{}; CHECK(projection_audio_format_get(32768,&f)==IAP2_OK);
@@ -96,13 +97,15 @@ static void device(const wchar_t *id,bool silent) {
     // Opt-in ONLY. All bytes are zero, no tone, loopback capture, mic or volume API.
     std::vector<uint8_t> zeros(1920,0);
     projection_audio_packet packet{}; packet.data=zeros.data(); packet.size=zeros.size(); packet.frames=480; packet.sample_time=10000;
+    uint64_t base=projection_wasapi_clock_ns(nullptr); CHECK(base<UINT64_MAX-100000000); base+=100000000;
+    packet.timed=static_cast<uint8_t>(drift); if(drift) packet.presentation_ns=base;
     bool observed=false; unsigned accepted=0;
-    auto end=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    auto end=std::chrono::steady_clock::now()+std::chrono::seconds(drift?12:2);
     while(std::chrono::steady_clock::now()<end) {
         uint64_t now=projection_wasapi_clock_ns(nullptr);
         int code=sink.poll(sink.context,91,lease,now); CHECK(code==IAP2_OK||code==IAP2_MORE);
         code=sink.submit(sink.context,91,lease,&f,&packet); CHECK(code==IAP2_OK||code==IAP2_MORE);
-        if(code==IAP2_OK) { packet.sample_time+=480; ++accepted; }
+        if(code==IAP2_OK) { packet.sample_time+=480; ++accepted; if(drift) packet.presentation_ns=base+uint64_t(accepted)*10000000; }
         CHECK(sink.playback(sink.context,91,lease,&p)==IAP2_OK);
         if(p.has_position) {
             CHECK(p.sample_rate==48000&&p.raw_ns<=projection_wasapi_clock_ns(nullptr)&&p.sample_time>=10000&&p.sample_time<packet.sample_time);
@@ -113,6 +116,7 @@ static void device(const wchar_t *id,bool silent) {
     sink.close(sink.context,91,lease);
     CHECK(observed&&accepted>0);
     std::cout<<"PASS: explicit endpoint accepted zero PCM and returned device-clock media observations; no audible signal or capture requested.\n";
+    if(drift) std::cout<<"Drift mode: per-stream rate adjustment enabled; this smoke check does not establish acoustic quality or a known-drift calibration.\n";
 }
 int wmain(int argc,wchar_t **argv) {
     try {
@@ -120,7 +124,9 @@ int wmain(int argc,wchar_t **argv) {
         else if(argc==2&&std::wstring(argv[1])==L"--list") list();
         else if(argc==3&&std::wstring(argv[1])==L"--prepare") device(argv[2],false);
         else if(argc==3&&std::wstring(argv[1])==L"--silent-smoke") device(argv[2],true);
-        else { std::cerr<<"Usage: projection_wasapi_probe --arguments | --list | --prepare ENDPOINT_ID | --silent-smoke ENDPOINT_ID\n"; return 2; }
+        else if(argc==3&&std::wstring(argv[1])==L"--prepare-drift") device(argv[2],false,true);
+        else if(argc==3&&std::wstring(argv[1])==L"--silent-drift") device(argv[2],true,true);
+        else { std::cerr<<"Usage: projection_wasapi_probe --arguments | --list | --prepare ENDPOINT_ID | --silent-smoke ENDPOINT_ID | --prepare-drift ENDPOINT_ID | --silent-drift ENDPOINT_ID\n"; return 2; }
         return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

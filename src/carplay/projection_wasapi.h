@@ -12,6 +12,7 @@ typedef struct projection_wasapi_config {
     uint32_t buffer_ms; /* 40..500, requested shared-mode buffer capacity. */
     uint32_t startup_ms; /* 0..500, wait after first queued packet for prefill. */
     uint32_t late_ms; /* 0=disabled; 1..1000 discards overdue timed PCM. */
+    uint32_t drift_ppm; /* 0=disabled; 1..1000 bounds timed per-stream rate correction. */
 } projection_wasapi_config;
 /* Windows-only PCM16 output, types 100..102, one stream of each type. Creates
  * an STA COM scope on this thread (fails if already in an incompatible MTA).
@@ -35,7 +36,7 @@ typedef struct projection_wasapi_config {
  * bounded loss recovery and local timed delivery; this PCM backend does not
  * invent those policies. Timed packets can prefill before presentation_ns, but
  * the device starts no earlier than that bound. It preserves contiguous time
- * metadata within one ns of rounding. No peer-NTP/A-V sync or drift correction.
+ * metadata within one ns of rounding. No peer-NTP/A-V sync.
  * Two-phase FLUSH clears prefilled/playing media and re-arms on reply drain.
  * Optional late_ms drops queued frames more than this budget past their original
  * presentation time, then trims to the first current/future frame (hysteresis).
@@ -46,6 +47,20 @@ typedef struct projection_wasapi_config {
  * gaps; it is not resampling, drift correction, a wire FLUSH or acoustic timing.
  * Untimed PCM and late_ms=0 retain previous behavior. Decoder ownership deadlines
  * still fail closed; this policy does not rescue an unpolled/expired session.
+ *
+ * Optional drift_ppm requires a RATEADJUST-capable shared render stream. Timed
+ * PCM uses accurate position/QPC pairs, 2..4-second measurement windows, a
+ * filtered residual rate estimate, eight-second phase correction, the selected
+ * ppm cap and <=100 ppm slew per window. It calls IAudioClockAdjustment only on
+ * this serial NON-real-time owner thread, never from a real-time callback.
+ * Rate changes are per stream, not device defaults. Input frames/timestamps and
+ * advertised rates do not change. Frequency units and capacity must stay fixed.
+ * An observation outage, invalid slope/phase, drain/reset or FLUSH restores
+ * nominal rate and retires the estimate. SetSampleRate failure closes resources;
+ * no fallback or optimistic correction is supplied. Playback queries never
+ * actuate rates and still require actual observations. This corrects device
+ * drift against the local timeline, not the phone clock; physical mapping,
+ * resampler quality and handset synchronization still need validation.
  *
  * Low buffer headroom stops appending: drain known frames, Stop/Reset, then
  * prefill a new epoch. This can cause an audible gap, not a false clock anchor.

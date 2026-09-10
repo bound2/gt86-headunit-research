@@ -91,9 +91,9 @@ RTP reception now adds seven core and seven actual UDP-service test groups, with
 17 explicit format mappings, nonce replay/reordering, gap reporting, PCM byte
 conversion and session/feedback integration. An explicit Windows WASAPI PCM sink
 now adds bounded queues, prefilled startup and device-clock observations, with
-eleven output groups and separate COM/thread/clock checks. The final device in
+thirteen output groups and separate COM/thread/clock checks. The final device in
 automated playback tests remains synthetic. Optional real AAC-LC/Opus decoders
-and an owning PCM bridge now add seven decoder and six loopback integration
+and an owning PCM bridge now add seven decoder and seven loopback integration
 groups, 33 synthetic packets and 1,000 mutation checks. A separate reference
 compares 59,648 samples, with explicitly documented noise/hybrid limitations.
 An optional two-phase authenticated FLUSH now retires queued media and codec/
@@ -103,7 +103,9 @@ CarPlay behavior. Explicit relative pacing and bounded nonce-gap recovery now
 add Opus PLC, marked PCM/AAC silence, timed startup and concealment-aware feedback.
 Four sustained real-UDP timelines pass with a synthetic progressing device;
 opt-in late PCM discard now also recovers delayed bursts without resetting codec
-history or replay state. Adaptive drift, sender/A-V sync and selective buffering remain work.
+history or replay state. Bounded output-clock drift correction now uses per-stream
+rate adjustment and observed clocks; sender-clock mapping/A-V sync and selective
+buffering remain work. Drift response tests also use synthetic devices.
 Physical playback verification, video/mic/input, control modes,
 target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
@@ -124,14 +126,15 @@ service, two audio suites, PCM output/Windows argument checks and three TLS/cark
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-71, [the persistent-store report](pair-store.md),
+Steps 22-72, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
 and [event commands](projection-events.md) / [observed feedback](projection-feedback.md)
 / [audio reception](projection-audio.md) / [PCM output](projection-pcm-output.md)
 / [compressed decoding](projection-decode.md) / [authenticated FLUSH](projection-flush.md)
-/ [relative playout](projection-playout.md) / [late PCM recovery](projection-late-audio.md). Hosted TLS
+/ [relative playout](projection-playout.md) / [late PCM recovery](projection-late-audio.md)
+/ [output-clock drift](projection-drift.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
@@ -3032,6 +3035,35 @@ No device, speaker, microphone, phone, firmware, USB or car was changed. Next
 implement clock-drift handling and sender/A-V synchronization; factory execution,
 native transport, authentication-chip access and phone acceptance remain gates.
 
+## Step 72 - Correct local output-clock drift with bounded rate adjustment
+
+Date: 2026-09-10. Added [projection-drift.md](projection-drift.md) and explicit
+`projection_wasapi_config.drift_ppm` (0 disabled; 1..1000 absolute ppm cap).
+Accurate device observations feed a bounded 2..4-second rate estimator, filtered
+drift and eight-second phase correction, with <=100 ppm command slew per window.
+The real shared-mode adapter uses RATEADJUST/IAudioClockAdjustment and checks that
+clock units/capacity remain fixed. No source frame or advertised rate is relabeled.
+
+Stale/inaccurate or implausible evidence returns to nominal. Drain/reset and
+FLUSH retire controller history; rate errors close children, including siblings.
+Feedback queries never change the rate. Clock control is against the original
+local timeline, not a sender-NTP/RTP mapping or acoustic-calibration result.
+
+Thirteen PCM and seven decoder-service groups pass. Tests include constant and
+changing/noisy clocks, bounded correction, invalid evidence, cleanup and eight
+2000-packet encrypted IPv4/IPv6 AAC/Opus streams with +/-300 ppm drift and packet
+loss. The synthetic device preserves one Start and all expected PCM frames, with
+phase below 1 ms after 30 seconds. No physical rate-adjustment test was run.
+
+All 42 media and 40 combined CTest suites, 25 Python regressions, both codec-enabled
+and all 13 hosted sanitizer checks pass. Strict production warnings/static
+analysis pass; prior codec/reference and toolchain limitations remain unchanged.
+
+Explicit prepare/silent drift probe modes are compiled for later selected-device
+validation; they do not run automatically. Next establish sender timing/media
+mapping and A/V synchronization. Factory execution/recovery, native transport,
+Apple-chip access, remaining media/input/focus and handset acceptance remain gates.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -3042,9 +3074,11 @@ native transport, authentication-chip access and phone acceptance remain gates.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Validate the explicit PCM device backend, implement adaptive clock-drift
-   policy, sender/A-V synchronization, selective buffered
+3. Validate the explicit PCM device/rate-adjustment backend, implement sender
+   clock mapping/A-V synchronization, selective buffered
    flush, remaining media/input backends and control mode/resource semantics.
+   Step 72 adds bounded local output-clock drift correction using observed clocks
+   and per-stream rate adjustment; the sender's timing mapping remains separate.
    Step 71 adds opt-in late PCM discard/device restart on the original timeline,
    with unchanged codec/replay history; no adaptive drift correction is implied.
    Step 70 adds opt-in relative timed PCM delivery and bounded packet-loss recovery

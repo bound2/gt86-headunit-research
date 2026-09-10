@@ -538,3 +538,14 @@ policy are local design choices, not Apple conformance or acoustic guarantees.
 No new dependency, copied upstream body, credential or media recording is added.
 See [projection-late-audio.md](../reports/projection-late-audio.md) for primary
 links, verification scope and remaining integration work.
+
+## Bounded local clock drift (Step 72)
+
+The PCM controller, Windows rate-adjustment adapter and tests retain GPL-3.0-only.
+Microsoft's IAudioClock position/frequency, IAudioClockAdjustment::SetSampleRate
+and stream-flag documentation supply API contracts. The filtered measurement,
+phase horizon, slew/cap and evidence-reset policies are local design choices;
+no upstream body or new library is copied/linked. Windows performs per-stream
+conversion; its physical mapping/quality and sender synchronization remain
+unverified. See [projection-drift.md](../reports/projection-drift.md) for primary
+sources, exact policy, synthetic validation and remaining hardware requirements.

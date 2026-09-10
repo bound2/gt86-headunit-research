@@ -13,6 +13,7 @@ constexpr size_t queue_bytes=65536;
 constexpr size_t device_frames=48000;
 struct Device {
     uint32_t capacity=0; uint64_t frequency=0,period_ns=0;
+    bool rate_adjustable=false;
     virtual ~Device() noexcept = default;
     virtual int padding(uint32_t&) noexcept=0;
     virtual int acquire(uint32_t,uint8_t*&) noexcept=0;
@@ -21,6 +22,9 @@ struct Device {
     virtual int reset() noexcept=0; /* Stop + Reset, synchronous. */
     /* OK=accurate, MORE=inaccurate; QPC position already in ns, no extrapolation. */
     virtual int position(uint64_t&,uint64_t&) noexcept=0;
+    /* Per-stream consumption rate, ppm relative to its original PCM rate.
+     * Must preserve position/frequency -> original submitted-frame mapping. */
+    virtual int adjust(int32_t) noexcept { return IAP2_UNSUPPORTED; }
 };
 struct Bindings {
     void *context=nullptr;
@@ -29,9 +33,17 @@ struct Bindings {
     bool (*thread)(void*) noexcept=nullptr;
 };
 bool scale(uint64_t value,uint64_t frequency,uint32_t rate,uint64_t& out) noexcept;
+/* Internal clock servo. No I/O or played-position inference. Caller supplies
+ * accurate, contiguous device observations and owns rate application/reset. */
+struct Drift {
+    uint64_t frames=0,ns=0; double estimate=0;
+    int32_t ppm=0; bool anchored=false,estimated=false;
+    void clear() noexcept { *this=Drift{}; }
+    bool update(uint64_t frame,uint64_t qpc,int64_t phase_ns,uint32_t rate,uint32_t limit) noexcept;
+};
 class Output {
 public:
-    Output(Bindings,uint64_t,uint32_t buffer_ms,uint32_t startup_ms,uint32_t late_ms=0) noexcept;
+    Output(Bindings,uint64_t,uint32_t buffer_ms,uint32_t startup_ms,uint32_t late_ms=0,uint32_t drift_ppm=0) noexcept;
     ~Output() noexcept;
     Output(const Output&)=delete; Output& operator=(const Output&)=delete;
     projection_audio_sink sink() noexcept;
@@ -48,9 +60,10 @@ private:
         uint32_t type=0,next_sample=0,origin=0;
         bool armed=false,running=false,draining=false,has_input=false,observed=false,flushing=false;
         bool timed=false,primed=false;
+        Drift drift{}; uint64_t drift_seen_ns=0;
     };
     Bindings bindings_; uint64_t generation_,serial_=0,now_=0;
-    uint32_t buffer_ms_,startup_ms_,late_ms_; bool failed_=false;
+    uint32_t buffer_ms_,startup_ms_,late_ms_,drift_ppm_; bool failed_=false;
     std::array<Slot,3> slots_{};
     bool valid(uint64_t) const noexcept;
     int refresh() noexcept;
@@ -64,6 +77,8 @@ private:
     int scheduled(const Slot&,uint64_t frames,uint64_t& due) noexcept;
     int reset_epoch(Slot&) noexcept;
     int trim_late(Slot&) noexcept;
+    int correct_drift(Slot&,int observation,uint64_t frames) noexcept;
+    int nominal(Slot&) noexcept;
     static int open(void*,uint64_t,const projection_session_resource*,const projection_audio_format*,uint64_t*) noexcept;
     static int start(void*,uint64_t,uint64_t) noexcept;
     static int submit(void*,uint64_t,uint64_t,const projection_audio_format*,const projection_audio_packet*) noexcept;

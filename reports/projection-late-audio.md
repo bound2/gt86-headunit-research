@@ -150,8 +150,10 @@ No physical endpoint is selected or started by these checks.
 
 ## Step 6 - Remaining work
 
-Next implement clock-drift estimation/correction with explicit clock evidence,
-then sender timing/A-V mapping. This policy can remove accumulated late output
+Continued in [Step 72: local output-clock drift](projection-drift.md), which adds
+opt-in bounded per-stream rate correction from observed device clocks. The Step 71
+results above remain historical. Next establish sender timing/A-V mapping.
+The late-drop policy can remove accumulated late output
 by discontinuity, but does not estimate rate mismatch, stretch/resample audio,
 adapt latency, or guarantee smooth/perceptually acceptable recovery. Trailing
 loss, DTX/FEC/retransmission and selective buffered FLUSH remain unfinished.

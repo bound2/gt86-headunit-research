@@ -21,6 +21,7 @@ extern "C" const IID IID_IMMEndpoint=__uuidof(IMMEndpoint);
 extern "C" const IID IID_IAudioClient=__uuidof(IAudioClient);
 extern "C" const IID IID_IAudioRenderClient=__uuidof(IAudioRenderClient);
 extern "C" const IID IID_IAudioClock=__uuidof(IAudioClock);
+extern "C" const IID IID_IAudioClockAdjustment=__uuidof(IAudioClockAdjustment);
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
@@ -31,9 +32,10 @@ struct WasapiDevice final:projection_pcm::Device {
     IAudioClient *client=nullptr;
     IAudioRenderClient *render=nullptr;
     IAudioClock *clock=nullptr;
+    IAudioClockAdjustment *adjustment=nullptr; uint32_t nominal_rate=0;
     ~WasapiDevice() noexcept override {
         if(client) client->Stop();
-        ::release(clock); ::release(render); ::release(client);
+        ::release(adjustment); ::release(clock); ::release(render); ::release(client);
     }
     int padding(uint32_t& n) noexcept override { return result(client->GetCurrentPadding(&n)); }
     int acquire(uint32_t n,uint8_t*& p) noexcept override { return result(render->GetBuffer(n,&p)); }
@@ -49,15 +51,24 @@ struct WasapiDevice final:projection_pcm::Device {
         if(r!=S_OK||raw>UINT64_MAX/100) return IAP2_PROVIDER_FAILED;
         q=raw*100; return IAP2_OK;
     }
+    int adjust(int32_t ppm) noexcept override {
+        if(!adjustment||ppm< -1000||ppm>1000) return IAP2_UNSUPPORTED;
+        HRESULT r=adjustment->SetSampleRate(static_cast<float>(double(nominal_rate)*(1.0+double(ppm)/1000000.0)));
+        if(r!=S_OK) return result(r);
+        UINT64 current=0; UINT32 frames=0;
+        r=clock->GetFrequency(&current); if(r==S_OK) r=client->GetBufferSize(&frames);
+        if(r!=S_OK) return result(r);
+        return current==frequency&&frames==capacity?IAP2_OK:IAP2_UNSUPPORTED;
+    }
 };
 }
 struct projection_wasapi {
     DWORD thread=GetCurrentThreadId();
     wchar_t endpoint[1024]{};
-    bool com=false;
+    bool com=false,rate_adjust=false;
     projection_pcm::Output output;
-    projection_wasapi(uint64_t gen,uint32_t buffer,uint32_t startup,uint32_t late_budget) noexcept:
-        output({this,open,clock,on_thread},gen,buffer,startup,late_budget) {}
+    projection_wasapi(uint64_t gen,uint32_t buffer,uint32_t startup,uint32_t late_budget,uint32_t drift_limit) noexcept:
+        rate_adjust(drift_limit!=0),output({this,open,clock,on_thread},gen,buffer,startup,late_budget,drift_limit) {}
     static bool on_thread(void *p) noexcept { return static_cast<projection_wasapi*>(p)->thread==GetCurrentThreadId(); }
     static uint64_t clock(void*) noexcept { return projection_wasapi_clock_ns(nullptr); }
     static int open(void *p,const projection_audio_format& f,uint32_t buffer,projection_pcm::Device*& out) noexcept {
@@ -81,7 +92,8 @@ struct projection_wasapi {
         GUID session{};
         if(r==S_OK) r=CoCreateGuid(&session); // Private nonpersistent session, no saved-volume mutation.
         if(r==S_OK) r=stream->client->Initialize(AUDCLNT_SHAREMODE_SHARED,
-            AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM|AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY|AUDCLNT_STREAMFLAGS_NOPERSIST,
+            AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM|AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY|AUDCLNT_STREAMFLAGS_NOPERSIST|
+            (owner.rate_adjust?AUDCLNT_STREAMFLAGS_RATEADJUST:0),
             REFERENCE_TIME(buffer)*10000,0,&format,&session);
         REFERENCE_TIME period=0;
         if(r==S_OK) r=stream->client->GetBufferSize(&stream->capacity);
@@ -91,6 +103,8 @@ struct projection_wasapi {
         if(r==S_OK) r=stream->client->GetService(IID_IAudioRenderClient,reinterpret_cast<void**>(&stream->render));
         if(r==S_OK) r=stream->client->GetService(IID_IAudioClock,reinterpret_cast<void**>(&stream->clock));
         if(r==S_OK) r=stream->clock->GetFrequency(&stream->frequency);
+        if(r==S_OK&&owner.rate_adjust) r=stream->client->GetService(IID_IAudioClockAdjustment,reinterpret_cast<void**>(&stream->adjustment));
+        stream->rate_adjustable=stream->adjustment!=nullptr; stream->nominal_rate=f.clock_rate;
         ::release(endpoint); ::release(device); ::release(enumerator);
         if(r!=S_OK) { delete stream; return result(r); }
         out=stream; return IAP2_OK;
@@ -104,10 +118,10 @@ extern "C" uint64_t projection_wasapi_clock_ns(void*) {
 }
 extern "C" int projection_wasapi_create(const projection_wasapi_config *c,uint64_t gen,projection_wasapi **out) {
     if(out) *out=nullptr;
-    if(!c||!out||!gen||!c->endpoint_id||!c->endpoint_id[0]||c->buffer_ms<40||c->buffer_ms>500||c->startup_ms>500||c->late_ms>1000) return IAP2_ARGUMENT;
+    if(!c||!out||!gen||!c->endpoint_id||!c->endpoint_id[0]||c->buffer_ms<40||c->buffer_ms>500||c->startup_ms>500||c->late_ms>1000||c->drift_ppm>1000) return IAP2_ARGUMENT;
     size_t n=0; while(n<1024&&c->endpoint_id[n]) ++n;
     if(n==1024) return IAP2_ARGUMENT;
-    auto *owner=new(std::nothrow) projection_wasapi(gen,c->buffer_ms,c->startup_ms,c->late_ms);
+    auto *owner=new(std::nothrow) projection_wasapi(gen,c->buffer_ms,c->startup_ms,c->late_ms,c->drift_ppm);
     if(!owner) return IAP2_NO_SPACE;
     HRESULT r=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
     if(FAILED(r)) { delete owner; return IAP2_PROVIDER_FAILED; }
