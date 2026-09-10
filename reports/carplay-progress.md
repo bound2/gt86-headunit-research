@@ -3352,12 +3352,33 @@ native integration findings, not a working CarPlay renderer or installable image
 Next trace what supplies decoded pixels to this interface: RFB/HSML graphics
 handling and WFD/H.264 negotiation names are not proof of a reusable video decoder.
 
+## Step 83 - Separate RAW pixel copying from the null WFD client factory
+
+Followed the recovered remote-UI library's graphics codec and WFD creation
+boundary. The RAW codec uses the graphic-window lock/unlock interface and copies
+pixel bytes with row/stride accounting; it does not decompress H.264. More
+decisively, the selected WFD client factory logs twice and returns null. Its
+caller tests that pointer and takes the failure path. H.264 format/negotiation
+structures in this build therefore do not establish a working WFD decoder.
+Exact addresses, input pins and limitations are recorded step by step in
+[factory-video-decoder.md](factory-video-decoder.md).
+
+Added a pinned read-only inspector and six regression tests. All 64 Python tests
+pass. The complete manually audited WFD factory body is separately hashed;
+tests reject modified inputs and do not execute the target code. No receiver
+production code, firmware, installation media or vehicle state changed.
+
+This closes one decoder lead for the selected later-corpus implementation, not
+the entire software-only approach. Next trace the separate AIR media-graph and
+decoder-acquisition boundary; its H.264 names still do not establish availability
+or an external API. CarPlay remains unimplemented on the intended factory unit.
+
 ## Next checks
 
-1. Trace the remote-UI pixel producer and decoder boundary in the newly extracted
-   WiCoME libraries. Step 82 identifies CPU pixel staging, GLES upload/draw,
-   EGL presentation and separate cleanup paths. RFB/HSML handling and WFD/H.264
-   negotiation names do not establish an available CarPlay decoder. Step 81's
+1. Trace the AIR media-graph/decoder acquisition and compressed-input/output
+   boundary. Step 83 finds RAW pixel copying and a null-returning WFD client
+   factory, not a reusable H.264 decoder. Step 82 identifies CPU pixel staging,
+   GLES upload/draw, EGL presentation and separate cleanup paths. Step 81's
    window-name/visibility-cache constraints remain; the complete caption/event
    path and Toyota signal consumer are still not established.
    Step 80 finds that `displayState` can be emitted from local restoration:
@@ -3467,8 +3488,10 @@ handling and WFD/H.264 negotiation names are not proof of a reusable video decod
    validate complete certificates and coordinate bus ownership. iPhone
    acceptance remains a separate test. This is a condition on the software-only
    approach, not a requirement for an added receiver module.
-4. Resolve whether the AIR decoder can be used outside AIR, or whether a
-   separate decoder is needed. Port the remaining CarPlay session/media
+4. After tracing the AIR acquisition/input/output boundary, resolve whether that
+   decoder can be used outside AIR or whether a separate decoder is needed.
+   Step 83's null WFD factory must not be treated as an available alternative.
+   Port the remaining CarPlay session/media
    protocols and trace display ownership and audio focus.
 5. Once execution and recovery are established, prove display/input/audio with
    a minimal native diagnostic, then integrate a receiver and test video/audio.

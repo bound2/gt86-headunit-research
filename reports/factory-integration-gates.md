@@ -174,8 +174,12 @@ property calls. It identifies a visibility-cache constraint, not a working
 renderer or the Toyota signal's consumer. The
 [Step 82 producer trace](mirrorlink-graphics-producer.md) recovers WiCoME
 libraries omitted by the original selective extraction and follows CPU pixel
-staging, GLES drawing, EGL swapping and native cleanup. Next determine what
-supplies decoded pixels; no usable CarPlay decoder is established. Keep observation provenance and
+staging, GLES drawing, EGL swapping and native cleanup. The
+[Step 83 decoder-boundary trace](factory-video-decoder.md) identifies RAW pixel
+copying and a WFD factory that logs and returns null; the H.264 negotiation names
+do not supply a working decoder through that path. Next trace the separate AIR
+decoder-acquisition/input/output boundary. No usable CarPlay decoder is established.
+Keep observation provenance and
 later-corpus findings separate from verified behavior on the installed `6.9.0WL`
 unit.
 

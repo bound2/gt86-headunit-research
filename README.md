@@ -817,6 +817,11 @@ adds four specifically verified files from `MMC_PROG_DATA/wicome` in a separate
 fresh directory. On this host use `C:/Windows/System32/tar.exe` for ISO support;
 the GNU tar found earlier on PATH cannot read these images.
 
+The subsequent [video-decoder boundary investigation](reports/factory-video-decoder.md)
+uses those same files to distinguish RAW pixel copying from H.264 decoding and
+identify a null-returning WFD client factory. It does not produce a working
+CarPlay decoder or authorize flashing the later corpus onto the owner's unit.
+
 Only operate on the pinned, checksum-verified corpus when using these extraction
 commands. The scripts and analyzer are research tooling, not a general archive
 security audit or a firmware flasher. Raw firmware, extracted vendor files and
