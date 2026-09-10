@@ -363,3 +363,17 @@ stable public tokens and downstream-drain transfer are local ownership policies,
 not conformance claims. All new end-to-end tests use public synthetic credentials
 and an in-memory trust-provider simulation. See
 [receiver-routing.md](../reports/receiver-routing.md).
+
+`projection_info.c`/`.h`, its synthetic fixtures/tests and independent Python
+checker select GPL-3.0-only, as do the receiver extensions and projection-only
+plist decoder changes. The same pinned LIVI `getInfo.ts`, `hid.ts`, `bplist.ts`
+and `cpStack.ts` provide schema/format references; Apple CoreFoundation and
+CPython plistlib were read only to cross-check binary serialization. No upstream
+implementation bodies, usable HID descriptors/images, actual identity or
+credentials were copied. The encoder and decoder changes are local code; no new
+receiver dependency or version is introduced. Runtime availability, explicit
+plaintext opt-in, exact routes, finite-real/node limits and output/deadline
+ownership are local policies, not Apple conformance claims. The public synthetic
+test profiles do not establish actual hardware capabilities. Exact source blobs,
+independent checks and limitations are in
+[projection-capabilities.md](../reports/projection-capabilities.md).

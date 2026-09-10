@@ -64,29 +64,36 @@ and encrypted-control integration. MFiSAP response calculation and an owning
 encrypted `/auth-setup` route now add seven groups, including same-transport
 enrollment-to-verification-to-MFi handoff. Cryptography is real; the explicit
 certificate/signature test providers are synthetic, not Apple credentials or
-proof of handset acceptance. An initial receiver router now adds seven groups,
+proof of handset acceptance. An initial receiver router now has ten groups,
 explicit local permission and separate verified-candidate approval, automatic
 same-connection post-M6 transfer and public tokens stable across child phases.
-Target QNX storage, approval/revocation UI, initial discovery beyond pairing,
-capability/session handling, network/media and hardware
-integration remain missing. Python regression checks total 25, plus independent
+An explicit typed capability encoder adds four groups and three independent
+Python-decoded profiles, including a 25,777-byte response. Optional exact `/info`
+handling requires an explicit runtime availability check; pre-pairing plaintext
+discovery additionally requires opt-in and has count/absolute-time bounds.
+A separate projection plist decoder supports 640 nodes and finite real values
+without loosening the existing Lockdown parser. Target QNX storage,
+approval/revocation UI, broader discovery/phone interoperability, typed session/
+resource handling, network/media and hardware integration remain missing.
+Python regression checks total 25, plus independent
 checkers for 21 pair-verification, 12 control-frame, 51 setup and 39 combined
 MFi/pair-verification fixture values.
 Native USB and actual phone pairing remain absent.
-All nineteen ordinary, twenty-two TLS-only and thirty-one combined crypto/TLS
-CTest suites pass. All fifteen protocol suites, five pairing/control/store suites,
+All twenty ordinary, twenty-three TLS-only and thirty-two combined crypto/TLS
+CTest suites pass. All sixteen protocol/capability suites, five pairing/control/store suites,
 the enrollment, real-file, MFiSAP and receiver-router suites and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-60, [the persistent-store report](pair-store.md),
-[the encrypted MFi report](mfi-sap.md) and [receiver routing](receiver-routing.md). Hosted TLS
+Steps 22-61, [the persistent-store report](pair-store.md),
+[the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
+and [projection capabilities](projection-capabilities.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
-not included in either ARM claim. The new hosted MFi/AES and receiver targets and
-Windows-only filesystem backend are also
+not included in either ARM claim. The new capability encoder, hosted MFi/AES and
+receiver targets and Windows-only filesystem backend are also
 excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -2430,6 +2437,75 @@ audio/input resources must back advertised capabilities. Local approval/rate
 limiting, target persistence/revocation, provider scheduling, native USB-network
 ownership and installed-version execution/recovery remain necessary.
 
+## Step 61 - Encode explicit capabilities and own bounded discovery
+
+Date: 2026-09-10. Added [projection-capabilities.md](projection-capabilities.md)
+with pinned source blobs, typed profile rules, binary-format checks, route and
+runtime-provider contracts, tests and remaining target limits. The new pure
+`projection_info` encoder accepts only explicit identity, feature, display,
+audio, HID, resource and optional extension/OEM data. It supplies no production
+feature mask or guessed factory hardware properties. Structural consistency
+does not validate opaque HID/icon formats or actual backend availability.
+
+Encoding is bounded to 640 internal objects and 32,768 bytes, with measurement
+and failure-before-output guarantees. Positive `UINT64_MAX` retains its sign;
+speech mode -1 retains the pinned writer's real-number wire type. The full
+synthetic profile exposed the previous decoder's 256-object/no-real limit.
+A separate projection-only binary decoder now permits 640 objects/expanded
+nodes and finite 32/64-bit real values, stored as distinct raw-bit nodes without
+floating-point execution. The original Lockdown decoder remains unchanged in
+its accepted types and 256-node limit; NaN/infinity and unsupported extensions
+remain rejected.
+
+The existing receiver can enable exact `/info` once before initial input,
+requiring immutable profile data, separate scratch and an explicit bounded
+synchronous runtime availability callback. A valid GET or binary-dictionary
+POST produces the full profile, not selector-filtered data, through the normal
+owned response queue. Invalid requests, bad cipher records and failed providers
+close without a false success. Scratch clears, callbacks do not repeat under
+backpressure, and an application cannot replace an internally pending reply.
+No real runtime availability provider is implemented by the synthetic tests.
+
+Encrypted info is available after verification, before or after MFi, without
+implying media authorization. Initial plaintext discovery requires extra opt-in;
+default settings allow four replies within 60 seconds from receiver initialization
+when enabled. Discovery cannot renew that total lifetime or interleave in the
+middle of setup/verification. Replies must drain before the next initial request;
+following wire stays with the caller. Configuration and public tokens survive
+both pairing routes and automatic post-enrollment transfer.
+
+Four codec groups cover deterministic output, 42 invalid profiles, capacity/
+integer boundaries, isolated decoder semantics, real bit patterns, 640/641-node
+limits and 600 deterministic mutations/truncations. The receiver's three new
+groups bring it to ten, including full 310-object POSTs over fragmented cipher
+records, a 25,777-byte plaintext request and encrypted replies spanning more
+than 100 records, real enrollment/verification, retained tails, provider failures,
+clearing, stale callbacks and exact nonrenewable deadlines. Independent Python
+`plistlib` checks reproduce exact types/keys/values/order for three synthetic
+profiles of 580, 4,056 and 25,777 bytes (50, 310 and 415 objects).
+
+All 32 combined, 20 ordinary and 23 TLS-only CTest suites and 25 Python
+regressions pass. Sixteen protocol/capability sanitizer suites and seven hosted
+TLS/carkit/enrollment/file/MFi/router suites pass ASan/UBSan, with both crypto
+dependencies instrumented in the latter. Strict Clang C99/C++ warnings pass;
+static analysis finds no issue in the three changed C99 modules. The twenty-unit
+import-free ARM core check passes after the decoder change. Dependency CMake/
+MSVC warnings and the existing privileged-symlink test skip are recorded in the
+new report; actual Windows directory-junction rejection passes.
+
+The profile occupies 1,224 bytes and the hosted receiver 9,696 on x64, before
+caller buffers, stack and dependency allocations. Individual Clang-O2 frames
+include 28,392 bytes for encoding and 20,712 for info reply handling; these are
+not a whole-call-stack or QNX suitability proof. The new encoder/hosted receiver
+remain outside both existing ARM claims. No dependency version, actual phone,
+authentication chip, head unit, real trust record, firmware or update USB changed.
+
+Next implement typed SETUP/session/resource negotiation with explicit allocation,
+endpoint results and teardown, constrained by actually available capabilities.
+Real network/media/input backends, approval/rate limiting, target persistence/
+revocation, native USB-network ownership and installed-version execution/recovery
+remain necessary. Software-only CarPlay on the factory unit is not installable.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2440,12 +2516,16 @@ ownership and installed-version execution/recovery remain necessary.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement explicit capability encoding, evidence-backed discovery routing,
-   typed session handlers and network/media with real listeners. Step 60 connects
+3. Implement typed session/resource handlers and network/media with real listeners.
+   Step 61 adds explicit capability encoding and optional bounded `/info` routing,
+   including plaintext discovery opt-in and encrypted responses. Its runtime
+   availability contract still needs actual display/audio/input backend support;
+   request selectors and broader discovery variants are not implemented.
+   Step 60 connects
    initial pairing-mode selection, explicit local authorization and separate
    verified-candidate approval through one owning receiver, with automatic
    post-M6 transfer and stable public lifetime tokens. A real approval/rate-limit
-   frontend, non-pairing initial discovery and actual phone interoperability
+   frontend, broader initial discovery and actual phone interoperability
    remain missing; no generic initial command success is supplied.
    Step 59 implements the post-verification encrypted MFiSAP route and same-
    transport enrollment handoff using real crypto and explicit synthetic test

@@ -4,6 +4,7 @@
 #include "projection_receiver.h"
 #include "pair_store.h"
 #include "pair_test_support.h"
+#include "projection_info_fixture.h"
 
 template<class T> static auto snapshot(const T& s) {
     std::array<uint8_t,sizeof(T)> b{}; std::memcpy(b.data(),&s,sizeof(T)); return b;
@@ -26,7 +27,8 @@ struct Harness {
     bool enrolling=false,known=true; unsigned random_calls=0,lookups=0,commits=0,identities=0,signatures=0;
     int commit_error=0,random_error=0,identity_error=0; uint64_t incoming=0,outgoing=0;
     std::vector<rtsp_channel_key> completed;
-    Harness(const Vectors& a,const Vectors& b,bool setup=false,uint64_t now=0):v(a),setup_v(b),enrolling(setup) {
+    Harness(const Vectors& a,const Vectors& b,bool setup=false,uint64_t now=0,size_t control_capacity=8192)
+        :v(a),setup_v(b),initial(control_capacity),rx(control_capacity),tx(control_capacity),enrolling(setup) {
         const auto& id=v.at("pv_own_identifier");
         CHECK(pair_store_init(&store,v.at("pv_own_seed").data(),v.at("pv_own_public").data(),id.data(),id.size())==IAP2_OK);
         if(!setup) CHECK(pair_store_add(&store,v.at("pv_ctrl_identifier").data(),v.at("pv_ctrl_identifier").size(),v.at("pv_ctrl_public").data())==IAP2_OK);
@@ -341,12 +343,144 @@ static void exhausted_and_late(const Vectors& v,const Vectors& setup_v) {
       CHECK(projection_receiver_release(&h.s,key,10001)==PROJECTION_RECEIVER_CLOSED&&h.s.enrolled&&h.store.count==1);
       CHECK(h.s.auth.generation==0&&h.identities==0); h.cleared(); }
 }
+struct InfoBackend {
+    projection_info_profile profile;
+    Bytes scratch=Bytes(PROJECTION_INFO_LIMIT,0xa5); unsigned calls=0; int result=0;
+    explicit InfoBackend(unsigned variant=1):profile(info_fixture(variant)) {}
+    static int available(void* context,uint64_t generation,const projection_info_profile* profile) {
+        auto& self=*static_cast<InfoBackend*>(context); CHECK(generation==91&&profile==&self.profile);
+        ++self.calls; return self.result; // Explicit synthetic availability attestation, not a real driver.
+    }
+    projection_receiver_info_config config(bool initial=false) {
+        projection_receiver_info_config cfg{}; projection_receiver_info_default_config(&cfg);
+        cfg.profile=&profile; cfg.available=available; cfg.context=this; cfg.buffer=scratch.data(); cfg.capacity=scratch.size(); cfg.allow_initial=initial?1:0;
+        return cfg;
+    }
+    void enable(Harness& h,bool initial=false) { auto cfg=config(initial); auto saved=scratch;
+        CHECK(projection_receiver_enable_info(&h.s,91,&cfg,0)==IAP2_OK&&calls==0&&scratch==saved&&h.random_calls==0); }
+    void reply(const Bytes& encoded,bool http=false) {
+        rtsp_message response{}; size_t n=0; auto expected=info_encode(profile);
+        CHECK(rtsp_message_decode(encoded.data(),encoded.size(),&response,&n)==IAP2_OK&&response.status==200&&n==encoded.size());
+        CHECK(Bytes(response.body.data,response.body.data+response.body.size)==expected);
+        rtsp_slice type{}; CHECK(rtsp_header_get(&response,info_text("Content-Type"),&type)==IAP2_OK);
+        CHECK(Bytes(type.data,type.data+type.size)==bytes("application/x-apple-binary-plist"));
+        if(http) CHECK(response.protocol==RTSP_HTTP_11&&!response.has_cseq);
+        CHECK(zeroed(scratch.data(),expected.size()));
+    }
+};
+static Bytes empty_dictionary() {
+    return hex("62706c6973743030d0080000000000000101000000000000000100000000000000000000000000000009");
+}
+static void info_routes(const Vectors& v,const Vectors& setup_v) {
+    { InfoBackend info; Harness h(v,setup_v); info.enable(h,true);
+      auto get=bytes("GET /info HTTP/1.1\r\n\r\n"),next=outer(v.at("pv_m1"),1,"/pair-verify"); auto pipeline=get; pipeline.insert(pipeline.end(),next.begin(),next.end()); size_t used=0;
+      CHECK(h.feed(pipeline,1,&used)==RTSP_CHANNEL_OUTPUT&&used==get.size()&&info.calls==1&&h.random_calls==0&&h.s.state==PROJECTION_RECEIVER_DISCOVERY);
+      CHECK(h.feed(next,1,&used)==RTSP_BUSY&&used==0&&info.calls==1);
+      auto old=snapshot(h.s); rtsp_response fake={501,{},nullptr,0,{}};
+      CHECK(projection_receiver_respond(&h.s,h.s.key,&fake,UINT64_MAX)==RTSP_BUSY&&snapshot(h.s)==old);
+      info.reply(h.drain(false,IAP2_OK),true); CHECK(h.s.state==PROJECTION_RECEIVER_ROUTING&&h.s.initial_info_count==1);
+      h.pair(); CHECK(h.s.info.profile==&info.profile);
+      auto post=outer(empty_dictionary(),7,"/info","POST","application/x-apple-binary-plist");
+      CHECK(h.fragment(h.frame(post))==RTSP_CHANNEL_OUTPUT&&info.calls==2&&h.identities==0&&h.s.info_pending);
+      rtsp_message request{}; rtsp_channel_key key{};
+      CHECK(projection_receiver_request(&h.s,&request,&key)==IAP2_MORE&&!key.token);
+      info.reply(h.drain(true,IAP2_OK)); CHECK(!h.s.info_pending);
+      auto full=outer(info_encode(info.profile),71,"/info","POST","application/x-apple-binary-plist");
+      for(size_t offset=0;offset<full.size();) {
+          size_t end=std::min(offset+256,full.size()); Bytes piece(full.begin()+offset,full.begin()+end);
+          CHECK(h.feed(h.frame(piece))==(end==full.size()?RTSP_CHANNEL_OUTPUT:IAP2_MORE)); offset=end;
+      }
+      CHECK(info.calls==3); info.reply(h.drain(true,IAP2_OK));
+      CHECK(h.feed(h.frame(outer(v.at("request"),8,"/auth-setup","POST","application/octet-stream")))==RTSP_CHANNEL_OUTPUT);
+      Harness::reply(h.drain(true,MFI_SAP_DRAINED),v.at("response3"),8);
+      auto get_encrypted=bytes("GET /info RTSP/1.0\r\nCSeq: 9\r\n\r\n"),tail=bytes("GET /unimplemented RTSP/1.0\r\nCSeq: 10\r\n\r\n");
+      get_encrypted.insert(get_encrypted.end(),tail.begin(),tail.end());
+      CHECK(h.feed(h.frame(get_encrypted))==RTSP_CHANNEL_OUTPUT&&info.calls==4); info.reply(h.drain(true,IAP2_OK));
+      CHECK(h.feed({})==RTSP_CHANNEL_REQUEST&&info.calls==4);
+      CHECK(projection_receiver_request(&h.s,&request,&key)==RTSP_CHANNEL_REQUEST&&request.cseq==10);
+      CHECK(projection_receiver_respond(&h.s,key,&fake,1)==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
+      for(size_t i=0;i<h.completed.size();++i) CHECK(h.completed[i].token==i+1);
+      CHECK(h.random_calls==2&&h.signatures==1); }
+    { InfoBackend info; Harness h(v,setup_v,true); info.enable(h,true);
+      CHECK(h.feed(bytes("GET /info RTSP/1.0\r\nCSeq: 1\r\n\r\n"))==RTSP_CHANNEL_OUTPUT); info.reply(h.drain(false,IAP2_OK));
+      h.to_candidate(); pair_setup_candidate candidate{}; rtsp_channel_key key{};
+      CHECK(projection_receiver_pending(&h.s,&candidate,&key)==PAIR_SETUP_APPROVAL&&key.token==4);
+      CHECK(projection_receiver_decide(&h.s,key,1,1)==RTSP_CHANNEL_OUTPUT); h.drain(false,PAIR_SETUP_COMPLETE); h.pair();
+      CHECK(h.feed(h.frame(bytes("GET /info RTSP/1.0\r\nCSeq: 8\r\n\r\n")))==RTSP_CHANNEL_OUTPUT&&info.calls==2);
+      info.reply(h.drain(true,IAP2_OK)); CHECK(h.s.enrolled&&h.commits==1&&h.s.info.profile==&info.profile); }
+    { InfoBackend info(2); Harness h(v,setup_v,false,0,32768); info.enable(h,true);
+      CHECK(h.fragment(outer(info_encode(info.profile),1,"/info","POST","application/x-apple-binary-plist"),31)==RTSP_CHANNEL_OUTPUT&&info.calls==1);
+      info.reply(h.drain(false,IAP2_OK)); h.pair();
+      CHECK(h.feed(h.frame(bytes("GET /info RTSP/1.0\r\nCSeq: 7\r\n\r\n")))==RTSP_CHANNEL_OUTPUT&&info.calls==2);
+      info.reply(h.drain(true,IAP2_OK)); CHECK(h.outgoing>100&&h.identities==0); }
+}
+static void info_policy_and_errors(const Vectors& v,const Vectors& setup_v) {
+    { InfoBackend info; Harness h(v,setup_v); info.enable(h);
+      CHECK(h.feed(bytes("GET /info RTSP/1.0\r\nCSeq: 1\r\n\r\n"))==PROJECTION_RECEIVER_CLOSED&&info.calls==0&&h.random_calls==0); h.cleared(); }
+    { InfoBackend info; Harness h(v,setup_v); info.result=-55; info.enable(h,true);
+      CHECK(h.feed(bytes("GET /info RTSP/1.0\r\nCSeq: 1\r\n\r\n"))==PROJECTION_RECEIVER_CLOSED&&info.calls==1&&h.s.last_error==-55&&h.random_calls==0);
+      CHECK(zeroed(info.scratch.data(),info_encode(info.profile).size())); h.cleared(); }
+    for(unsigned mode=0;mode<8;++mode) {
+        InfoBackend info; Harness h(v,setup_v); info.enable(h); h.pair();
+        auto body=empty_dictionary(); std::string type="application/x-apple-binary-plist",method="POST";
+        if(mode==0) method="GET";
+        if(mode==1) method="PATCH";
+        if(mode==2) type="application/octet-stream";
+        if(mode==3) type+="\r\nContent-Type: application/x-apple-binary-plist";
+        if(mode==4) body=bytes("<plist><dict/></plist>");
+        if(mode==5) body[8]=0xa0; // Valid binary empty array, wrong root type.
+        if(mode==6) body.back()=0;
+        if(mode==7) body[8]=0x09; // Valid boolean, wrong root type.
+        CHECK(h.feed(h.frame(outer(body,7,"/info",method,type)))==PROJECTION_RECEIVER_CLOSED&&info.calls==0&&h.identities==0); h.cleared();
+    }
+    { InfoBackend info; Harness h(v,setup_v); info.enable(h,true);
+      CHECK(h.feed(outer(Bytes(4097,0),1,"/info","POST","application/x-apple-binary-plist"))==PROJECTION_RECEIVER_CLOSED&&info.calls==0); h.cleared(); }
+    { InfoBackend info; Harness h(v,setup_v); info.enable(h); h.pair();
+      auto wire=h.frame(bytes("GET /info RTSP/1.0\r\nCSeq: 7\r\n\r\n")); wire.back()^=1;
+      CHECK(h.feed(wire)==PROJECTION_RECEIVER_CLOSED&&info.calls==0); h.cleared(); }
+    { InfoBackend info; Harness h(v,setup_v); info.enable(h); h.pair();
+      CHECK(h.feed(h.frame(bytes("GET /info RTSP/1.0\r\nCSeq: 7\r\n\r\n")))==RTSP_CHANNEL_OUTPUT&&info.calls==1);
+      h.drain(true,IAP2_OK,false); auto key=h.s.key;
+      CHECK(projection_receiver_release(&h.s,key,5001)==PROJECTION_RECEIVER_CLOSED&&info.calls==1); h.cleared(); }
+}
+static void info_configuration_and_limits(const Vectors& v,const Vectors& setup_v) {
+    { InfoBackend info; Harness h(v,setup_v); auto saved=snapshot(h.s); auto scratch=info.scratch;
+      for(unsigned mode=0;mode<9;++mode) {
+          auto cfg=info.config(true); auto invalid=info.profile;
+          if(mode==0) cfg.available=nullptr;
+          if(mode==1) cfg.profile=nullptr;
+          if(mode==2) cfg.buffer=nullptr;
+          if(mode==3) cfg.initial_ms=0;
+          if(mode==4) cfg.initial_limit=17;
+          if(mode==5) cfg.allow_initial=2;
+          if(mode==6) cfg.capacity=1;
+          if(mode==7) { invalid.name={}; cfg.profile=&invalid; }
+          if(mode==8) { invalid=info_fixture(2); cfg.profile=&invalid; }
+          int r=projection_receiver_enable_info(&h.s,91,&cfg,UINT64_MAX);
+          CHECK(r==(mode==6||mode==8?IAP2_NO_SPACE:(mode==7?IAP2_INVALID:IAP2_ARGUMENT))&&snapshot(h.s)==saved&&info.scratch==scratch&&info.calls==0);
+      }
+      auto cfg=info.config(); CHECK(projection_receiver_enable_info(&h.s,92,&cfg,UINT64_MAX)==IAP2_INVALID&&snapshot(h.s)==saved);
+      info.enable(h); saved=snapshot(h.s);
+      CHECK(projection_receiver_enable_info(&h.s,91,&cfg,UINT64_MAX)==RTSP_BUSY&&snapshot(h.s)==saved); }
+    { InfoBackend info; Harness h(v,setup_v); CHECK(h.feed(bytes("G"))==IAP2_MORE); auto cfg=info.config(true); auto saved=snapshot(h.s);
+      CHECK(projection_receiver_enable_info(&h.s,91,&cfg,UINT64_MAX)==RTSP_BUSY&&snapshot(h.s)==saved&&info.calls==0); }
+    { InfoBackend info; Harness h(v,setup_v); auto cfg=info.config(true); cfg.initial_limit=1;
+      CHECK(projection_receiver_enable_info(&h.s,91,&cfg,0)==IAP2_OK);
+      auto get=bytes("GET /info RTSP/1.0\r\nCSeq: 1\r\n\r\n"); CHECK(h.feed(get)==RTSP_CHANNEL_OUTPUT); h.drain(false,IAP2_OK);
+      CHECK(h.feed(get)==PROJECTION_RECEIVER_CLOSED&&info.calls==1); h.cleared(); }
+    { InfoBackend info; Harness h(v,setup_v); auto cfg=info.config(true); cfg.initial_ms=3;
+      CHECK(projection_receiver_enable_info(&h.s,91,&cfg,0)==IAP2_OK&&projection_receiver_next_delay(&h.s)==3);
+      auto get=bytes("GET /info RTSP/1.0\r\nCSeq: 1\r\n\r\n"); CHECK(h.feed(get)==RTSP_CHANNEL_OUTPUT); h.drain(false,IAP2_OK);
+      CHECK(h.feed(get,2)==RTSP_CHANNEL_OUTPUT&&projection_receiver_next_delay(&h.s)==1&&info.calls==2);
+      CHECK(projection_receiver_check(&h.s,91,3)==PROJECTION_RECEIVER_CLOSED&&h.random_calls==0); h.cleared(); }
+}
 int main(int argc,char** argv) {
     try {
         CHECK(argc==3); auto v=load_vectors(argv[1],39),setup_v=load_vectors(argv[2],51);
         known_route(v,setup_v); enrollment_route(v,setup_v); permission_and_failure(v,setup_v);
         invalid_routes(v,setup_v); initial_lifetimes(v,setup_v); transactionality(v,setup_v); exhausted_and_late(v,setup_v);
-        std::cout<<"PASS: 7 receiver-router groups; real enrollment/verification/encrypted MFi, explicit permission, stable tokens, tails and failure gates\n";
+        info_routes(v,setup_v); info_policy_and_errors(v,setup_v); info_configuration_and_limits(v,setup_v);
+        std::cout<<"PASS: 10 receiver-router groups; enrollment/verification/MFi, explicit capabilities, bounded discovery, stable tokens and failure gates\n";
         std::cout<<"x64 receiver bytes: "<<sizeof(projection_receiver)<<"; caller buffers/stack additional; synthetic credentials only\n";
         return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }

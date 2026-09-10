@@ -3,7 +3,7 @@
 typedef struct parser {
     const uint8_t *in; size_t size, at;
     service_plist_storage out; size_t count, used;
-    uint32_t offsets[SERVICE_PLIST_NODES], ends[SERVICE_PLIST_NODES];
+    uint32_t *offsets, *ends; size_t object_limit; uint8_t projection;
     uint16_t path[SERVICE_PLIST_DEPTH]; size_t objects, refs;
 } parser;
 static void zero(void *p, size_t n) { size_t i; for (i=0;i<n;++i) ((uint8_t *)p)[i]=0; }
@@ -244,7 +244,7 @@ static int binary_setup(parser *p,uint16_t *root) {
     if(p->size<40 || !same(p->in,(const uint8_t *)"bplist00",8)) return IAP2_INVALID;
     t=p->in+p->size-32; os=t[6]; p->refs=t[7]; count=be(t+8,8); top=be(t+16,8); table=be(t+24,8);
     if(!os || os>8 || !p->refs || p->refs>8 || !count || top>=count || table<8 || table>p->size-32) return IAP2_INVALID;
-    if(count>SERVICE_PLIST_NODES) return IAP2_NO_SPACE;
+    if(count>p->object_limit) return IAP2_NO_SPACE;
     if(count*os!=(p->size-32)-table) return IAP2_INVALID;
     p->objects=(size_t)count; *root=(uint16_t)top;
     for(i=0;i<p->objects;++i) {
@@ -279,6 +279,7 @@ static int binary_node(parser *p,uint16_t ref,unsigned depth,int key,uint16_t *i
     if(tag==0) type=SERVICE_PLIST_NULL;
     else if(tag==8 || tag==9) type=SERVICE_PLIST_BOOL;
     else if((tag&0xf0)==0x10) type=SERVICE_PLIST_INTEGER;
+    else if((tag&0xf0)==0x20 && p->projection) type=SERVICE_PLIST_REAL;
     else if((tag&0xf0)==0x40) type=SERVICE_PLIST_DATA;
     else if((tag&0xf0)==0x50 || (tag&0xf0)==0x60) type=key ? SERVICE_PLIST_KEY : SERVICE_PLIST_STRING;
     else if((tag&0xf0)==0xa0) type=SERVICE_PLIST_ARRAY;
@@ -296,6 +297,13 @@ static int binary_node(parser *p,uint16_t ref,unsigned depth,int key,uint16_t *i
             v->negative=(uint8_t)(high!=0);
         } else { value=be(p->in+at,n); v->negative=(uint8_t)(n==8 && (value>>63)); }
         v->magnitude=v->negative ? UINT64_C(0)-value : value;
+    } else if(type==SERVICE_PLIST_REAL) {
+        uint64_t mask;
+        if(tag!=0x22 && tag!=0x23) return IAP2_UNSUPPORTED;
+        n=tag==0x22?4u:8u; if(n>end-at) return IAP2_INVALID;
+        v->magnitude=be(p->in+at,n); v->size=n;
+        mask=n==4?UINT64_C(0x7f800000):UINT64_C(0x7ff0000000000000);
+        if((v->magnitude&mask)==mask) return IAP2_INVALID; /* NaN/infinity. No FP operations. */
     } else if(type==SERVICE_PLIST_DATA || type==SERVICE_PLIST_STRING || type==SERVICE_PLIST_KEY) {
         status=binary_count(p,&at,end,tag&15,&n); if(status) return status;
         if(n>(end-at)/((tag&0xf0)==0x60 ? 2u : 1u)) return IAP2_INVALID;
@@ -335,17 +343,20 @@ static int binary_node(parser *p,uint16_t ref,unsigned depth,int key,uint16_t *i
     }
     return IAP2_OK;
 }
-int service_plist_decode(const uint8_t *data,size_t size,const service_plist_storage *storage,service_plist_document *out) {
+static int decode(const uint8_t *data,size_t size,const service_plist_storage *storage,service_plist_document *out,
+                  uint32_t *offsets,uint32_t *ends,size_t limit,uint8_t projection) {
     parser p; int status; uint16_t root,id; size_t at=0; uint32_t cp;
     if(out) zero(out,sizeof *out);
-    if(!out || !storage || !storage->nodes || !storage->bytes || !storage->node_capacity || storage->node_capacity>SERVICE_PLIST_NODES ||
+    if(!out || !storage || !storage->nodes || !storage->bytes || !storage->node_capacity || storage->node_capacity>limit ||
        !storage->byte_capacity || storage->byte_capacity>SERVICE_PLIST_LIMIT || (!data && size)) return IAP2_ARGUMENT;
     if(!size) return IAP2_INVALID; if(size>SERVICE_PLIST_LIMIT) return IAP2_NO_SPACE;
     zero(&p,sizeof p); p.in=data; p.size=size; p.out.nodes=storage->nodes; p.out.node_capacity=storage->node_capacity;
+    p.offsets=offsets; p.ends=ends; p.object_limit=limit; p.projection=projection;
     p.out.bytes=storage->bytes; p.out.byte_capacity=storage->byte_capacity;
     if(size>=8 && same(data,(const uint8_t *)"bplist00",8)) {
         status=binary_setup(&p,&root); if(status) return status; status=binary_node(&p,root,0,0,&id);
     } else {
+        if(projection) return IAP2_UNSUPPORTED;
         while(at<size) { status=utf8(data,size,&at,&cp); if(status) return status; }
         status=prolog(&p); if(status) return status; status=xml_node(&p,0,0,&id);
         if(!status) { status=misc(&p); if(!status && !take(&p,"</plist>")) status=IAP2_INVALID; }
@@ -353,6 +364,14 @@ int service_plist_decode(const uint8_t *data,size_t size,const service_plist_sto
     }
     if(status) return status;
     out->nodes=p.out.nodes; out->count=p.count; out->bytes_used=p.used; return IAP2_OK;
+}
+int service_plist_decode(const uint8_t *data,size_t size,const service_plist_storage *storage,service_plist_document *out) {
+    uint32_t offsets[SERVICE_PLIST_NODES],ends[SERVICE_PLIST_NODES];
+    return decode(data,size,storage,out,offsets,ends,SERVICE_PLIST_NODES,0);
+}
+int service_plist_decode_projection(const uint8_t *data,size_t size,const service_plist_storage *storage,service_plist_document *out) {
+    uint32_t offsets[SERVICE_PLIST_PROJECTION_NODES],ends[SERVICE_PLIST_PROJECTION_NODES];
+    return decode(data,size,storage,out,offsets,ends,SERVICE_PLIST_PROJECTION_NODES,1);
 }
 int service_plist_find(const service_plist_document *doc,const service_plist_node *dict,
                        const uint8_t *key,size_t size,const service_plist_node **value) {

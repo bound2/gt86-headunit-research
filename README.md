@@ -100,7 +100,8 @@ authentication keys or fallback signer is supplied.
 `iap2_control_tests`, `iap2_identification_tests`, `iap2_transport_tests` and
 `iap2_carplay_tests`, `usbmux_tests`, `usbmux_host_tests` and
 `usbmux_connection_tests`, `usbmux_dispatcher_tests`, `lockdown_tests` and
-`service_plist_tests` and `lockdown_bootstrap_tests` alongside the four
+`service_plist_tests`, `lockdown_bootstrap_tests`, `rtsp_tests`, `pair_tlv_tests`
+and `projection_info_tests` alongside the four
 existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
@@ -136,7 +137,7 @@ The control-session adapter below now connects this engine to authentication;
 actual device transport and a real provider remain separate work. See
 [CarPlay progress, Steps 22-24](reports/carplay-progress.md#step-22---implement-a-bounded-iap2-reliable-link-profile).
 
-Nineteen standard CTest suites pass, including 16 link test groups and a simulated two-endpoint
+Twenty standard CTest suites pass, including 16 link test groups and a simulated two-endpoint
 exchange with deliberate packet/ACK loss. Optional host memory/undefined-behavior
 checks use the installed LLVM and Visual Studio toolchain:
 
@@ -144,7 +145,7 @@ checks use the installed LLVM and Visual Studio toolchain:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlaySanitizers.ps1
 ```
 
-This builds/runs the fifteen protocol test executables with AddressSanitizer and
+This builds/runs the sixteen protocol/capability test executables with AddressSanitizer and
 UndefinedBehaviorSanitizer under `build/carplay-sanitized`. No research firmware
 or car access is required. The ARM portability check now covers all twenty C99
 translation units; it still produces no QNX executable.
@@ -220,8 +221,8 @@ reject stale results after reconnect; cancellation clears transport and endpoint
 state. It has no USB descriptors, HID framing, device paths or built-in OS calls.
 
 Seventeen test groups exercise a fake backend, including complete synthetic
-exchanges in both startup orders over fragmented reads/writes. All nineteen standard CTest suites and
-fifteen sanitized protocol suites pass. Details and callback lifetime requirements
+exchanges in both startup orders over fragmented reads/writes. All twenty standard CTest suites and
+sixteen sanitized protocol/capability suites pass. Details and callback lifetime requirements
 are in the
 [step-by-step transport adapter report](reports/transport-adapter.md) and
 [CarPlay progress, Steps 34-36](reports/carplay-progress.md#step-34---implement-the-bounded-byte-stream-pump).
@@ -403,7 +404,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayCry
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayCrypto.ps1
 ```
 
-The combined build passes 31 suites; new crypto tests use RFC vectors and a
+The combined build passes 32 suites; new crypto tests use RFC vectors and a
 PyCA-reproduced transcript. The crypto sanitizer includes Monocypher itself.
 Its separate ARM object check reports required runtime helpers and does not
 extend the core's import-free claim. Target trust persistence, approval UI,
@@ -454,17 +455,38 @@ transfer into this receiver on the same transport after committed M6 drains.
 Seven groups and 39 independent public values verify actual X25519/SHA/AES,
 encrypted output/drain, failure handling and enrollment transfer. Synthetic
 provider bytes do not prove real MFi licensing or chip compatibility.
-Capability/media handlers and actual hardware integration
+Session/media handlers and actual hardware integration
 remain incomplete. See [the MFiSAP report](reports/mfi-sap.md).
 
 `projection_receiver.h` owns initial setup-versus-verification routing, optional
 local enrollment permission, verified-candidate approval and automatic transfer
 after committed M6 drains. One public connection generation and monotonic response
-tokens survive the child transfer. Seven groups exercise both initial routes,
+tokens survive the child transfer. Ten groups exercise both initial pairing routes,
 actual enrollment/verification/encrypted MFi, fragmentation, tails, stale callbacks
-and failure/deadline gates. Enrollment is disabled by default; initial discovery
-routes beyond exact pairing paths are not yet handled. No listener, approval UI
-or actual media is supplied. See [receiver-routing.md](reports/receiver-routing.md).
+and failure/deadline gates, plus the optional capability route below. Enrollment
+is disabled by default. No listener, approval UI or actual media is supplied.
+See [receiver-routing.md](reports/receiver-routing.md).
+
+`projection_info.h` adds a bounded typed binary-plist capability encoder without
+default feature masks or guessed factory hardware properties. Enable exact
+`/info` handling once with explicit profile data, scratch and a runtime backend
+availability check. Encrypted responses use the existing owner; pre-pairing
+plaintext discovery requires additional opt-in and has count/absolute-time limits.
+The full profile is returned, not selector-filtered data. Metadata delivery does
+not authorize media, and no real availability provider is supplied.
+
+Four codec groups and three independently decoded Python profiles cover output
+through 25,777 bytes. The projection-only decoder accepts up to 640 nodes and
+finite real values without loosening the existing 256-node/no-real Lockdown API.
+Integration tests cover discovery-to-pairing transfer, encrypted full-profile
+POSTs, large multi-record replies, failures and output/drain ownership. The new
+encoder has substantial bounded stack scratch and is not part of the ARM core
+claim. Typed session/resource negotiation and actual drivers remain unfinished.
+See [the step-by-step capability report](reports/projection-capabilities.md).
+
+```powershell
+python -B scripts/check_projection_info.py build/crypto/Release/projection_info_tests.exe
+```
 
 ## Read-only firmware analysis
 

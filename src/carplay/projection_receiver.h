@@ -3,6 +3,7 @@
 #define GT86_PROJECTION_RECEIVER_H
 #include "pair_setup_channel.h"
 #include "projection_auth.h"
+#include "projection_info.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -10,13 +11,15 @@ extern "C" {
 #define PROJECTION_RECEIVER_CLOSED (-7)
 enum projection_receiver_state {
     PROJECTION_RECEIVER_ROUTING, PROJECTION_RECEIVER_WAIT_AUTH,
-    PROJECTION_RECEIVER_SETUP, PROJECTION_RECEIVER_AUTH, PROJECTION_RECEIVER_DEAD
+    PROJECTION_RECEIVER_SETUP, PROJECTION_RECEIVER_AUTH, PROJECTION_RECEIVER_DEAD,
+    PROJECTION_RECEIVER_DISCOVERY
 };
 enum projection_receiver_reason {
     PROJECTION_RECEIVER_REASON_NONE, PROJECTION_RECEIVER_REASON_LOCAL,
     PROJECTION_RECEIVER_REASON_INITIAL, PROJECTION_RECEIVER_REASON_ROUTE,
     PROJECTION_RECEIVER_REASON_SETUP, PROJECTION_RECEIVER_REASON_AUTH,
-    PROJECTION_RECEIVER_REASON_TOKEN, PROJECTION_RECEIVER_REASON_EOF
+    PROJECTION_RECEIVER_REASON_TOKEN, PROJECTION_RECEIVER_REASON_EOF,
+    PROJECTION_RECEIVER_REASON_INFO
 };
 typedef struct projection_receiver_config {
     rtsp_channel_config initial;
@@ -35,6 +38,18 @@ typedef struct projection_receiver_providers {
     pair_setup_commit_fn commit; void *commit_context;
     mfi_sap_provider mfi;
 } projection_receiver_providers;
+typedef struct projection_receiver_info_config {
+    const projection_info_profile *profile;
+    /* Trusted synchronous runtime check: attest ALL described capabilities,
+     * descriptors, modes, formats and flags have available backend support.
+     * No reentry, mutation of profile, pointer retention or unbounded I/O.
+     * This is not an MFi provider; no implementation is supplied by default. */
+    int (*available)(void *,uint64_t connection_generation,const projection_info_profile *);
+    void *context;
+    uint8_t *buffer; size_t capacity;
+    uint32_t initial_ms; /* 1..60000, absolute from receiver init. */
+    uint8_t initial_limit,allow_initial; /* 1..16 replies; explicit plaintext opt-in. */
+} projection_receiver_info_config;
 typedef struct projection_receiver {
     rtsp_channel initial;
     pair_setup_channel setup;
@@ -42,17 +57,20 @@ typedef struct projection_receiver {
     projection_receiver_config config;
     projection_receiver_storage storage;
     projection_receiver_providers providers;
+    projection_receiver_info_config info;
     rtsp_channel_key key, child_key;
-    uint64_t generation, verify_generation, next_token, authorization, now;
+    uint64_t generation, verify_generation, next_token, authorization, now,started_at;
+    size_t info_size;
     enum projection_receiver_state state;
     enum projection_receiver_reason reason;
     int last_error;
     uint8_t enrolled; /* Acknowledged trust commit, never proof of phone acceptance. */
+    uint8_t info_pending,initial_info_count;
 } projection_receiver;
 /* Fresh serial noncopyable owner. All internals read-only; no external child
  * calls, attach, reentry or concurrency. Identity/provider bindings immutable;
  * mutable provider contexts borrowed until close. No listener, automatic approval, trust creation,
- * credential, capability/media handler or real chip access.
+ * credential, default capabilities, media handler or real chip access.
  *
  * Distinct nonzero connection and verification generations must be reserved by
  * the caller and never reused for another live/replacement owner. Public calls
@@ -62,7 +80,8 @@ typedef struct projection_receiver {
  * All storage/arguments disjoint; initial storage is a separate first-request
  * staging buffer (64..control.request_capacity), not extra network read-ahead.
  * Active children share control buffers only after prior owner drains/detaches.
- * The initial parser borrows response storage but NEVER writes any response.
+ * The initial parser borrows response storage; only explicitly enabled info
+ * replies may use it before selection, and must drain before another request.
  * Init validates enabled branches without I/O or changing destination/storage.
  */
 void projection_receiver_default_config(projection_receiver_config *);
@@ -70,6 +89,30 @@ int projection_receiver_init(projection_receiver *, const projection_receiver_pr
     const projection_receiver_config *, const projection_receiver_storage *,
     uint64_t connection_generation, uint64_t verification_generation, uint64_t now_ms);
 int projection_receiver_check(projection_receiver *, uint64_t, uint64_t);
+/* Optional /info route, disabled at receiver init. Enable ONCE before any
+ * initial input/provider work, while ROUTING. Validates/measures profile and
+ * response capacity, no I/O or provider call. Profile and referenced data stay
+ * immutable; provider context and separate writable scratch stay alive/disjoint
+ * until close. Provider bindings stay immutable. No generic
+ * attach or caller-supplied opaque successful response. Invalid config leaves
+ * owner/buffers/time unchanged. defaults: initial disabled, 60s total, 4 replies.
+ *
+ * Exact GET (empty body) or POST /info; nonempty POST requires unique binary
+ * plist content type and a bounded <=32768-byte/640-node decoded dictionary,
+ * including finite binary reals; the stricter Lockdown parser is unchanged.
+ * Decoded text/data use the separate info scratch buffer (capacity capped at
+ * 32768 for decoding), then are cleared. Caller request/staging/scratch capacity
+ * may impose a smaller bound; insufficient space closes, never a partial reply.
+ * Request selectors are not implemented; full profile returned, as in reference.
+ * Calls availability once per complete valid request, closes on failure. Reply
+ * copied into normal owned output, scratch cleared. Caller refreshes monotonic
+ * time after synchronous check. Replies do not authenticate or allocate media.
+ * Pre-pairing plaintext discovery additionally requires allow_initial=1; no
+ * such route in the middle of setup/verify. Absolute initial_ms/initial_limit
+ * prevent endless discovery from renewing the initial connection lifetime.
+ */
+void projection_receiver_info_default_config(projection_receiver_info_config *);
+int projection_receiver_enable_info(projection_receiver *,uint64_t,const projection_receiver_info_config *,uint64_t);
 /* Optional local one-attempt authorization ID, not supplied by the wire. May be
  * granted while ROUTING or after AUTHORIZE event; never renewed/replaced. When
  * waiting it processes the already held initial request, possibly returning
@@ -79,7 +122,8 @@ int projection_receiver_check(projection_receiver *, uint64_t, uint64_t);
 int projection_receiver_authorize(projection_receiver *, uint64_t, uint64_t authorization, uint64_t now_ms);
 /* Parse exactly one initial complete plaintext request, then select only exact
  * POST /pair-setup or /pair-verify with unique pairing+tlv8 content type. Other
- * initial routes fail closed. Setup without local authorization returns
+ * initial routes fail closed unless explicitly enabled /info handles discovery.
+ * Setup without local authorization returns
  * AUTHORIZE and holds without RNG/store/chip calls. No following wire consumed.
  * Once selected there is no route fallback or mode restart. Later wire/events
  * follow the owned setup/auth children, including authenticated retained tails.

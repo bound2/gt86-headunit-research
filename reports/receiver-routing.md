@@ -2,6 +2,10 @@
 
 Date: 2026-09-10. Progress Step 60; continues [mfi-sap.md](mfi-sap.md).
 
+Follow-up: [Step 61](projection-capabilities.md) implements optional explicit
+capability replies and bounded pre-pairing `/info` discovery in this same owner.
+The Step 60 test counts and sizes below describe that earlier checkpoint.
+
 ## Step 1 - State what now works
 
 One hosted C99 receiver now accepts the initial pairing request, selects either
@@ -18,10 +22,10 @@ pairing/control and MFi response calculations with public fixture keys, a
 memory-only trust-commit simulation and an opaque synthetic MFi provider.
 No real phone, Apple credential, factory chip or vehicle was accessed.
 
-This is not an installable update or a working media receiver. Capability
-responses, session/resource handling, real endpoints and target integration
-are still incomplete. Software-only CarPlay on the factory hardware remains
-unproven.
+This is not an installable update or a working media receiver. Explicit
+capability responses are now implemented in Step 61; session/resource handling,
+real endpoints and target integration remain incomplete. Software-only CarPlay
+on the factory hardware remains unproven.
 
 ## Step 2 - Separate reference evidence from local policy
 
@@ -39,13 +43,13 @@ explicit local permission, separate candidate approval, stable public tokens,
 bounded storage, deadline enforcement and no automatic success for unknown
 commands are local implementation choices, not Apple conformance claims.
 
-The selected initial routes are exactly `POST /pair-setup` and
+At this checkpoint the selected initial routes were exactly `POST /pair-setup` and
 `POST /pair-verify`, with one `Content-Type: application/pairing+tlv8`.
 Absolute URIs, case-folded paths, suffix matching, query variants, other initial
-commands and plaintext `/auth-setup` close the connection. This means an actual
-phone requiring a different initial sequence, including capability discovery
-before pairing, is not supported yet. No real-phone trace establishes that the
-currently supported initial sequence is sufficient.
+commands and plaintext `/auth-setup` closed the connection. Step 61 adds one
+explicitly enabled `/info` exception before selection; it does not broaden the
+pairing target forms or permit plaintext MFi. No real-phone trace establishes
+that the supported initial sequences are sufficient.
 
 ## Step 3 - Initialize one explicit owner without I/O
 
@@ -64,8 +68,9 @@ initialization leaves the destination and supplied storage unchanged.
 An independent first-request staging buffer must hold at least 64 bytes and
 must not exceed the active request buffer capacity. All storage is disjoint
 except the intentional sequential ownership of the active request/response
-buffers. The initial parser borrows the response buffer but never writes a
-response. It consumes exactly one complete request, without subsequent-message
+buffers. At Step 60 the initial parser borrowed the response buffer but never
+wrote a response; Step 61 permits only enabled info replies before selection,
+with a full drain barrier. It consumes exactly one complete request, without subsequent-message
 read-ahead. Only a selected child receives that exact staged wire image; the
 staging bytes are then cleared. No request is reconstructed from a partial view.
 
@@ -205,13 +210,14 @@ dependency allocations. It is not part of the earlier twenty-unit import-free
 ARM core or ten-unit optional ARM crypto claim. Nothing here proves a linked
 QNX receiver, target memory/timing suitability or actual phone interoperability.
 
-## Step 7 - Continue with capabilities and session resources
+## Step 7 - Continue with session resources after capability routing
 
-Next implement capability response encoding and route handling tied to explicitly
-available display/audio/input resources. Resolve required pre-pairing discovery
-routes and acceptable target forms from evidence rather than inventing broad
-success replies. Follow with typed session/resource negotiation, real network
-endpoints and actual media/input integration. Enrollment approval/rate limiting,
+Capability encoding and optional bounded initial/encrypted `/info` routing are
+implemented in [Step 61](projection-capabilities.md), with an explicit runtime
+availability contract but no actual display/audio/input provider. Next implement
+typed session/resource negotiation, real network endpoints and actual media/input
+integration. Broader discovery variants and actual phone interoperability remain
+unverified. Enrollment approval/rate limiting,
 target persistence/revocation and safe provider scheduling remain necessary.
 
 Actual Go-module identity, installed-version execution/recovery, native USB-network

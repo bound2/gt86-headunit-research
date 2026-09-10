@@ -10,18 +10,23 @@ extern "C" {
 #endif
 #define SERVICE_PLIST_LIMIT 65536u
 #define SERVICE_PLIST_NODES 256u
+#define SERVICE_PLIST_PROJECTION_NODES 640u
 #define SERVICE_PLIST_DEPTH 16u
 #define SERVICE_PLIST_NONE UINT16_MAX
 enum service_plist_type { SERVICE_PLIST_NULL, SERVICE_PLIST_BOOL, SERVICE_PLIST_INTEGER,
-    SERVICE_PLIST_STRING, SERVICE_PLIST_DATA, SERVICE_PLIST_ARRAY, SERVICE_PLIST_DICT, SERVICE_PLIST_KEY };
+    SERVICE_PLIST_STRING, SERVICE_PLIST_DATA, SERVICE_PLIST_ARRAY, SERVICE_PLIST_DICT, SERVICE_PLIST_KEY,
+    SERVICE_PLIST_REAL };
 typedef struct service_plist_node {
     const uint8_t *data; size_t size;
-    uint64_t magnitude; /* Integers: -2^63..2^64-1, separate sign. BOOL: 0/1. */
+    uint64_t magnitude; /* Integers: -2^63..2^64-1, separate sign. BOOL: 0/1.
+                         * Projection REAL: raw finite IEEE bits; size=4/8,
+                         * data=NULL, negative=0 (sign remains inside bits).
+                         * Never interpret a REAL as an integer/boolean. */
     uint16_t first, next, children;
     uint8_t type, negative;
 } service_plist_node;
 typedef struct service_plist_storage {
-    service_plist_node *nodes; size_t node_capacity; /* 1..256 */
+    service_plist_node *nodes; size_t node_capacity; /* 1..256; explicit projection profile <=640. */
     uint8_t *bytes; size_t byte_capacity; /* 1..65536 */
 } service_plist_storage;
 typedef struct service_plist_document {
@@ -46,6 +51,14 @@ typedef struct service_plist_document {
  * may be partially overwritten, never a usable partial document.
  */
 int service_plist_decode(const uint8_t *, size_t, const service_plist_storage *, service_plist_document *);
+/* Explicit projection-only bplist00 profile: <=640 objects/expanded nodes,
+ * caller storage <=640 nodes, plus finite 32/64-bit IEEE real numbers preserved
+ * as bits (no floating-point execution or lossy integer conversion). Rejects
+ * NaN/infinity, other real widths, XML and the other unsupported extensions.
+ * Existing service_plist_decode remains <=256 and rejects ALL real values.
+ * Same depth, byte, ownership, failure-publication and no-I/O guarantees.
+ */
+int service_plist_decode_projection(const uint8_t *, size_t, const service_plist_storage *, service_plist_document *);
 /* Valid decoded documents only. Missing key -> END; wrong container -> INVALID.
  * Exact length-aware UTF-8 key bytes; output zero on failure. No clock or I/O.
  */
