@@ -196,6 +196,38 @@ int rtsp_response_encode(const rtsp_message *req, const rtsp_response *res, uint
 #undef PUT_BYTES
     *written=off; return IAP2_OK;
 }
+int rtsp_request_encode(const rtsp_message *req,uint8_t *out,size_t capacity,size_t *written) {
+    const char *p; uint8_t seq[10],len[10]; size_t ns=0,nl,head,total,i,j,off=0;
+    if(written) *written=0;
+    if(!req||!written||(!out&&capacity)||req->kind!=RTSP_REQUEST||req->has_cseq>1||
+       req->header_count>RTSP_MAX_HEADERS||req->method.size>32||!token(req->method)||
+       !req->target.size||req->target.size>RTSP_MAX_HEADER_SIZE||!printable(req->target,0)||
+       (!req->body.data&&req->body.size)||req->body.size>RTSP_MAX_BODY_SIZE) return IAP2_ARGUMENT;
+    p=protocol_text(req->protocol); if(!p||(req->protocol==RTSP_10&&!req->has_cseq)) return IAP2_ARGUMENT;
+    if(req->has_cseq) ns=number(req->cseq,seq); nl=number((uint32_t)req->body.size,len);
+    head=req->method.size+1+req->target.size+1+8+2+16+nl+2+2;
+    if(req->has_cseq) head+=6+ns+2;
+    if(req->header_count+1u+req->has_cseq>RTSP_MAX_HEADERS) return IAP2_NO_SPACE;
+    for(i=0;i<req->header_count;++i) {
+        const rtsp_header *h=req->headers+i;
+        if(h->name.size>RTSP_MAX_HEADER_SIZE||h->value.size>RTSP_MAX_HEADER_SIZE||
+           !token(h->name)||!printable(h->value,1)||named(h->name,"Content-Length")||
+           named(h->name,"CSeq")||named(h->name,"Transfer-Encoding")) return IAP2_ARGUMENT;
+        for(j=0;j<i;++j) if(same(h->name,req->headers[j].name)) return IAP2_ARGUMENT;
+        head+=h->name.size+2+h->value.size+2; if(head>RTSP_MAX_HEADER_SIZE) return IAP2_NO_SPACE;
+    }
+    if(head>RTSP_MAX_HEADER_SIZE) return IAP2_NO_SPACE; total=head+req->body.size;
+    if(!out) { *written=total; return IAP2_OK; } if(capacity<total) return IAP2_NO_SPACE;
+#define PUT_BYTES(d,n) do { size_t k_=(n); copy(out+off,(d),k_); off+=k_; } while(0)
+#define PUT_TEXT(t) PUT_BYTES((const uint8_t *)(t),length(t))
+    PUT_BYTES(req->method.data,req->method.size); PUT_TEXT(" "); PUT_BYTES(req->target.data,req->target.size); PUT_TEXT(" "); PUT_TEXT(p); PUT_TEXT("\r\n");
+    if(req->has_cseq) { PUT_TEXT("CSeq: "); PUT_BYTES(seq,ns); PUT_TEXT("\r\n"); }
+    for(i=0;i<req->header_count;++i) { PUT_BYTES(req->headers[i].name.data,req->headers[i].name.size); PUT_TEXT(": "); PUT_BYTES(req->headers[i].value.data,req->headers[i].value.size); PUT_TEXT("\r\n"); }
+    PUT_TEXT("Content-Length: "); PUT_BYTES(len,nl); PUT_TEXT("\r\n\r\n"); PUT_BYTES(req->body.data,req->body.size);
+#undef PUT_TEXT
+#undef PUT_BYTES
+    *written=off; return IAP2_OK;
+}
 int rtsp_stream_init(rtsp_stream *s, uint8_t *buffer, size_t capacity) {
     if(!s||!buffer||capacity<64||capacity>RTSP_MAX_MESSAGE_SIZE) return IAP2_ARGUMENT;
     zero(s,sizeof(*s)); s->buffer=buffer; s->capacity=capacity; return IAP2_OK;

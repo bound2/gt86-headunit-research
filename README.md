@@ -101,7 +101,8 @@ authentication keys or fallback signer is supplied.
 `iap2_carplay_tests`, `usbmux_tests`, `usbmux_host_tests` and
 `usbmux_connection_tests`, `usbmux_dispatcher_tests`, `lockdown_tests` and
 `service_plist_tests`, `lockdown_bootstrap_tests`, `rtsp_tests`, `pair_tlv_tests`
-and `projection_info_tests`, `projection_timing_tests` alongside the four
+and `projection_info_tests`, `projection_timing_tests`, `projection_events_tests`
+alongside the four
 existing suites. The tests use 33 committed
 LIVI message vectors and golden
 link frames; they also cover fragmentation, corrupt packets, length bounds and
@@ -404,7 +405,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayCry
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayCrypto.ps1
 ```
 
-The combined build passes 35 suites; new crypto tests use RFC vectors and a
+The combined build passes 36 suites; new crypto tests use RFC vectors and a
 PyCA-reproduced transcript. The crypto sanitizer includes Monocypher itself.
 Its separate ARM object check reports required runtime helpers and does not
 extend the core's import-free claim. Target trust persistence, approval UI,
@@ -519,14 +520,33 @@ checks control deadlines first; RECORD reply drain gates unsolicited output.
 Media allocations require an explicit delegate, with no dummy default backend.
 
 Four timing groups and eight service groups pass, including real IPv4/IPv6
-loopback sockets through synthetic pairing/MFi/session integration. Seventeen
+loopback sockets through synthetic pairing/MFi/session integration. Eighteen
 ordinary and nine hosted suites pass ASan/UBSan; 12 clock/filter values agree
-with an independent Python checker. Event RTSP/command sequencing, actual media,
-QNX integration and real-phone validation remain incomplete. See the
+with an independent Python checker. The event owner below now adds command
+sequencing; actual media, QNX integration and real-phone validation remain
+incomplete. See the
 [step-by-step service report](reports/projection-services.md).
 
 ```powershell
 python -B scripts/check_projection_timing.py build/crypto/Release/projection_timing_tests.exe
+```
+
+`projection_events.h` adds bidirectional event-message ownership over those
+encrypted sockets: up to four outstanding commands, atomic command batches,
+CSeq-correlated replies, explicit phone-request handling, output/drain ordering
+and deadlines. Enable it before socket allocation; raw record access then
+rejects concurrent use. RECORD reply drain gates outgoing commands. No automatic
+200 response or retry is supplied.
+
+`projection_command.h` encodes explicit HID, Siri down/up, night-mode, iAP and
+keyframe command schemas using the advertised profile. Six pure groups, eight
+independently decoded command plists and expanded real IPv4/IPv6 receiver/socket
+tests pass. These are protocol encoders, not actual input/media drivers. Control
+feedback and mode/resource command semantics remain next work. See
+[the event-message report](reports/projection-events.md).
+
+```powershell
+python -B scripts/check_projection_commands.py build/crypto/Release/projection_events_tests.exe
 ```
 
 ## Read-only firmware analysis

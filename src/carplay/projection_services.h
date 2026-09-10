@@ -4,6 +4,7 @@
 #include "projection_session.h"
 #include "projection_timing.h"
 #include "control_cipher.h"
+#include "projection_events.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -27,6 +28,7 @@ typedef struct projection_services_media { uint64_t lease,child; uint32_t type; 
 typedef struct projection_services {
     projection_services_config config; projection_services_storage storage;
     projection_timing timing; control_cipher event;
+    projection_events events; uint8_t events_enabled;
     projection_services_media media[PROJECTION_SESSION_STREAMS]; size_t media_count;
     uintptr_t timing_socket,keep_socket,listener,event_socket; /* Internal Win32 handles, never caller I/O. */
     uint64_t generation,next_lease,event_lease,opened_ns,now_ns;
@@ -71,6 +73,19 @@ typedef struct projection_services {
  */
 void projection_services_default_config(projection_services_config *);
 int projection_services_init(projection_services *,const projection_services_config *,const projection_services_storage *,uint64_t);
+/* Optional message owner, enabled once after init and BEFORE any socket open.
+ * Enabling disables raw event-record APIs below (exclusive ownership). New
+ * storage lives until services_close. Provider start gates commands; provider
+ * poll pumps authenticated records/messages and includes message deadlines.
+ * No default command frontend or automatic responses. A CLOSED result from
+ * any application API requires immediate owning receiver close/poll to retire
+ * its delegated media leases too; do not continue the application or wait for
+ * an unrelated control timeout. Network/message state closes immediately. */
+int projection_services_enable_events(projection_services *,uint64_t,const projection_events_config *,const projection_events_storage *);
+int projection_services_commands(projection_services *,uint64_t,const rtsp_slice *,size_t,rtsp_channel_key *,uint64_t now_ns);
+int projection_services_message(const projection_services *,uint64_t,rtsp_message *,rtsp_channel_key *);
+int projection_services_respond(projection_services *,rtsp_channel_key,const rtsp_response *,uint64_t now_ns);
+int projection_services_release(projection_services *,rtsp_channel_key,uint64_t now_ns);
 projection_session_provider projection_services_provider(projection_services *);
 int projection_services_poll(projection_services *,uint64_t);
 uint32_t projection_services_next_delay(const projection_services *,uint64_t);

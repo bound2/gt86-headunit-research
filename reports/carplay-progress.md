@@ -80,31 +80,35 @@ prevention and rollback/teardown/drain-start ownership. A real Windows endpoint
 provider now supplies peer-bound UDP timing, encrypted TCP events and optional
 UDP keepalive, with explicit polling, deadlines and cleanup. Four pure timing
 and eight real IPv4/IPv6 loopback service groups pass; media delegates and MFi
-providers in the integrated tests remain synthetic. Event command sequencing,
+providers in the integrated tests remain synthetic. An owned bidirectional
+event-message layer now adds atomic command batches, correlated replies,
+explicit request handling and typed HID/Siri/night/iAP/keyframe encoders, with
+six pure groups and expanded real-socket tests. Control feedback/mode semantics,
 actual media, target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
 Python regression checks total 25, plus independent
 checkers for 21 pair-verification, 12 control-frame, 51 setup and 39 combined
 MFi/pair-verification fixture values, plus 42 session fixture values, 16 session
 directional key/zero values and three independently parsed session replies,
-plus 12 independent timing-clock/filter values.
+plus 12 independent timing-clock/filter values and eight decoded event commands.
 Native USB and actual phone pairing remain absent.
-All twenty-one ordinary, twenty-four TLS-only and thirty-five combined crypto/TLS
-CTest suites pass. All seventeen protocol/capability/timing suites, five pairing/control/store suites,
+All twenty-two ordinary, twenty-five TLS-only and thirty-six combined crypto/TLS
+CTest suites pass. All eighteen protocol/capability/timing/event suites, five pairing/control/store suites,
 the enrollment, real-file, MFiSAP, projection-session, receiver-router and real-socket service suites and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-63, [the persistent-store report](pair-store.md),
+Steps 22-64, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
-[session resources](projection-session.md) / [real endpoint services](projection-services.md). Hosted TLS
+[session resources](projection-session.md), [real endpoint services](projection-services.md)
+and [event commands](projection-events.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
 not included in either ARM claim. The new capability encoder, hosted MFi/AES and
-receiver/session targets, new timing/services and Windows-only filesystem backend are also
+receiver/session targets, new timing/services/events and Windows-only filesystem backend are also
 excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -2632,6 +2636,55 @@ Factory identification, execution/recovery, USB-network ownership, existing Appl
 authentication-chip access and phone interoperability remain unresolved. No
 installable CarPlay update, modified ISO or vehicle operation is produced.
 
+## Step 64 - Own bidirectional event messages and explicit commands
+
+Date: 2026-09-10. Added [projection-events.md](projection-events.md) with pinned
+references, schemas, ownership contracts and verification commands. Reinspection
+confirms `/feedback` belongs to the control connection, not the event channel;
+the earlier combined next-step description is corrected.
+
+The new pure C99 event owner supports up to four outstanding commands and atomic
+multi-command enqueueing, so explicit press/release pairs do not partially enter
+a full queue. Non-reused CSeqs and lifetime tokens correlate final replies,
+including out-of-order and non-200 replies. Incoming phone requests have their
+own namespace and require explicit handler responses; no generic 200 is supplied.
+Replies take priority over new commands without interrupting active output.
+Plaintext copying and final ciphertext drain are separate; only the latter starts
+the response deadline. Held messages, receive, output/drain and pending replies
+have absolute budgets. Unknown/duplicate/premature responses and malformed input
+close the owner, never reset counters or retry commands automatically.
+
+Typed binary-plist encoders implement HID reports, Siri down/up, night mode,
+iAP messages and keyframe requests with exact advertised-ID and feature gates.
+They supply no physical input driver or default identity. The socket provider
+can enable the owner before allocating sockets, disabling raw record access.
+RECORD reply drain enables commands; pre-start incoming requests may still get
+explicit replies. Polling joins message/cipher/socket deadlines and cleanup.
+
+Six pure groups include request encoding, schema/capacity rejection, all four
+slots, bidirectional correlation, atomic queueing, output priority, stale tokens,
+exact deadlines/exhaustion and 5,000 malformed/truncated messages. Eight generated
+command plists decode independently with exact types/data. Full synthetic
+pairing/MFi/session integration now tests actual IPv4/IPv6 command exchanges,
+64-byte outgoing and 31-byte incoming records, pre-RECORD gates, out-of-order
+responses and cleanup on invalid/missing replies or held-request expiry.
+
+The first sanitizer pass caught undefined intermediate pointer arithmetic when
+selecting slot four. Computing the final index before adding it to the array
+base fixes the problem, and the all-four-slot test remains in the sanitizer suite.
+Final validation passes 36 combined, 22 ordinary, 25 TLS-only CTest suites and
+25 Python regressions, with 18 ordinary and nine hosted ASan/UBSan suites. Strict
+Clang warnings and static analysis pass. The refreshed twenty-unit ARM core
+remains import-free; new event/command and Windows service targets are excluded.
+The event owner is 392 bytes and the service context 1,320 on x64, before caller
+queues/stack/kernel storage. No dependency version or real credential changed.
+
+Next implement typed control `/feedback` from actual media observations and
+explicit control mode/resource command handling, then actual media decoders and
+input/output drivers. Target execution/recovery, USB-network ownership, factory
+authentication-chip access and phone validation remain unresolved. No installable
+CarPlay update or vehicle modification is produced.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2642,10 +2695,14 @@ installable CarPlay update, modified ISO or vehicle operation is produced.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement event commands and network/media/input backends. Step 63 adds actual
+3. Implement control feedback/mode semantics and network/media/input backends.
+   Step 64 adds event message ownership and explicit command encoders, with
+   real-socket integration; `/feedback` is a separate control route requiring
+   actual media observations. Physical input capture, control mode/resource
+   semantics and media drivers are still missing. Step 63 adds actual
    peer-bound Windows timing/event/keepalive sockets and receiver polling, tested
-   over loopback. Event RTSP/feedback/input sequencing, stream record/packet
-   processing, actual media drivers and a QNX socket backend remain missing.
+   over loopback. Stream record/packet processing and a QNX socket backend remain
+   missing.
    Step 62 adds
    typed session/resource ownership and key derivation, with strict capability/
    state gates, lease cleanup and reply-drain/start handling. Media allocation

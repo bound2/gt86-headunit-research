@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <chrono>
 #include "projection_services.h"
+#include "projection_command.h"
 #include "projection_receiver_fixture.h"
 static constexpr uint64_t ms=1000000,sec=1000000000;
 static projection_ip loopback(bool v6=false,uint8_t last=1) {
@@ -68,6 +69,7 @@ struct Socket {
 struct Service {
     projection_services s{}; projection_services_config cfg{}; projection_session_keys keys{};
     std::array<uint8_t,274> rx{},tx{}; std::array<uint8_t,256> plain{}; std::array<uint8_t,512> network{};
+    Bytes message_rx=Bytes(4096),message_reply=Bytes(4096),message_commands=Bytes(4*4096);
     uint64_t now=ms; unsigned clock_calls=0;
     explicit Service(bool v6=false,SessionBackend* media=nullptr) {
         projection_services_default_config(&cfg); cfg.local=cfg.peer=loopback(v6); cfg.clock_ns=clock; cfg.clock_context=this;
@@ -79,6 +81,14 @@ struct Service {
     static uint64_t clock(void* p) { auto& f=*static_cast<Service*>(p); ++f.clock_calls; return f.now; }
     projection_services_storage storage() { return {rx.data(),plain.data(),tx.data(),network.data(),rx.size(),plain.size(),tx.size(),network.size()}; }
     void init() { auto b=storage(); CHECK(projection_services_init(&s,&cfg,&b,91)==IAP2_OK&&clock_calls==0); }
+    void enable_messages() {
+        projection_events_config c{}; projection_events_default_config(&c);
+        projection_events_storage b{message_rx.data(),message_reply.data(),message_commands.data(),message_rx.size(),message_reply.size(),4096,message_commands.size(),4};
+        auto old=snapshot(s); CHECK(projection_services_enable_events(&s,90,&c,&b)==IAP2_INVALID&&snapshot(s)==old);
+        auto bad=b; bad.commands_size=0; CHECK(projection_services_enable_events(&s,91,&c,&bad)==IAP2_ARGUMENT&&snapshot(s)==old);
+        CHECK(projection_services_enable_events(&s,91,&c,&b)==IAP2_OK); old=snapshot(s);
+        CHECK(projection_services_enable_events(&s,91,&c,&b)==RTSP_BUSY&&snapshot(s)==old);
+    }
     projection_session_endpoint open(uint16_t peer_port,bool keep=true) {
         auto p=projection_services_provider(&s); projection_session_resource q{}; q.peer_timing_port=peer_port; q.keep_alive_low_power=keep?1:0; projection_session_endpoint out{};
         CHECK(p.open(p.context,91,&q,cfg.enabled_features,&keys,&out)==IAP2_OK&&out.lease&&out.timing_port&&out.event_port&&bool(out.keep_alive_port)==keep); return out;
@@ -92,6 +102,7 @@ struct Service {
         CHECK(s.failed&&!s.connected&&s.timing_socket==static_cast<uintptr_t>(INVALID_SOCKET)&&s.listener==static_cast<uintptr_t>(INVALID_SOCKET));
         CHECK(zeroed(rx.data(),rx.size())&&zeroed(tx.data(),tx.size())&&zeroed(plain.data(),plain.size())&&zeroed(network.data(),network.size()));
         CHECK(zeroed(s.event.read_key,32)&&zeroed(s.event.write_key,32));
+        if(s.events_enabled) CHECK(s.events.dead&&zeroed(message_rx.data(),message_rx.size())&&zeroed(message_reply.data(),message_reply.size())&&zeroed(message_commands.data(),message_commands.size()));
     }
 };
 static Bytes frame(const uint8_t* key,uint64_t counter,const Bytes& plain) {
@@ -211,11 +222,63 @@ static int request(Harness& h,const Bytes& body,const char* method="SETUP") {
     for(size_t at=0;at<wire.size();) { auto end=std::min(at+256,wire.size()); r=h.feed(h.frame(Bytes(wire.begin()+at,wire.begin()+end))); at=end; if(at<wire.size()) CHECK(r==IAP2_MORE); } return r;
 }
 static int available(void*,uint64_t gen,const projection_info_profile*) { CHECK(gen==91); return IAP2_OK; } // Test media attestation only.
+static Bytes event_response(uint32_t seq,unsigned status=200) { return bytes("RTSP/1.0 "+std::to_string(status)+" Test\r\nCSeq: "+std::to_string(seq)+"\r\nContent-Length: 0\r\n\r\n"); }
+static void send_message(Socket& phone,const uint8_t* key,uint64_t& counter,const Bytes& message) {
+    Bytes wire; for(size_t at=0;at<message.size();) { auto end=std::min(at+size_t(31),message.size()); auto record=frame(key,counter++,Bytes(message.begin()+at,message.begin()+end)); wire.insert(wire.end(),record.begin(),record.end()); at=end; }
+    phone.send_bytes(wire);
+}
+static Bytes read_message(Socket& phone,const uint8_t* key,uint64_t& counter) {
+    Bytes message; rtsp_message parsed{}; size_t used=0;
+    while(rtsp_message_decode(message.data(),message.size(),&parsed,&used)==IAP2_MORE) {
+        auto head=phone.receive_bytes(2); size_t size=head[0]+256u*head[1]; CHECK(size<=256);
+        auto encrypted=phone.receive_bytes(size+16); auto n=nonce(counter++); Bytes plain(size); size_t decoded=0;
+        CHECK(pair_aead_open(key,n.data(),head.data(),2,encrypted.data(),encrypted.size(),plain.data(),plain.size(),&decoded)==IAP2_OK&&decoded==size);
+        message.insert(message.end(),plain.begin(),plain.end());
+    }
+    CHECK(rtsp_message_decode(message.data(),message.size(),&parsed,&used)==IAP2_OK&&used==message.size()); return message;
+}
+template<class F> static void receiver_until(Harness& h,F condition) {
+    auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    while(!condition()) { CHECK(std::chrono::steady_clock::now()<deadline); CHECK(projection_receiver_poll(&h.s,91,1)==IAP2_OK); if(!condition()) Sleep(1); }
+}
+static void event_commands(Harness& h,Service& f,Socket& phone,const projection_info_profile& profile,const uint8_t* read_key,const uint8_t* write_key,uint64_t& incoming,uint64_t& outgoing,unsigned mode) {
+    Bytes down(256),up(256); size_t a=0,b=0; projection_command d{PROJECTION_COMMAND_SIRI,{},{},2},u{PROJECTION_COMMAND_SIRI,{},{},3};
+    CHECK(projection_command_encode(&profile,15,&d,down.data(),down.size(),&a)==IAP2_OK); down.resize(a);
+    CHECK(projection_command_encode(&profile,15,&u,up.data(),up.size(),&b)==IAP2_OK); up.resize(b);
+    rtsp_slice bodies[]={{down.data(),down.size()},{up.data(),up.size()}}; rtsp_channel_key keys[2]{};
+    auto old=snapshot(f.s); CHECK(projection_services_commands(&f.s,90,bodies,2,keys,UINT64_MAX)==IAP2_INVALID&&snapshot(f.s)==old);
+    CHECK(projection_services_commands(&f.s,91,bodies,2,keys,f.now)==PROJECTION_EVENTS_OUTPUT);
+    receiver_until(h,[&]{return f.s.events.slots[1].phase==PROJECTION_EVENT_WAITING;});
+    for(unsigned i=0;i<2;++i) { auto wire=read_message(phone,write_key,outgoing); rtsp_message m{}; size_t n=0;
+        CHECK(rtsp_message_decode(wire.data(),wire.size(),&m,&n)==IAP2_OK&&m.cseq==i+1&&m.kind==RTSP_REQUEST&&m.target.size==8);
+        CHECK(Bytes(m.body.data,m.body.data+m.body.size)==(i?up:down)); }
+    if(mode==5) { f.now+=5000*ms; CHECK(projection_receiver_poll(&h.s,91,1)==PROJECTION_RECEIVER_CLOSED); return; }
+    if(mode==6) { send_message(phone,read_key,incoming,event_response(999));
+        auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+        while(!f.s.failed) { CHECK(std::chrono::steady_clock::now()<deadline); int r=projection_receiver_poll(&h.s,91,1); CHECK(r==IAP2_OK||r==PROJECTION_RECEIVER_CLOSED); } return; }
+    auto peer_request=bytes("POST /unknown HTTP/1.1\r\nCSeq: 1\r\nContent-Length: 0\r\n\r\n");
+    if(mode==7) {
+        for(unsigned seq=1;seq<=2;++seq) { send_message(phone,read_key,incoming,event_response(seq)); receiver_until(h,[&]{return f.s.events.held==2;});
+            rtsp_message m{}; rtsp_channel_key k{}; CHECK(projection_services_message(&f.s,91,&m,&k)==PROJECTION_EVENTS_RESPONSE); CHECK(projection_services_release(&f.s,k,f.now)==IAP2_OK); }
+        send_message(phone,read_key,incoming,peer_request); receiver_until(h,[&]{return f.s.events.held==1;}); f.now+=5000*ms;
+        CHECK(projection_receiver_poll(&h.s,91,1)==PROJECTION_RECEIVER_CLOSED); return; }
+    auto combined=event_response(2,503),first=event_response(1); combined.insert(combined.end(),peer_request.begin(),peer_request.end()); combined.insert(combined.end(),first.begin(),first.end());
+    send_message(phone,read_key,incoming,combined); receiver_until(h,[&]{return f.s.events.held==2;});
+    rtsp_message message{}; rtsp_channel_key key{}; CHECK(projection_services_message(&f.s,91,&message,&key)==PROJECTION_EVENTS_RESPONSE&&message.status==503&&message.cseq==2&&key.token==keys[1].token);
+    old=snapshot(f.s); CHECK(projection_services_release(&f.s,{91,key.token+99},UINT64_MAX)==IAP2_INVALID&&snapshot(f.s)==old);
+    CHECK(projection_services_release(&f.s,key,f.now)==IAP2_OK); receiver_until(h,[&]{return f.s.events.held==1;});
+    CHECK(projection_services_message(&f.s,91,&message,&key)==PROJECTION_EVENTS_REQUEST&&message.cseq==1);
+    rtsp_response reply{404,{},nullptr,0,{}}; CHECK(projection_services_respond(&f.s,key,&reply,f.now)==PROJECTION_EVENTS_OUTPUT);
+    receiver_until(h,[&]{return f.s.events.held==2;}); CHECK(projection_services_message(&f.s,91,&message,&key)==PROJECTION_EVENTS_RESPONSE&&key.token==keys[0].token&&message.status==200);
+    CHECK(projection_services_release(&f.s,key,f.now)==IAP2_OK); receiver_until(h,[&]{return f.s.events.reply.phase==0;});
+    auto wire=read_message(phone,write_key,outgoing); size_t n=0; CHECK(rtsp_message_decode(wire.data(),wire.size(),&message,&n)==IAP2_OK&&message.status==404&&message.cseq==1&&message.protocol==RTSP_HTTP_11);
+}
 static void receiver_integration(const Vectors& v,const Vectors& setup,const Vectors& sv) {
-    for(unsigned mode=0;mode<4;++mode) {
-        Socket timing,phone(SOCK_STREAM); SessionBackend media; Service f(false,&media);
+    for(unsigned mode=0;mode<9;++mode) {
+        bool v6=mode==8; Socket timing(SOCK_DGRAM,v6),phone(SOCK_STREAM,v6); SessionBackend media; Service f(v6,&media);
         f.cfg.media.poll=SessionBackend::poll; f.cfg.media.next_delay=SessionBackend::next_delay;
-        f.init(); auto profile=session_profile(); Bytes info_scratch(PROJECTION_INFO_LIMIT);
+        if(mode>=4) f.cfg.event.payload_limit=64; // Outgoing commands span multiple encrypted records.
+        f.init(); if(mode>=4) f.enable_messages(); auto profile=session_profile(); Bytes info_scratch(PROJECTION_INFO_LIMIT);
         Harness h(v,setup); projection_receiver_info_config info{}; projection_receiver_info_default_config(&info);
         info.profile=&profile; info.available=available; info.buffer=info_scratch.data(); info.capacity=info_scratch.size();
         CHECK(projection_receiver_enable_info(&h.s,91,&info,0)==IAP2_OK);
@@ -233,14 +296,31 @@ static void receiver_integration(const Vectors& v,const Vectors& setup,const Vec
         CHECK(projection_receiver_next_delay(&h.s)<=5);
         uint8_t key[32]{}; auto salt=bytes("Events-Salt"),label=bytes("Events-Read-Encryption-Key");
         CHECK(pair_hkdf_sha512(v.at("pv_shared_secret").data(),32,salt.data(),salt.size(),label.data(),label.size(),key,32)==IAP2_OK);
-        phone.send_bytes(frame(key,0,bytes("authenticated event")));
-        while(!f.s.event.held) { CHECK(std::chrono::steady_clock::now()<deadline); CHECK(projection_receiver_poll(&h.s,91,1)==IAP2_OK); }
-        rtsp_slice out{}; control_cipher_key token{}; CHECK(projection_services_event_peek(&f.s,91,&out,&token)==CONTROL_CIPHER_FRAME&&out.size==19);
-        CHECK(projection_services_event_consume(&f.s,token,out.size,f.now)==IAP2_OK);
+        uint64_t incoming=0,outgoing=0; uint8_t write_key[32]{}; label=bytes("Events-Write-Encryption-Key");
+        CHECK(pair_hkdf_sha512(v.at("pv_shared_secret").data(),32,salt.data(),salt.size(),label.data(),label.size(),write_key,32)==IAP2_OK);
+        if(mode<4) {
+            phone.send_bytes(frame(key,0,bytes("authenticated event")));
+            while(!f.s.event.held) { CHECK(std::chrono::steady_clock::now()<deadline); CHECK(projection_receiver_poll(&h.s,91,1)==IAP2_OK); }
+            rtsp_slice out{}; control_cipher_key token{}; CHECK(projection_services_event_peek(&f.s,91,&out,&token)==CONTROL_CIPHER_FRAME&&out.size==19);
+            CHECK(projection_services_event_consume(&f.s,token,out.size,f.now)==IAP2_OK);
+        } else {
+            rtsp_slice out{}; control_cipher_key raw{}; CHECK(projection_services_event_peek(&f.s,91,&out,&raw)==IAP2_UNSUPPORTED);
+            CHECK(projection_services_event_queue(&f.s,91,nullptr,0,0,f.now)==IAP2_UNSUPPORTED);
+            send_message(phone,key,incoming,bytes("POST /unknown RTSP/1.0\r\nCSeq: 19\r\n\r\n")); receiver_until(h,[&]{return f.s.events.held==1;});
+            rtsp_message message{}; rtsp_channel_key token{}; CHECK(projection_services_message(&f.s,91,&message,&token)==PROJECTION_EVENTS_REQUEST&&!f.s.started);
+            rtsp_response reply{501,{},nullptr,0,{}}; CHECK(projection_services_respond(&f.s,token,&reply,f.now)==PROJECTION_EVENTS_OUTPUT);
+            receiver_until(h,[&]{return f.s.events.reply.phase==0;}); auto wire=read_message(phone,write_key,outgoing); size_t n=0;
+            CHECK(rtsp_message_decode(wire.data(),wire.size(),&message,&n)==IAP2_OK&&message.status==501&&message.cseq==19);
+        }
         CHECK(request(h,sv.at("streams"))==RTSP_CHANNEL_OUTPUT&&media.opens==6); h.drain(true,IAP2_OK);
         CHECK(projection_receiver_next_delay(&h.s)==2&&projection_receiver_poll(&h.s,91,1)==IAP2_OK&&media.polls==1);
         CHECK(request(h,{},"RECORD")==RTSP_CHANNEL_OUTPUT&&!f.s.started&&media.starts==0);
-        CHECK(projection_services_event_queue(&f.s,91,nullptr,0,1,f.now)==CONTROL_CIPHER_BUSY); h.drain(true,IAP2_OK); CHECK(f.s.started&&media.starts==1);
+        if(mode<4) CHECK(projection_services_event_queue(&f.s,91,nullptr,0,1,f.now)==CONTROL_CIPHER_BUSY);
+        else { const auto dummy=bytes("bplist00"); rtsp_slice b{dummy.data(),dummy.size()}; rtsp_channel_key token{};
+            CHECK(projection_services_commands(&f.s,91,&b,1,&token,f.now)==RTSP_BUSY); }
+        h.drain(true,IAP2_OK); CHECK(f.s.started&&media.starts==1);
+        if(mode>=4) { CHECK(f.s.events.started); event_commands(h,f,phone,profile,key,write_key,incoming,outgoing,mode);
+            if(mode==4||mode==8) { CHECK(request(h,{},"TEARDOWN")==RTSP_CHANNEL_OUTPUT); h.drain(true,PROJECTION_RECEIVER_CLOSED); } }
         if(mode==0) { CHECK(request(h,sv.at("teardown_audio"),"TEARDOWN")==RTSP_CHANNEL_OUTPUT&&media.closed.size()==1); h.drain(true,IAP2_OK);
             CHECK(request(h,{},"TEARDOWN")==RTSP_CHANNEL_OUTPUT&&media.live.empty()); CHECK(projection_receiver_poll(&h.s,91,1)==IAP2_MORE); h.drain(true,PROJECTION_RECEIVER_CLOSED); }
         if(mode==1) { f.now+=30000*ms; CHECK(projection_receiver_poll(&h.s,91,1)==PROJECTION_RECEIVER_CLOSED); }

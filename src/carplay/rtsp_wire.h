@@ -54,6 +54,11 @@ int rtsp_header_get(const rtsp_message *, rtsp_slice name, rtsp_slice *value);
  */
 int rtsp_response_encode(const rtsp_message *, const rtsp_response *, uint8_t *out,
                          size_t capacity, size_t *written);
+/* Explicit request encoder. Uses kind/protocol/method/target/headers/body/CSeq
+ * from the supplied message; ignores response-only fields. Extra headers obey
+ * the response encoder's reserved-name/uniqueness rules. Same measurement,
+ * transactional bounds and disjoint storage contract; no default route/CSeq. */
+int rtsp_request_encode(const rtsp_message *,uint8_t *,size_t,size_t *written);
 typedef struct rtsp_stream {
     uint8_t *buffer;
     size_t capacity, used, expected, header_size;

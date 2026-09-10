@@ -33,7 +33,7 @@ foreach ($headunitName in @('3rdparty/everest/library/everest.c', '3rdparty/ever
 }
 foreach ($headunitName in @('iap2_wire', 'iap2_auth', 'iap2_link', 'iap2_control', 'iap2_identification', 'iap2_transport',
     'iap2_carplay', 'iap2_power', 'usbmux_wire', 'usbmux_host', 'usbmux_connection', 'usbmux_dispatcher',
-    'lockdown_wire', 'lockdown_channel', 'service_plist', 'lockdown_reply', 'lockdown_bootstrap', 'rtsp_wire', 'rtsp_channel', 'pair_tlv', 'projection_info', 'projection_timing', 'lockdown_tls', 'lockdown_client', 'carkit', 'carkit_iap2')) {
+    'lockdown_wire', 'lockdown_channel', 'service_plist', 'lockdown_reply', 'lockdown_bootstrap', 'rtsp_wire', 'rtsp_channel', 'pair_tlv', 'projection_info', 'projection_timing', 'projection_events', 'projection_command', 'lockdown_tls', 'lockdown_client', 'carkit', 'carkit_iap2')) {
     $headunitSources += Join-Path $headunitRoot "src/carplay/$headunitName.c"
 }
 if ($IncludeEnrollment) {

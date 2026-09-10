@@ -31,6 +31,7 @@ static void socket_close(uintptr_t *value) { if(*value!=BAD_SOCKET) { (void)shut
 static void network_close(projection_services *s) {
     socket_close(&s->event_socket); socket_close(&s->listener); socket_close(&s->keep_socket); socket_close(&s->timing_socket);
     if(s->event.generation) control_cipher_close(&s->event);
+    if(s->events_enabled) projection_events_close(&s->events);
     if(s->storage.network) pair_crypto_wipe(s->storage.network,s->storage.network_size);
     s->network_used=s->network_offset=0; s->connected=0;
     projection_timing_close(&s->timing);
@@ -46,7 +47,9 @@ static int clock_check(projection_services *s,uint64_t now) {
     if(!s->event_lease) return IAP2_OK;
     if(!s->connected&&now-s->opened_ns>=(uint64_t)s->config.accept_ms*1000000) return fail(s,IAP2_MORE);
     r=projection_timing_check(&s->timing,now); if(r!=IAP2_OK) return fail(s,r);
-    r=control_cipher_check(&s->event,s->generation,now/1000000); return r==IAP2_OK?r:fail(s,r);
+    r=control_cipher_check(&s->event,s->generation,now/1000000); if(r!=IAP2_OK) return fail(s,r);
+    if(s->events_enabled) { r=projection_events_check(&s->events,s->generation,now/1000000); if(r) return fail(s,r); }
+    return IAP2_OK;
 }
 static int refresh(projection_services *s) { return clock_check(s,s->config.clock_ns(s->config.clock_context)); }
 static int make_socket(projection_services *s,int type,uintptr_t *out,uint16_t *port) {
@@ -78,6 +81,11 @@ int projection_services_init(projection_services *s,const projection_services_co
     if(r) return r; pair_crypto_wipe(&cipher,sizeof(cipher));
     pair_crypto_wipe(s,sizeof(*s)); s->config=*c; s->storage=*b; s->generation=gen; s->next_lease=1; s->ready=1;
     s->timing_socket=s->keep_socket=s->listener=s->event_socket=BAD_SOCKET; s->now_ns=c->mono_origin_ns; return IAP2_OK;
+}
+int projection_services_enable_events(projection_services *s,uint64_t gen,const projection_events_config *c,const projection_events_storage *b) {
+    projection_events e; int r=owner(s,gen); if(r) return r;
+    if(s->opened||s->events_enabled) return RTSP_BUSY;
+    r=projection_events_init(&e,c,b,gen,s->now_ns/1000000); if(r) return r; s->events=e; s->events_enabled=1; return IAP2_OK;
 }
 static int open_resource(void *context,uint64_t gen,const projection_session_resource *q,uint8_t features,const projection_session_keys *keys,projection_session_endpoint *out) {
     projection_services *s=(projection_services *)context; projection_session_endpoint e; uint64_t now; size_t i; int r=owner(s,gen);
@@ -136,7 +144,10 @@ static int start_resources(void *context,uint64_t gen,const uint64_t *leases,siz
     }
     r=refresh(s); if(r) return r;
     if(n) { r=s->config.media.start(s->config.media.context,gen,children,n); if(r) return fail(s,r); }
-    if(initial) s->started=1; return IAP2_OK;
+    if(initial) {
+        if(s->events_enabled) { r=projection_events_start(&s->events,gen,s->now_ns/1000000); if(r) return fail(s,r); }
+        s->started=1;
+    } return IAP2_OK;
 }
 static int udp_send(projection_services *s,const uint8_t *p,size_t n) {
     SOCKADDR_STORAGE dest; int size=address(&s->config.peer,s->peer_timing_port,&dest);
@@ -199,6 +210,34 @@ static int event_poll(projection_services *s) {
     pair_crypto_wipe(s->storage.network+s->network_offset,used); s->network_offset+=used;
     return r==IAP2_MORE||r==CONTROL_CIPHER_FRAME?IAP2_OK:fail(s,r);
 }
+static int messages_poll(projection_services *s) {
+    rtsp_slice bytes; control_cipher_key cipher_key; rtsp_channel_key key; size_t used; int r,command;
+    if(!s->events_enabled||!s->connected) return IAP2_OK;
+    if(refresh(s)) return PROJECTION_SERVICES_CLOSED;
+    /* A response can already be queued by the peer after the last socket send.
+     * Publish that send's drain BEFORE consuming the incoming response. */
+    if(s->events.active&&!s->event.tx_size) {
+        r=projection_events_output(&s->events,s->generation,&bytes,&key,&command,s->now_ns/1000000);
+        if(r==PROJECTION_EVENTS_DRAIN) { r=projection_events_drain(&s->events,key,s->now_ns/1000000); if(r) return fail(s,r); }
+        else if(r!=PROJECTION_EVENTS_OUTPUT) return fail(s,r);
+    }
+    if(!s->events.held&&s->event.held) {
+        r=control_cipher_plain(&s->event,&bytes,&cipher_key); if(r!=CONTROL_CIPHER_FRAME) return fail(s,r);
+        r=projection_events_feed(&s->events,s->generation,bytes.data,bytes.size,&used,s->now_ns/1000000);
+        if(r!=IAP2_MORE&&r!=PROJECTION_EVENTS_REQUEST&&r!=PROJECTION_EVENTS_RESPONSE) return fail(s,r);
+        r=control_cipher_consume_plain(&s->event,cipher_key,used,s->now_ns/1000000);
+        if(r!=IAP2_OK&&r!=CONTROL_CIPHER_FRAME) return fail(s,r);
+    }
+    if(!s->event.tx_size) {
+        r=projection_events_output(&s->events,s->generation,&bytes,&key,&command,s->now_ns/1000000);
+        if(r==IAP2_MORE) return IAP2_OK; if(r!=PROJECTION_EVENTS_OUTPUT) return fail(s,r);
+        if(command&&!s->started) return fail(s,IAP2_INVALID);
+        used=bytes.size>s->config.event.payload_limit?s->config.event.payload_limit:bytes.size;
+        r=control_cipher_queue(&s->event,s->generation,bytes.data,used,s->now_ns/1000000); if(r!=CONTROL_CIPHER_OUTPUT) return fail(s,r);
+        r=projection_events_consume(&s->events,key,used,s->now_ns/1000000);
+        if(r!=PROJECTION_EVENTS_OUTPUT&&r!=PROJECTION_EVENTS_DRAIN) return fail(s,r);
+    } return IAP2_OK;
+}
 int projection_services_poll(projection_services *s,uint64_t gen) {
     int r=owner(s,gen); if(r) return r; if(!s->event_lease) return IAP2_MORE;
     r=udp_poll(s); if(r) return r;
@@ -212,6 +251,7 @@ int projection_services_poll(projection_services *s,uint64_t gen) {
         pair_crypto_wipe(p,sizeof(p));
     }
     r=event_poll(s); if(r) return r;
+    r=messages_poll(s); if(r) return r;
     if(s->media_count&&s->config.media.poll) { r=s->config.media.poll(s->config.media.context,gen,s->now_ns/1000000); if(r!=IAP2_OK&&r!=IAP2_MORE) return fail(s,r); }
     return IAP2_OK;
 }
@@ -220,6 +260,7 @@ uint32_t projection_services_next_delay(const projection_services *s,uint64_t ge
     if(owner(s,gen)!=IAP2_OK||!s->event_lease) return UINT32_MAX;
     delay=s->config.poll_ms; n=projection_timing_next_delay(&s->timing); if(n<delay) delay=n;
     n=control_cipher_next_delay(&s->event); if(n<delay) delay=n;
+    if(s->events_enabled) { n=projection_events_next_delay(&s->events); if(n<delay) delay=n; }
     if(!s->connected) { elapsed=(s->now_ns-s->opened_ns)/1000000; n=elapsed>=s->config.accept_ms?0:s->config.accept_ms-(uint32_t)elapsed; if(n<delay) delay=n; }
     if(s->media_count&&s->config.media.next_delay) { n=s->config.media.next_delay(s->config.media.context,gen); if(n<delay) delay=n; }
     return delay;
@@ -231,7 +272,7 @@ projection_session_provider projection_services_provider(projection_services *s)
 }
 int projection_services_event_peek(const projection_services *s,uint64_t gen,rtsp_slice *out,control_cipher_key *key) {
     int r; if(out) pair_crypto_wipe(out,sizeof(*out)); if(key) pair_crypto_wipe(key,sizeof(*key));
-    if(!out||!key) return IAP2_ARGUMENT; r=owner(s,gen); if(r) return r;
+    if(!out||!key) return IAP2_ARGUMENT; r=owner(s,gen); if(r) return r; if(s->events_enabled) return IAP2_UNSUPPORTED;
     return s->connected?control_cipher_plain(&s->event,out,key):IAP2_MORE;
 }
 int projection_services_event_consume(projection_services *s,control_cipher_key key,size_t n,uint64_t now) {
@@ -244,8 +285,32 @@ int projection_services_event_consume(projection_services *s,control_cipher_key 
 }
 int projection_services_event_queue(projection_services *s,uint64_t gen,const uint8_t *p,size_t n,int unsolicited,uint64_t now) {
     int r=owner(s,gen); if(r) return r;
+    if(s->events_enabled) return IAP2_UNSUPPORTED;
     if((!p&&n)||n>s->config.event.payload_limit||(unsolicited!=0&&unsolicited!=1)||now<s->now_ns) return IAP2_ARGUMENT;
     if(!s->connected||(unsolicited&&!s->started)||s->event.tx_size) return CONTROL_CIPHER_BUSY;
     r=clock_check(s,now); if(r) return r;
     r=control_cipher_queue(&s->event,gen,p,n,now/1000000); return r==CONTROL_CIPHER_OUTPUT?r:fail(s,r);
+}
+int projection_services_commands(projection_services *s,uint64_t gen,const rtsp_slice *bodies,size_t count,rtsp_channel_key *keys,uint64_t now) {
+    int r; if(keys&&count<=PROJECTION_EVENTS_SLOTS) pair_crypto_wipe(keys,count*sizeof(*keys));
+    r=owner(s,gen); if(r) return r; if(!s->events_enabled) return IAP2_UNSUPPORTED;
+    if(now<s->now_ns) return IAP2_ARGUMENT; if(!s->connected) return RTSP_BUSY;
+    r=projection_events_queue(&s->events,gen,bodies,count,keys,now/1000000);
+    if(r==PROJECTION_EVENTS_CLOSED) return fail(s,r); if(r!=PROJECTION_EVENTS_OUTPUT) return r;
+    if(clock_check(s,now)) { pair_crypto_wipe(keys,count*sizeof(*keys)); return PROJECTION_SERVICES_CLOSED; } return r;
+}
+int projection_services_message(const projection_services *s,uint64_t gen,rtsp_message *m,rtsp_channel_key *key) {
+    int r; if(m) pair_crypto_wipe(m,sizeof(*m)); if(key) pair_crypto_wipe(key,sizeof(*key));
+    if(!m||!key) return IAP2_ARGUMENT; r=owner(s,gen); if(r) return r; if(!s->events_enabled) return IAP2_UNSUPPORTED;
+    return projection_events_message(&s->events,gen,m,key);
+}
+int projection_services_respond(projection_services *s,rtsp_channel_key key,const rtsp_response *res,uint64_t now) {
+    int r=owner(s,key.generation); if(r) return r; if(!s->events_enabled) return IAP2_UNSUPPORTED; if(now<s->now_ns) return IAP2_ARGUMENT;
+    r=projection_events_respond(&s->events,key,res,now/1000000); if(r==PROJECTION_EVENTS_CLOSED) return fail(s,r);
+    if(r!=PROJECTION_EVENTS_OUTPUT) return r; return clock_check(s,now)?PROJECTION_SERVICES_CLOSED:r;
+}
+int projection_services_release(projection_services *s,rtsp_channel_key key,uint64_t now) {
+    int r=owner(s,key.generation); if(r) return r; if(!s->events_enabled) return IAP2_UNSUPPORTED; if(now<s->now_ns) return IAP2_ARGUMENT;
+    r=projection_events_release(&s->events,key,now/1000000); if(r==PROJECTION_EVENTS_CLOSED) return fail(s,r);
+    if(r!=IAP2_OK) return r; return clock_check(s,now);
 }

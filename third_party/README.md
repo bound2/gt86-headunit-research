@@ -402,3 +402,15 @@ socket documentation informs platform error/binding semantics, not CarPlay
 conformance. Real loopback tests still use public synthetic pairing/MFi and media
 providers. Exact blobs, sources and limitations are recorded in
 [projection-services.md](../reports/projection-services.md).
+
+`projection_events.c`/`.h`, `projection_command.c`/`.h`, the explicit request
+encoder, service integration/tests and independent command checker select
+GPL-3.0-only. The same pinned LIVI `cpStack.ts` and `rtspMessage.ts` provide
+command schemas and framing references; no upstream implementation bodies or
+actual input reports/credentials were copied. Bounded queues, atomic batches,
+capability validation, reply correlation, lifecycle tokens, explicit handling
+and deadlines are local policies. The fixed-schema binary serializer reuses
+local encoding conventions, with no new dependency. Python plistlib independently
+decodes synthetic command bodies. See
+[projection-events.md](../reports/projection-events.md) for blobs, validation and
+the remaining control-feedback/physical-media boundary.

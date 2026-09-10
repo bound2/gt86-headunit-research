@@ -195,6 +195,12 @@ claims and cannot be installed on the QNX head unit.
 
 ## Step 6 - Continue with event commands and media integration
 
+Update: [Step 64](projection-events.md) now adds the owned bidirectional event
+message layer and typed outgoing command encoders over these sockets. It also
+corrects the route distinction: `/feedback` belongs on the control connection,
+not the event connection. Control feedback/mode semantics and actual media remain
+unfinished. The next-step paragraph below records the earlier Step 63 plan.
+
 Next add a bounded event-message owner over authenticated records: explicit
 RTSP framing, request/reply correlation, feedback clock payloads and unsolicited
 input ordering. Then implement the media packet/record receivers and connect
