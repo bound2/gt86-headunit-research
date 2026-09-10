@@ -71,10 +71,11 @@ static void formats_and_invalid() {
     }
 }
 struct Renderer {
-    projection_audio_sink api{this,open,start,submit,poll,playback,close};
+    projection_audio_sink api{this,open,start,submit,poll,playback,close,flush};
     uint64_t next=1; std::map<uint64_t,projection_audio_format> live; std::vector<uint64_t> closed;
     std::vector<Bytes> bytes; std::vector<uint32_t> samples,frames; unsigned starts=0,polls=0;
-    bool busy=false; int fault=0; projection_playback_position position{};
+    bool busy=false; int fault=0,flush_fault=0; projection_playback_position position{};
+    unsigned flushes=0,resumes=0;
     static int open(void* p,uint64_t gen,const projection_session_resource* r,const projection_audio_format* f,uint64_t* lease) {
         auto& s=*static_cast<Renderer*>(p); CHECK(gen==91&&f->codec==PROJECTION_AUDIO_PCM16&&r->audio_format==f->bit&&r->frames_per_packet==0);
         if(s.fault==1) return IAP2_PROVIDER_FAILED;
@@ -91,6 +92,11 @@ struct Renderer {
         auto& s=*static_cast<Renderer*>(p); *out=s.position; out->sample_rate=s.live.at(lease).clock_rate; if(s.fault==7) ++out->sample_rate; return s.fault==6?IAP2_PROVIDER_FAILED:IAP2_OK;
     }
     static void close(void* p,uint64_t,uint64_t lease) { auto& s=*static_cast<Renderer*>(p); CHECK(s.live.erase(lease)==1); s.closed.push_back(lease); }
+    static int flush(void* p,uint64_t gen,uint64_t lease,const projection_audio_flush_request* request) {
+        auto& s=*static_cast<Renderer*>(p); CHECK(gen==91&&s.live.contains(lease));
+        if(request) ++s.flushes; else ++s.resumes;
+        return s.flush_fault==(request?1:2)?IAP2_PROVIDER_FAILED:IAP2_OK;
+    }
 };
 struct Bridge {
     Renderer renderer; uint64_t now=100*ms; projection_decode_sink *p=nullptr; projection_audio_sink api{};
@@ -148,6 +154,19 @@ static void bridge_failures() {
     { Bridge b; b.ready(); CHECK(b.submit(Bytes{3,0xff})==IAP2_INVALID&&b.renderer.live.empty()); }
     { Bridge b; b.ready(); projection_playback_position out{}; b.renderer.position={b.now+1,1,48000,1}; CHECK(b.api.playback(b.api.context,91,b.lease,&out)==IAP2_PROVIDER_FAILED&&!out.has_position); }
     { Bridge b; b.ready(); CHECK(b.api.poll(b.api.context,92,b.lease,UINT64_MAX)==IAP2_INVALID&&b.renderer.live.size()==1); }
+    for(int failure=0;failure<3;++failure) {
+        Bridge b; b.ready(); uint64_t second=0; CHECK(b.open(101,&second)==IAP2_OK);
+        CHECK(b.submit(vectors.at("opus120_0"))==IAP2_OK); projection_audio_flush_request q{0,0}; b.renderer.flush_fault=failure;
+        CHECK(b.api.flush(b.api.context,92,b.lease,&q)==IAP2_INVALID&&!b.renderer.flushes);
+        int r=b.api.flush(b.api.context,91,b.lease,&q); CHECK(r==(failure==1?IAP2_PROVIDER_FAILED:IAP2_OK));
+        if(failure!=1) {
+            CHECK(b.poll()==IAP2_OK&&b.renderer.bytes.empty()&&b.api.start(b.api.context,91,b.lease)==IAP2_INVALID);
+            CHECK(b.submit(vectors.at("opus120_1"))==IAP2_INVALID);
+            r=b.api.flush(b.api.context,91,b.lease,nullptr); CHECK(r==(failure==2?IAP2_PROVIDER_FAILED:IAP2_OK));
+        }
+        if(failure) CHECK(b.renderer.live.empty()&&b.renderer.closed.size()==2);
+        else { CHECK(b.submit(vectors.at("opus120_0"),99,0)==IAP2_OK); CHECK(b.poll()==IAP2_OK&&b.renderer.samples.back()==0); }
+    }
 }
 static void mutations() {
     uint32_t random=0x718ea441;

@@ -23,6 +23,13 @@ struct SessionBackend {
     std::vector<uint64_t> live,closed,started;
     std::vector<projection_session_resource> requests;
     std::vector<projection_session_keys> keys;
+    unsigned flushes=0,resumes=0; int flush_error=0,resume_error=0;
+    uint64_t flushed_lease=0; projection_audio_flush_request boundary{};
+    static int flush(void* context,uint64_t gen,uint64_t lease,const projection_audio_flush_request* request) {
+        auto& self=*static_cast<SessionBackend*>(context); CHECK(gen==91&&std::find(self.live.begin(),self.live.end(),lease)!=self.live.end());
+        if(request) { ++self.flushes; self.boundary=*request; self.flushed_lease=lease; return self.flush_error; }
+        CHECK(lease==self.flushed_lease); ++self.resumes; return self.resume_error;
+    }
     projection_session_config config(bool feedback=false) {
         return {{this,open,start,close,nullptr,nullptr,feedback?playback:nullptr,feedback?clock:nullptr},15,feedback?1000u:0u};
     }

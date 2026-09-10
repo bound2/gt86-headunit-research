@@ -42,6 +42,10 @@ typedef struct projection_clock_snapshot {
     uint64_t raw_ns,ntp;
     uint8_t synchronized;
 } projection_clock_snapshot;
+typedef struct projection_audio_flush_request {
+    uint32_t sample_time; /* First permitted RTP timestamp; discard strictly before. */
+    uint16_t sequence; /* Control metadata only; UDP sequence is not authenticated. */
+} projection_audio_flush_request;
 typedef struct projection_session_provider {
     void *context;
     /* Synchronous, bounded, no reentry/pointer retention or exceptions across
@@ -86,6 +90,12 @@ typedef struct projection_session_provider {
      * enclosing provider owns the timing clock. No default media observation. */
     int (*playback)(void *,uint64_t,uint64_t lease,projection_playback_position *);
     int (*clock)(void *,uint64_t,projection_clock_snapshot *);
+    /* Optional two-phase audio FLUSH. Non-NULL: synchronously stop/clear media,
+     * reset codec/output history and arm the timestamp fence, retaining keys,
+     * nonce replay history, peer pinning and lease. NULL: resume ONLY after the
+     * encrypted FLUSH reply drains. No automatic RECORD or device Start. Only
+     * OK succeeds; failures retire the whole session. No pointer retention. */
+    int (*flush)(void *,uint64_t,uint64_t,const projection_audio_flush_request *);
 } projection_session_provider;
 typedef struct projection_session_config {
     projection_session_provider provider;
@@ -109,7 +119,7 @@ typedef struct projection_session {
     uint8_t reply[PROJECTION_SESSION_REPLY]; size_t reply_size;
     size_t pending_first;
     enum projection_session_state state;
-    uint8_t enabled,recording,pending; /* pending: initial, streams, record, partial/full teardown, feedback. */
+    uint8_t enabled,recording,pending; /* pending: initial, streams, record, partial/full teardown, feedback, flush. */
 } projection_session;
 /* Internal child of projection_receiver: no caller attach, raw-key bind,
  * concurrent access or child calls on a live receiver. Fresh init validates
@@ -122,10 +132,10 @@ typedef struct projection_session {
  * Only receiver-owned, verified encrypted requests AFTER MFi reply drain reach
  * request. shared_secret must come from that owner's actual pairing exchange;
  * never user-supplied session keys. No authentication success is set by this API.
- * Exact method SETUP/RECORD/TEARDOWN. First session SETUP binds its opaque target
+ * Exact methods SETUP/RECORD/TEARDOWN and optional FLUSH. First SETUP binds its target
  * (1..256 bytes); all subsequent session commands must match. Target is never
  * resolved or used for network I/O. Initial NTP timingPort is mandatory.
- * Binary dict bodies only; stream arrays nonempty, no malformed-full-teardown
+ * Nonempty bodies must be binary dicts; stream arrays nonempty, no malformed-full-teardown
  * fallback. Bounded unknown metadata is ignored, not granted as functionality.
  * Explicit eiv/ekey/et negotiation and non-NTP timing are unsupported.
  *
@@ -139,6 +149,12 @@ typedef struct projection_session {
  * streams added while recording also start only on their SETUP reply drain.
  * Valid TEARDOWN closes selected leases before replying; full teardown terminates
  * this connection after reply drain, never resets event/stream nonces in place.
+ * Optional provider.flush enables exact bodyless FLUSH on the bound target,
+ * after RECORD drain and with exactly one owned audio stream. RTP-Info requires
+ * one seq=uint16 and rtptime=uint32 (either order, OWS, no other parameters).
+ * This is the classic AirPlay form, not verified CarPlay handset behavior;
+ * ambiguous multi-audio FLUSH and FLUSHBUFFERED are unsupported. Timestamp
+ * boundaries are trusted only on this authenticated encrypted control route.
  *
  * Explicit feedback_max_age_ms enables exact POST /feedback after initial
  * session SETUP drain (not bound to the opaque session target). Empty or bounded

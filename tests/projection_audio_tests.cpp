@@ -113,11 +113,40 @@ static void malformed() {
         int r=h.feed(b); CHECK(r==PROJECTION_AUDIO_DROPPED||r==PROJECTION_AUDIO_PACKET); if(r==PROJECTION_AUDIO_DROPPED) CHECK(!h.s.count&&!h.s.received);
     }
 }
+static void flush_epochs() {
+    Audio h; h.start(); h.push(10,UINT32_MAX-4); h.push(12,100); h.now=20*ms;
+    projection_audio_packet borrowed{}; projection_audio_key old{};
+    CHECK(projection_audio_peek(&h.s,91,&borrowed,&old,h.now)==PROJECTION_AUDIO_PACKET);
+    auto saved=snapshot(h.s); CHECK(projection_audio_flush(&h.s,92,UINT32_MAX,h.now)==IAP2_INVALID&&snapshot(h.s)==saved);
+    auto highest=h.s.highest,seen=h.s.seen,next=h.s.next_token; auto key=Bytes(h.s.key,h.s.key+32); auto ssrc=h.s.ssrc;
+    CHECK(projection_audio_flush(&h.s,91,UINT32_MAX,h.now)==IAP2_OK);
+    CHECK(!h.s.count&&!h.s.started&&!h.s.held&&h.s.fenced&&zeroed(borrowed.data,borrowed.size)&&zeroed(h.storage.data(),h.s.storage_size));
+    CHECK(h.s.highest==highest&&h.s.seen==seen&&h.s.last==12&&h.s.next_token==next&&h.s.ssrc==ssrc&&Bytes(h.s.key,h.s.key+32)==key);
+    CHECK(projection_audio_release(&h.s,old,UINT64_MAX)==IAP2_INVALID); // Retired view cannot consume new media or time.
+    CHECK(h.feed(audio_packet(key.data(),11,1,{1,2}))==PROJECTION_AUDIO_DROPPED); // Previously unseen nonce <= flush high-water mark.
+    uint64_t counter=13;
+    for(uint32_t stamp:{UINT32_MAX-2,UINT32_MAX-1,0x7fffffffu}) {
+        CHECK(h.feed(audio_packet(key.data(),counter++,stamp,{1,2}))==PROJECTION_AUDIO_DROPPED);
+    }
+    auto spoof=audio_packet(key.data(),99,0,{1,2}); spoof.back()^=1;
+    highest=h.s.highest; CHECK(h.feed(spoof)==PROJECTION_AUDIO_DROPPED&&h.s.highest==highest);
+    auto good=audio_packet(key.data(),16,0,{1,2},65535); good[2]=good[3]=0; // Unauthenticated seq does not affect fence.
+    CHECK(h.feed(good)==PROJECTION_AUDIO_PACKET);
+    projection_audio_packet p{}; projection_audio_key fresh{};
+    CHECK(projection_audio_peek(&h.s,91,&p,&fresh,h.now)==IAP2_MORE&&!fresh.token);
+    h.start(); h.now+=20*ms;
+    CHECK(projection_audio_peek(&h.s,91,&p,&fresh,h.now)==PROJECTION_AUDIO_PACKET&&fresh.token>old.token&&p.sample_time==0);
+    CHECK(projection_audio_release(&h.s,fresh,h.now)==IAP2_OK&&!h.s.fenced);
+    CHECK(h.feed(audio_packet(key.data(),13,200,{1,2}))==PROJECTION_AUDIO_DROPPED);
+    CHECK(projection_audio_flush(&h.s,91,200,h.now)==IAP2_OK&&h.s.last==16); // Repeated epochs never reset nonce history.
+    { Audio empty; CHECK(projection_audio_flush(&empty.s,91,0,0)==IAP2_INVALID); empty.start(); CHECK(projection_audio_flush(&empty.s,91,0,0)==IAP2_OK&&!empty.s.received);
+      empty.push(0,0); empty.start(); empty.now=20*ms; CHECK(empty.take(0).sample_time==0); }
+}
 int main(int argc,char** argv) {
     try { CHECK(argc==2||argc==3); vectors=load_vectors(argv[1],13);
         bool output=argc==3; if(output) CHECK(std::string(argv[2])=="--emit"); formats(output); external_packets(output); if(output) return 0;
-        order_and_gaps(); authentication_and_headers(); ownership_and_limits(); malformed();
-        std::cout<<"PASS: 6 audio groups; exact formats, real AEAD, RTP/replay/order/gaps, PCM conversion, ownership/limits and 5000 mutations; no playback claim\n";
+        order_and_gaps(); authentication_and_headers(); ownership_and_limits(); malformed(); flush_epochs();
+        std::cout<<"PASS: 7 audio groups; exact formats, real AEAD, RTP/replay/order/gaps, PCM conversion, ownership/limits, flush epochs and 5000 mutations; no playback claim\n";
         std::cout<<"x64 audio owner bytes: "<<sizeof(projection_audio)<<"; caller packet storage additional\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

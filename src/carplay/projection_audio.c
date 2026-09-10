@@ -51,6 +51,14 @@ int projection_audio_start(projection_audio *s,uint64_t gen,uint64_t now) {
     int r=owner(s,gen); if(r) return r; if(s->started) return IAP2_INVALID;
     r=projection_audio_check(s,gen,now); if(r) return r; s->started=1; return IAP2_OK;
 }
+int projection_audio_flush(projection_audio *s,uint64_t gen,uint32_t sample,uint64_t now) {
+    int r=owner(s,gen); if(r) return r; if(!s->started) return IAP2_INVALID;
+    r=projection_audio_check(s,gen,now); if(r) return r;
+    pair_crypto_wipe(s->storage,s->storage_size); pair_crypto_wipe(s->slots,sizeof(s->slots));
+    s->count=s->held=0; s->token=s->held_ns=0; s->started=0;
+    if(s->received) { s->last=s->highest; s->delivered=1; }
+    s->flush_sample=sample; s->fenced=1; return IAP2_OK;
+}
 int projection_audio_feed(projection_audio *s,uint64_t gen,const uint8_t *p,size_t n,uint64_t now) {
     uint64_t counter,delta; uint32_t ssrc; uint8_t nonce[12]={0}; size_t i,size,written=0; projection_audio_slot *slot; int r=owner(s,gen);
     if(r) return r; if(!p&&n) return IAP2_ARGUMENT;
@@ -73,6 +81,13 @@ int projection_audio_feed(projection_audio *s,uint64_t gen,const uint8_t *p,size
     if(!s->received) { s->highest=counter; s->seen=1; s->ssrc=ssrc; s->received=1; }
     else if(counter>s->highest) { delta=counter-s->highest; s->seen=delta>=64?1:(s->seen<<delta)|1; s->highest=counter; }
     else s->seen|=UINT64_C(1)<<(s->highest-counter);
+    if(s->fenced) {
+        uint32_t forward=be32(p+4)-s->flush_sample;
+        if(forward>=UINT32_C(0x80000000)) {
+            pair_crypto_wipe(s->storage+i*s->config.payload_capacity,s->config.payload_capacity);
+            return PROJECTION_AUDIO_DROPPED;
+        }
+    }
     slot->packet.data=s->storage+i*s->config.payload_capacity; slot->packet.size=size;
     slot->packet.counter=counter; slot->packet.received_ns=now; slot->packet.sample_time=be32(p+4); slot->packet.ssrc=ssrc;
     slot->packet.sequence=(uint16_t)(((uint16_t)p[2]<<8)|p[3]); slot->packet.payload_type=(uint8_t)(p[1]&0x7f); slot->packet.marker=(uint8_t)(p[1]>>7);
@@ -108,7 +123,7 @@ int projection_audio_release(projection_audio *s,projection_audio_key key,uint64
     r=projection_audio_check(s,key.generation,now); if(r) return r;
     i=s->held-1; s->last=s->slots[i].packet.counter; s->delivered=1;
     pair_crypto_wipe(s->storage+i*s->config.payload_capacity,s->config.payload_capacity); pair_crypto_wipe(s->slots+i,sizeof(s->slots[i]));
-    s->held=0; s->token=0; s->held_ns=0; --s->count; return IAP2_OK;
+    s->held=0; s->token=0; s->held_ns=0; s->fenced=0; s->flush_sample=0; --s->count; return IAP2_OK;
 }
 uint32_t projection_audio_next_delay(const projection_audio *s) {
     size_t i; uint64_t elapsed,total;

@@ -9,7 +9,7 @@ typedef struct decode_slot {
     projection_decoded_audio decoded;
     uint64_t lease,child,held_ns,opened_ns,started_ns;
     uint32_t offset;
-    uint8_t started;
+    uint8_t started,flushing;
 } decode_slot;
 struct projection_decode_sink {
     projection_decode_sink_config config;
@@ -63,7 +63,7 @@ static int open(void *ctx,uint64_t gen,const projection_session_resource *resour
 }
 static int start(void *ctx,uint64_t gen,uint64_t lease) {
     projection_decode_sink *s=(projection_decode_sink *)ctx; decode_slot *slot; int r;
-    if(!valid(s,gen)||(slot=find(s,lease))==NULL||slot->started) return IAP2_INVALID;
+    if(!valid(s,gen)||(slot=find(s,lease))==NULL||slot->started||slot->flushing) return IAP2_INVALID;
     if(refresh(s)) return IAP2_PROVIDER_FAILED;
     slot->started_ns=s->now_ns;
     r=s->config.pcm.start(s->config.pcm.context,gen,slot->child); if(r) return fail(s,r);
@@ -132,6 +132,24 @@ static void close(void *ctx,uint64_t gen,uint64_t lease) {
     if(!s||gen!=s->generation) return;
     slot=find(s,lease); if(slot) clear(s,slot);
 }
+static int flush(void *ctx,uint64_t gen,uint64_t lease,const projection_audio_flush_request *request) {
+    projection_decode_sink *s=(projection_decode_sink *)ctx; decode_slot *slot; projection_decode *fresh=0; int r;
+    if(!valid(s,gen)||!s->config.pcm.flush||(slot=find(s,lease))==NULL||
+       (request?(!slot->started||slot->flushing):!slot->flushing)) return IAP2_INVALID;
+    if(refresh(s)) return IAP2_PROVIDER_FAILED;
+    if(!request) slot->started_ns=s->now_ns;
+    r=s->config.pcm.flush(s->config.pcm.context,gen,slot->child,request); if(r) return fail(s,r);
+    if(request) {
+        /* Retire the published view/history before constructing a fresh codec.
+         * Replay/key lifetime belongs to the outer audio owner, never this reset. */
+        projection_decode_destroy(slot->decoder); slot->decoder=NULL;
+        memset(&slot->decoded,0,sizeof(slot->decoded)); memset(&slot->packet,0,sizeof(slot->packet)); slot->offset=0;
+        slot->held_ns=0; slot->started=0; slot->flushing=1;
+        r=projection_decode_create(slot->original.bit,gen,&fresh); if(r) return fail(s,r); slot->decoder=fresh;
+    } else { slot->started=1; slot->flushing=0; }
+    if(refresh(s)) return IAP2_PROVIDER_FAILED;
+    return IAP2_OK;
+}
 int projection_decode_sink_create(const projection_decode_sink_config *c,uint64_t gen,projection_decode_sink **out) {
     projection_decode_sink *s;
     if(out) *out=NULL;
@@ -140,7 +158,7 @@ int projection_decode_sink_create(const projection_decode_sink_config *c,uint64_
     s->config=*c; s->generation=gen; *out=s; return IAP2_OK;
 }
 projection_audio_sink projection_decode_sink_provider(projection_decode_sink *s) {
-    projection_audio_sink out={s,open,start,submit,poll,playback,close};
+    projection_audio_sink out={s,open,start,submit,poll,playback,close,s&&s->config.pcm.flush?flush:NULL};
     if(!s) memset(&out,0,sizeof(out)); return out;
 }
 void projection_decode_sink_destroy(projection_decode_sink *s) {

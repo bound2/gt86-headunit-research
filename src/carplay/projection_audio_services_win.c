@@ -110,7 +110,7 @@ static void close_resource(void *context,uint64_t gen,uint64_t lease) {
 static int start_resources(void *context,uint64_t gen,const uint64_t *leases,size_t count) {
     projection_audio_services *s=(projection_audio_services *)context; projection_audio_services_slot *slots[3]; size_t i,j; int r=owner(s,gen);
     if(r) return r; if(!leases||!count||count>3) return IAP2_ARGUMENT;
-    for(i=0;i<count;++i) { slots[i]=lease_slot(s,leases[i]); if(!slots[i]||slots[i]->started) return IAP2_INVALID; for(j=0;j<i;++j) if(leases[j]==leases[i]) return IAP2_INVALID; }
+    for(i=0;i<count;++i) { slots[i]=lease_slot(s,leases[i]); if(!slots[i]||slots[i]->started||slots[i]->flushing) return IAP2_INVALID; for(j=0;j<i;++j) if(leases[j]==leases[i]) return IAP2_INVALID; }
     r=refresh(s); if(r) return r;
     for(i=0;i<count;++i) {
         slots[i]->started_ns=s->now_ns;
@@ -169,7 +169,25 @@ static int playback_provider(void *context,uint64_t gen,uint64_t lease,projectio
        (out->has_position&&(!slot->started||out->raw_ns<slot->opened_ns||out->raw_ns<slot->started_ns||out->raw_ns>s->now_ns)))) r=fail(s,IAP2_INVALID);
     if(r) pair_crypto_wipe(out,sizeof(*out)); return r;
 }
+static int flush_provider(void *context,uint64_t gen,uint64_t lease,const projection_audio_flush_request *request) {
+    projection_audio_services *s=(projection_audio_services *)context; projection_audio_services_slot *slot; int r=owner(s,gen);
+    if(r) return r; if(!s->config.sink.flush) return IAP2_UNSUPPORTED;
+    slot=lease_slot(s,lease); if(!slot||(request?(!slot->started||slot->flushing):!slot->flushing)) return IAP2_INVALID;
+    r=refresh(s); if(r) return r;
+    if(!request) slot->started_ns=s->now_ns;
+    r=s->config.sink.flush(s->config.sink.context,gen,slot->child,request); if(r) return fail(s,r);
+    r=refresh(s); if(r) return r;
+    if(request) {
+        r=projection_audio_flush(&slot->audio,gen,request->sample_time,s->now_ns); if(r) return fail(s,r);
+        slot->started=0; slot->flushing=1;
+    } else {
+        r=projection_audio_start(&slot->audio,gen,s->now_ns); if(r) return fail(s,r);
+        slot->started=1; slot->flushing=0;
+    }
+    return IAP2_OK;
+}
 projection_session_provider projection_audio_services_provider(projection_audio_services *s) {
     projection_session_provider p; p.context=s; p.open=open_resource; p.start=start_resources; p.close=close_resource;
-    p.poll=poll_provider; p.next_delay=delay_provider; p.playback=playback_provider; p.clock=0; return p;
+    p.poll=poll_provider; p.next_delay=delay_provider; p.playback=playback_provider; p.clock=0;
+    p.flush=s&&s->ready&&s->config.sink.flush?flush_provider:0; return p;
 }

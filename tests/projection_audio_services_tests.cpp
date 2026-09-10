@@ -125,7 +125,7 @@ static void backpressure_and_failure(const Vectors& v) {
 struct Root {
     projection_services s{}; std::array<uint8_t,274> rx{},tx{}; std::array<uint8_t,256> plain{}; std::array<uint8_t,512> network{};
     explicit Root(AudioService& audio) { projection_services_config cfg{}; projection_services_default_config(&cfg); cfg.local=audio.cfg.local; cfg.peer=audio.cfg.peer;
-        cfg.clock_ns=AudioService::clock; cfg.clock_context=&audio; cfg.ntp_origin=UINT64_C(0x1234567800000000); cfg.event.payload_limit=256;
+        cfg.clock_ns=audio.cfg.clock_ns; cfg.clock_context=audio.cfg.clock_context; cfg.ntp_origin=UINT64_C(0x1234567800000000); cfg.event.payload_limit=256;
         cfg.media=projection_audio_services_provider(&audio.s); projection_services_storage storage{rx.data(),plain.data(),tx.data(),network.data(),rx.size(),plain.size(),tx.size(),network.size()};
         CHECK(projection_services_init(&s,&cfg,&storage,91)==IAP2_OK); }
     ~Root() { projection_services_close(&s); }
@@ -193,14 +193,14 @@ static void receiver_integration(const Vectors& v,const Vectors& setup,const Vec
 struct PcmDeviceFixture {
     uint64_t now=ms; unsigned closed=0;
     struct Device final:projection_pcm::Device {
-        PcmDeviceFixture& owner; Bytes data; uint32_t pad=0; uint64_t pos=0; unsigned starts=0; bool broken=false;
+        PcmDeviceFixture& owner; Bytes data; uint32_t pad=0; uint64_t pos=0; unsigned starts=0; bool broken=false; int reset_error=0;
         explicit Device(PcmDeviceFixture& p):owner(p) { capacity=1600; frequency=64000; period_ns=ms; }
         ~Device() noexcept override { ++owner.closed; }
         int padding(uint32_t& n) noexcept override { n=pad; return broken?IAP2_PROVIDER_FAILED:IAP2_OK; }
         int acquire(uint32_t n,uint8_t*& p) noexcept override { data.resize(size_t(n)*2); p=data.data(); return IAP2_OK; }
         int release(uint32_t n) noexcept override { pad+=n; return IAP2_OK; }
         int start() noexcept override { ++starts; return IAP2_OK; }
-        int reset() noexcept override { pos=pad=0; return IAP2_OK; }
+        int reset() noexcept override { pos=pad=0; return reset_error; }
         int position(uint64_t& p,uint64_t& q) noexcept override { p=pos; q=owner.now; return IAP2_OK; }
     };
     Device *device=nullptr;
@@ -234,15 +234,60 @@ static void pcm_output_integration(const Vectors& v,bool check_unwind=false) {
     CHECK(zeroed(f.storage.data(),f.storage.size()-1)&&f.storage.back()==0xaa);
     Socket reused(SOCK_DGRAM,false,1,e.data_port);
 }
+static void receiver_flush(const Vectors& v,const Vectors& setup,const Vectors& av) {
+    for(unsigned mode=0;mode<5;++mode) {
+        auto device_owner=std::make_unique<PcmDeviceFixture>(); auto& device=*device_owner; AudioService f(false,false);
+        f.cfg.sink=device.output.sink(); f.cfg.clock_ns=PcmDeviceFixture::clock; f.cfg.clock_context=&device; f.init();
+        Root root(f); Socket timing,events(SOCK_STREAM),phone; auto profile=info_fixture(0); profile.audio_count=1;
+        profile.audio[0]={100,0,16,PROJECTION_AUDIO_MEDIA}; profile.resource_count=1; profile.resources[0]={2,1,100,100,100,100};
+        Bytes scratch(PROJECTION_INFO_LIMIT); Harness h(v,setup); projection_receiver_info_config info{}; projection_receiver_info_default_config(&info);
+        info.profile=&profile; info.available=[](void*,uint64_t,const projection_info_profile*) -> int { return IAP2_OK; }; info.buffer=scratch.data(); info.capacity=scratch.size();
+        CHECK(projection_receiver_enable_info(&h.s,91,&info,0)==IAP2_OK); projection_session_config cfg{projection_services_provider(&root.s),0,1000};
+        CHECK(cfg.provider.flush&&projection_receiver_enable_session(&h.s,91,&cfg,0)==IAP2_OK); h.pair();
+        if(mode==1) { // The wire form cannot cross the not-yet-drained MFi boundary.
+            auto wire=bytes("FLUSH rtsp://127.0.0.1/audio RTSP/1.0\r\nCSeq: 31\r\nRTP-Info: seq=0;rtptime=5000\r\nContent-Length: 0\r\n\r\n");
+            CHECK(h.feed(h.frame(wire))==PROJECTION_RECEIVER_CLOSED); h.cleared(); CHECK(device.closed==0); continue;
+        }
+        CHECK(h.feed(h.frame(outer(v.at("request"),7,"/auth-setup","POST","application/octet-stream")))==RTSP_CHANNEL_OUTPUT); h.drain(true,MFI_SAP_DRAINED);
+        auto body=av.at("session"); auto needle=Bytes{0x11,0x69,0x79}; auto found=std::search(body.begin(),body.end(),needle.begin(),needle.end()); CHECK(found!=body.end());
+        found[1]=static_cast<uint8_t>(timing.port>>8); found[2]=static_cast<uint8_t>(timing.port);
+        CHECK(control(h,body)==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK); events.connect_to(h.s.session.slots[0].endpoint.event_port);
+        receiver_until(h,[&]{return root.s.connected!=0;}); CHECK(control(h,av.at("replacement"))==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
+        auto e=h.s.session.slots[1].endpoint; auto key=media_key(v,13); auto original=audio_packet(key.data(),42,4242,av.at("pcm_plain"));
+        phone.datagram(original,e.data_port); receiver_until(h,[&]{return f.s.slots[0].audio.count==1;});
+        CHECK(control(h,{},"RECORD")==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK); device.now+=10*ms;
+        receiver_until(h,[&]{return device.device->starts==1;});
+        auto wire=bytes("FLUSH rtsp://127.0.0.1/audio RTSP/1.0\r\nCSeq: 31\r\nRTP-Info: seq=65535;rtptime=5000\r\nContent-Length: 0\r\n\r\n");
+        if(mode==3) { device.device->reset_error=IAP2_PROVIDER_FAILED;
+            CHECK(h.feed(h.frame(wire))==PROJECTION_RECEIVER_CLOSED); h.cleared(); CHECK(device.closed==1&&root.s.failed&&!f.s.count&&!f.s.wsa); continue; }
+        CHECK(h.feed(h.frame(wire))==RTSP_CHANNEL_OUTPUT&&f.s.slots[0].flushing&&!device.device->pad);
+        CHECK(f.s.slots[0].audio.highest==42&&Bytes(f.s.slots[0].audio.key,f.s.slots[0].audio.key+32)==key&&f.s.slots[0].peer_port==phone.port);
+        if(mode==2) { projection_receiver_close(&h.s); h.cleared(); CHECK(device.closed==1&&root.s.failed&&!f.s.count&&!f.s.wsa); continue; }
+        if(mode==4) { CHECK(projection_receiver_poll(&h.s,91,60001)==PROJECTION_RECEIVER_CLOSED); h.cleared(); CHECK(device.closed==1&&root.s.failed&&!f.s.count&&!f.s.wsa); continue; }
+        phone.datagram(original,e.data_port); CHECK(projection_receiver_poll(&h.s,91,1)==IAP2_OK&&!f.s.slots[0].audio.count);
+        phone.datagram(audio_packet(key.data(),43,4999,av.at("pcm_plain")),e.data_port); CHECK(projection_receiver_poll(&h.s,91,1)==IAP2_OK&&!f.s.slots[0].audio.count);
+        auto replacement=hex("1234567801234567"); phone.datagram(audio_packet(key.data(),44,5000,replacement,0),e.data_port);
+        receiver_until(h,[&]{return f.s.slots[0].audio.count==1;}); CHECK(device.device->starts==1&&!f.s.slots[0].started);
+        auto reply=h.drain(true,IAP2_OK,false); rtsp_message message{}; size_t used=0;
+        CHECK(rtsp_message_decode(reply.data(),reply.size(),&message,&used)==IAP2_OK&&message.status==200&&message.cseq==31&&!message.body.size);
+        CHECK(f.s.slots[0].flushing&&device.device->starts==1); rtsp_slice output{}; rtsp_channel_key drain{};
+        CHECK(projection_receiver_output(&h.s,91,&output,&drain,1)==RTSP_CHANNEL_OUTPUT_DONE);
+        CHECK(projection_receiver_release(&h.s,drain,1)==IAP2_OK&&!f.s.slots[0].flushing&&f.s.slots[0].started);
+        device.now+=10*ms; receiver_until(h,[&]{return device.device->starts==2;}); CHECK(device.device->data==hex("3412785623016745"));
+        CHECK(control(h,{},"POST","/feedback")==RTSP_CHANNEL_OUTPUT); CHECK(feedback_response(h.drain(true,IAP2_OK),30)[0].size()==2); // No synchronized/observed anchor fabricated by reset.
+        CHECK(control(h,{},"TEARDOWN")==RTSP_CHANNEL_OUTPUT); h.drain(true,PROJECTION_RECEIVER_CLOSED); h.cleared(); CHECK(device.closed==1&&!f.s.wsa);
+        Socket reuse(SOCK_DGRAM,false,1,e.data_port);
+    }
+}
 int main(int argc,char** argv) {
     try { CHECK(argc==4); Winsock wsa; auto v=load_vectors(argv[1],39),setup=load_vectors(argv[2],51),av=load_vectors(argv[3],13);
-        configuration(); datagrams(false,av); datagrams(true,av); backpressure_and_failure(av); receiver_integration(v,setup,av); pcm_output_integration(av);
+        configuration(); datagrams(false,av); datagrams(true,av); backpressure_and_failure(av); receiver_integration(v,setup,av); pcm_output_integration(av); receiver_flush(v,setup,av);
         bool unwound=false;
         // No named catch parameter: Clang 19 Windows ASan corrupts that binding
         // even in an independent minimal throw/catch. No sanitizer is disabled.
         try { pcm_output_integration(av,true); } catch(const PcmFixtureUnwind&) { unwound=true; }
         CHECK(unwound); // Exercise assertion/exception cleanup with the large PCM owner on the heap.
-        std::cout<<"PASS: 6 audio service groups; real IPv4/IPv6 UDP, authentic source-port pinning, PCM output engine/device-clock seam, errors and paired/MFi/session/timing/feedback integration\n";
+        std::cout<<"PASS: 7 audio service groups; real IPv4/IPv6 UDP, source-port pinning, PCM output engine, errors and paired/MFi/session/timing/feedback/FLUSH integration\n";
         std::cout<<"Synthetic credentials/sinks only; no compressed decoder or physical playback claim; x64 service bytes: "<<sizeof(projection_audio_services)<<'\n'; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

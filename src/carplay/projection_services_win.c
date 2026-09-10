@@ -291,9 +291,19 @@ static int clock_provider(void *context,uint64_t gen,projection_clock_snapshot *
     out->raw_ns=s->now_ns; out->ntp=projection_timing_now(&s->timing,s->now_ns); out->synchronized=s->timing.synced;
     return IAP2_OK;
 }
+static int flush_provider(void *context,uint64_t gen,uint64_t lease,const projection_audio_flush_request *request) {
+    projection_services *s=(projection_services *)context; size_t i; int r=owner(s,gen);
+    if(r) return r; if(!s->config.media.flush) return IAP2_UNSUPPORTED;
+    for(i=0;i<s->media_count;++i) if(s->media[i].lease==lease) break;
+    if(i==s->media_count||s->media[i].type<100||s->media[i].type>102) return IAP2_INVALID;
+    r=refresh(s); if(r) return r;
+    r=s->config.media.flush(s->config.media.context,gen,s->media[i].child,request);
+    if(r) return fail(s,r); return refresh(s);
+}
 projection_session_provider projection_services_provider(projection_services *s) {
     projection_session_provider p; p.context=s; p.open=open_resource; p.start=start_resources; p.close=close_resource; p.poll=poll_provider; p.next_delay=delay_provider;
-    p.playback=s&&s->ready&&s->config.media.playback?playback_provider:0; p.clock=clock_provider; return p;
+    p.playback=s&&s->ready&&s->config.media.playback?playback_provider:0; p.clock=clock_provider;
+    p.flush=s&&s->ready&&s->config.media.flush?flush_provider:0; return p;
 }
 int projection_services_event_peek(const projection_services *s,uint64_t gen,rtsp_slice *out,control_cipher_key *key) {
     int r; if(out) pair_crypto_wipe(out,sizeof(*out)); if(key) pair_crypto_wipe(key,sizeof(*key));

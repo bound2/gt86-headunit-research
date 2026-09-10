@@ -488,3 +488,23 @@ environment. It is not a receiver dependency. Fixtures contain only generated
 tones, not recorded user media. Native-FFmpeg and same-algorithm libopus checks
 are distinguished, including the unresolved hybrid disagreement. See
 [projection-decode.md](../reports/projection-decode.md) for exact scope and results.
+
+## Authenticated audio FLUSH references (Step 69)
+
+The session/receiver/root/audio/codec/PCM flush extensions and their tests select
+GPL-3.0-only, retaining the existing files' licensing. The existing pinned LIVI
+CarPlay/native audio/player sources were rechecked; no FLUSH handler was found
+in the selected CarPlay stack. Classic AirPlay method/header and exclusive
+timestamp-boundary references were checked against
+[Shairport Sync](https://github.com/mikebrady/shairport-sync/tree/7bad231c18368dbd26f298577f6210e36e4b0797)
+commit `7bad231c18368dbd26f298577f6210e36e4b0797` (`rtsp.c`, `player.c`) and
+[OpenAirPlay](https://github.com/openairplay/airplay2-receiver/tree/6c343d3679ddb561c61566985acaaf587d0a3bd3)
+commit `6c343d3679ddb561c61566985acaaf587d0a3bd3` (`ap2-receiver.py`).
+
+No upstream implementation bodies, real media or credentials were copied, and
+no new library is linked. Strict single-stream request validation, two-phase
+reply-drain ownership, full owned-queue clearing, nonce floor/window retention,
+decoder recreation and fail-closed cleanup are local policies, not Apple
+conformance guarantees. Existing codec licenses/limitations remain unchanged.
+See [projection-flush.md](../reports/projection-flush.md) for pinned file/blob
+references, evidence boundaries and tests.

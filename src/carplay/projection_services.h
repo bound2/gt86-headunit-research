@@ -66,6 +66,9 @@ typedef struct projection_services {
  * dummy listener/success. Features must match explicit config; nonzero features
  * require a media provider whose real support is attested by /info availability.
  * Delegate contexts obey session provider contracts, including cleanup on error.
+ * Optional media.flush maps only live audio leases through the same two-phase
+ * contract. It preserves root timing/event state; callback/clock failure closes
+ * the root and all delegated resources, never resumes under a fresh nonce epoch.
  * Optional playback observations map only live audio leases to the delegate;
  * times before that lease's open invocation or after the refreshed clock fail.
  * Clock snapshots use this owner's timing engine, never the delegate clock or

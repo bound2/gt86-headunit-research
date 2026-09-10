@@ -24,6 +24,9 @@ typedef struct projection_audio_sink {
     int (*poll)(void *,uint64_t,uint64_t,uint64_t now_ns); /* OK/MORE; bounded device/decoder work. */
     int (*playback)(void *,uint64_t,uint64_t,projection_playback_position *);
     void (*close)(void *,uint64_t,uint64_t);
+    /* Optional two-phase FLUSH, same stop/clear then reply-drained resume
+     * contract as session provider. No nonce reset or inferred played samples. */
+    int (*flush)(void *,uint64_t,uint64_t,const projection_audio_flush_request *);
 } projection_audio_sink;
 typedef struct projection_audio_services_config {
     projection_ip local,peer;
@@ -38,7 +41,7 @@ typedef struct projection_audio_services_slot {
     uintptr_t data_socket,control_socket;
     uint32_t type,control_received;
     uint16_t peer_port;
-    uint8_t occupied,started;
+    uint8_t occupied,started,flushing;
 } projection_audio_services_slot;
 typedef struct projection_audio_services {
     projection_audio_services_config config;
@@ -63,6 +66,10 @@ typedef struct projection_audio_services {
  * first authenticated accepted datagram; thereafter exact peer IP/port.
  * Control UDP currently bounded drain only from pinned peer IP: no RTCP parser,
  * retransmission, sync/flush handler or automatic success response.
+ * Authenticated session-control FLUSH is separate, exposed only if sink.flush
+ * is supplied: stop/clear first, preserve sockets/keys/replay/source pinning,
+ * then resume on encrypted reply drain. New packets may queue while suspended;
+ * neither submit nor sink poll runs until resume. Generic start cannot bypass it.
  *
  * Prepare sink + two actual exclusive ports, then start only on RECORD/SETUP
  * reply drain. poll performs at most one data/control receive and one atomic

@@ -71,12 +71,38 @@ static int parse_stream(const service_plist_document *d,const service_plist_node
     }
     return IAP2_OK;
 }
-typedef struct request { projection_session_resource resources[PROJECTION_SESSION_STREAMS]; size_t count; uint8_t kind; } request;
+typedef struct request { projection_session_resource resources[PROJECTION_SESSION_STREAMS]; projection_audio_flush_request flush; size_t count; uint8_t kind; } request;
+static int flush_header(const rtsp_message *req,projection_audio_flush_request *out) {
+    rtsp_slice value; size_t at=0,start,end; unsigned fields=0,bit; uint64_t n,max;
+    if(req->body.size||rtsp_header_get(req,(rtsp_slice){(const uint8_t *)"RTP-Info",8},&value)!=IAP2_OK) return IAP2_INVALID;
+    while(at<value.size) {
+        while(at<value.size&&(value.data[at]==' '||value.data[at]=='\t')) ++at;
+        start=at; while(at<value.size&&value.data[at]!='=') ++at;
+        if(at==value.size) return IAP2_INVALID;
+        end=at; while(end>start&&(value.data[end-1]==' '||value.data[end-1]=='\t')) --end;
+        if(same(value.data+start,end-start,"seq")) { bit=1; max=65535; }
+        else if(same(value.data+start,end-start,"rtptime")) { bit=2; max=UINT32_MAX; }
+        else return IAP2_UNSUPPORTED;
+        if(fields&bit) return IAP2_INVALID; fields|=bit; ++at;
+        while(at<value.size&&(value.data[at]==' '||value.data[at]=='\t')) ++at;
+        start=at; n=0;
+        while(at<value.size&&value.data[at]>='0'&&value.data[at]<='9') {
+            unsigned digit=value.data[at++]-'0'; if(n>(max-digit)/10) return IAP2_INVALID; n=n*10+digit;
+        }
+        if(at==start) return IAP2_INVALID;
+        if(bit==1) out->sequence=(uint16_t)n; else out->sample_time=(uint32_t)n;
+        while(at<value.size&&(value.data[at]==' '||value.data[at]=='\t')) ++at;
+        if(at==value.size) break;
+        if(value.data[at++]!=';'||at==value.size) return IAP2_INVALID;
+    }
+    return fields==3?IAP2_OK:IAP2_INVALID;
+}
 static int parse(const rtsp_message *req,request *out,uint8_t *scratch,size_t capacity) {
     service_plist_node nodes[SERVICE_PLIST_PROJECTION_NODES]; service_plist_storage storage;
     service_plist_document d; const service_plist_node *streams,*v; uint16_t child; uint64_t n; size_t i;
     rtsp_slice type; int status=rtsp_header_get(req,(rtsp_slice){(const uint8_t *)"Content-Type",12},&type);
     pair_crypto_wipe(out,sizeof(*out));
+    if(slice(req->method,"FLUSH")) { out->kind=7; return flush_header(req,&out->flush); }
     if(status!=IAP2_END&&(status!=IAP2_OK||!slice(type,"application/x-apple-binary-plist"))) return IAP2_INVALID;
     if(slice(req->target,"/feedback")) {
         if(!slice(req->method,"POST")) return IAP2_UNSUPPORTED;
@@ -281,7 +307,7 @@ int projection_session_request(projection_session *s,const rtsp_message *req,con
     if(req->kind!=RTSP_REQUEST||!req->target.data||!req->target.size||req->target.size>sizeof(s->target)) return fail(s,IAP2_INVALID);
     if(slice(req->target,"/feedback")) {
         feedback observations[3]; size_t count=0;
-        if(!s->config.feedback_max_age_ms) return fail(s,IAP2_UNSUPPORTED);
+        if(!s->config.feedback_max_age_ms||!slice(req->method,"POST")) return fail(s,IAP2_UNSUPPORTED);
         if(s->state!=PROJECTION_SESSION_READY||!s->count) return fail(s,IAP2_INVALID);
         status=parse(req,&q,scratch,capacity); if(status) return fail(s,status);
         pair_crypto_wipe(observations,sizeof(observations));
@@ -297,6 +323,19 @@ int projection_session_request(projection_session *s,const rtsp_message *req,con
     if((s->state==PROJECTION_SESSION_EMPTY)!=(q.kind==1)) return fail(s,IAP2_INVALID);
     if(q.kind==1&&q.resources[0].keep_alive_low_power&&!s->profile->keep_alive_low_power) return fail(s,IAP2_UNSUPPORTED);
     if(q.kind==3&&(s->recording||s->count<2)) return fail(s,IAP2_INVALID);
+    if(q.kind==7) {
+        size_t selected=0;
+        if(!s->config.provider.flush) return fail(s,IAP2_UNSUPPORTED);
+        if(!s->recording) return fail(s,IAP2_INVALID);
+        for(i=1;i<s->count;++i) if(s->slots[i].request.type>=100&&s->slots[i].request.type<=102) {
+            if(selected) return fail(s,IAP2_UNSUPPORTED); selected=i;
+        }
+        if(!selected) return fail(s,IAP2_INVALID);
+        status=s->config.provider.flush(s->config.provider.context,s->generation,s->slots[selected].endpoint.lease,&q.flush);
+        if(status) return fail(s,status);
+        pair_crypto_wipe(s->reply,sizeof(s->reply)); s->reply_size=0; s->pending=7; s->pending_first=selected; s->state=PROJECTION_SESSION_HELD;
+        return IAP2_OK;
+    }
     if(q.kind==2) {
         if(s->count+q.count>PROJECTION_SESSION_STREAMS+1||s->used_count+q.count>PROJECTION_SESSION_IDS) return fail(s,IAP2_NO_SPACE);
         for(i=0;i<q.count;++i) {
@@ -349,5 +388,9 @@ int projection_session_release(projection_session *s) {
         pair_crypto_wipe(leases,sizeof(leases)); if(status) return fail(s,status); s->recording=1;
     }
     if(s->pending==5) { projection_session_close(s); return IAP2_END; }
+    if(s->pending==7) {
+        status=s->config.provider.flush(s->config.provider.context,s->generation,s->slots[s->pending_first].endpoint.lease,0);
+        if(status) return fail(s,status);
+    }
     pair_crypto_wipe(s->reply,sizeof(s->reply)); s->reply_size=0; s->pending=0; s->pending_first=0; s->state=PROJECTION_SESSION_READY; return IAP2_OK;
 }

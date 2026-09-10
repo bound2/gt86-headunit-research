@@ -32,14 +32,15 @@ typedef struct projection_audio {
     uint8_t *storage; size_t storage_size,count,held;
     uint8_t key[32];
     uint64_t generation,next_token,token,now_ns,held_ns,highest,seen,last;
-    uint32_t ssrc; uint8_t ready,started,received,delivered,dead;
+    uint32_t ssrc,flush_sample; uint8_t ready,started,received,delivered,dead,fenced;
     int last_error;
 } projection_audio;
 /* Single-format encrypted RTP/UDP child, no socket, decoder, playback clock,
  * allocation, callbacks or default key. Fresh serial noncopyable owner; all
  * buffers/arguments disjoint and internals read-only. Bind ONLY the directional
- * key from the owning verified session resource. No reconnect/reset under a
- * reused key. Caller authenticates/pins peer IP and pins source port only after
+ * key from the owning verified session resource. No reconnect/nonce reset under
+ * a reused key; media flush preserves cryptographic history. Caller pins peer IP
+ * and pins source port only after
  * PACKET success. No default format; supported bits are explicit, never guessed.
  * PCM16 is interleaved big endian; AAC is one raw access unit; Opus is one raw
  * packet with a 48k RTP/decode clock even for 16k/24k negotiated input rates.
@@ -75,6 +76,15 @@ void projection_audio_default_config(projection_audio_config *); /* Format remai
 int projection_audio_init(projection_audio *,const projection_audio_config *,uint8_t *,size_t,const uint8_t key[32],uint64_t,uint64_t);
 int projection_audio_check(projection_audio *,uint64_t,uint64_t);
 int projection_audio_start(projection_audio *,uint64_t,uint64_t);
+/* Explicit authenticated-control flush: clear owned queue/held view, suspend
+ * delivery and fence strictly before sample_time. Preserve key, SSRC, highest
+ * nonce/replay window, lifetime tokens. Floor delivery at highest received nonce
+ * so discarded packets cannot return, including queued packets beyond the fence.
+ * New arrivals may queue while suspended: admit only equal/forward timestamps
+ * in the unambiguous half-range until first release after projection_audio_start;
+ * then nonce ordering protects that new epoch. Whole packets, no partial-frame
+ * trimming or selective buffered-range preservation. No RTP sequence authority. */
+int projection_audio_flush(projection_audio *,uint64_t,uint32_t sample_time,uint64_t);
 int projection_audio_feed(projection_audio *,uint64_t,const uint8_t *,size_t,uint64_t);
 int projection_audio_peek(projection_audio *,uint64_t,projection_audio_packet *,projection_audio_key *,uint64_t);
 int projection_audio_release(projection_audio *,projection_audio_key,uint64_t);

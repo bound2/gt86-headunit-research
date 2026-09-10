@@ -4,7 +4,10 @@
 #include "projection_audio_services.h"
 #include <array>
 /* Internal output engine/device seam. The public WASAPI C factory always binds
- * actual OS devices; deterministic tests substitute this narrow device seam. */
+ * actual OS devices; deterministic tests substitute this narrow device seam.
+ * Two-phase sink.flush stops/resets the device and clears all owned PCM/clock
+ * history without replacing its lease. Reply-drained resume only re-arms normal
+ * prefilled startup, never fabricates a played position or recalls played audio. */
 namespace projection_pcm {
 constexpr size_t queue_bytes=65536;
 struct Device {
@@ -39,7 +42,7 @@ private:
         size_t head=0,size=0;
         uint64_t lease=0,queued_ns=0,written=0,started_ns=0,last_position=0,last_qpc=0;
         uint32_t type=0,next_sample=0,origin=0;
-        bool armed=false,running=false,draining=false,has_input=false,observed=false;
+        bool armed=false,running=false,draining=false,has_input=false,observed=false,flushing=false;
     };
     Bindings bindings_; uint64_t generation_,serial_=0,now_=0;
     uint32_t buffer_ms_,startup_ms_; bool failed_=false;
@@ -57,6 +60,7 @@ private:
     static int poll(void*,uint64_t,uint64_t,uint64_t) noexcept;
     static int playback(void*,uint64_t,uint64_t,projection_playback_position*) noexcept;
     static void close(void*,uint64_t,uint64_t) noexcept;
+    static int flush(void*,uint64_t,uint64_t,const projection_audio_flush_request*) noexcept;
 };
 }
 #endif

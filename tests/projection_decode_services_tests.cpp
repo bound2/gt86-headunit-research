@@ -97,8 +97,38 @@ static void failures(const Vectors& v) {
         CHECK(r==PROJECTION_AUDIO_CLOSED); f.cleared(); Socket reuse(SOCK_DGRAM,false,1,a.data_port);
     }
 }
+static void flush_codecs(const Vectors& v) {
+    struct Case { const char* name; uint32_t bit,duration,count; };
+    for(bool rendered:{false,true}) for(auto c:{Case{"aac44100",0x400000,1024,2},Case{"aac48000",0x800000,1024,2},Case{"opus20",0x10000000,960,1},Case{"opus120",0x40000000,5760,1}}) {
+        auto owner=std::make_unique<Pipeline>(); auto& f=*owner; Socket phone; auto e=f.open(100,c.bit); auto device=f.devices[0];
+        auto p=projection_audio_services_provider(&f.audio); CHECK(p.flush); uint8_t key[32]; std::fill(key,key+32,9); std::vector<Bytes> packets;
+        for(unsigned i=0;i<c.count;++i) { packets.push_back(v.at(std::string(c.name)+"_"+std::to_string(i)));
+            phone.datagram(audio_packet(key,i,UINT32_MAX-10000+i*c.duration,packets.back()),e.data_port); }
+        f.until([&]{return f.audio.slots[0].audio.count==c.count;}); f.start(e.lease); f.now+=10*ms;
+        f.until([&]{return !f.audio.slots[0].audio.count;}); if(rendered) f.until([&]{return device->starts!=0;});
+        projection_audio_flush_request q{UINT32_MAX,65535};
+        auto before=snapshot(f.audio); CHECK(p.flush(p.context,92,e.lease,&q)==IAP2_INVALID&&snapshot(f.audio)==before);
+        CHECK(p.flush(p.context,91,e.lease,&q)==IAP2_OK&&!f.audio.slots[0].started&&f.audio.slots[0].flushing);
+        CHECK(!device->pad&&!device->pos&&zeroed(f.storage.data(),f.audio.stream_bytes));
+        CHECK(Bytes(f.audio.slots[0].audio.key,f.audio.slots[0].audio.key+32)==Bytes(key,key+32)&&f.audio.slots[0].peer_port==phone.port);
+        CHECK(p.start(p.context,91,&e.lease,1)==IAP2_INVALID);
+        projection_playback_position pos{}; CHECK(p.playback(p.context,91,e.lease,&pos)==IAP2_OK&&!pos.has_position);
+        phone.datagram(audio_packet(key,c.count-1,0,packets[0]),e.data_port); CHECK(f.poll()==IAP2_OK&&!f.audio.slots[0].audio.count);
+        phone.datagram(audio_packet(key,c.count,UINT32_MAX-1,packets[0]),e.data_port); CHECK(f.poll()==IAP2_OK&&!f.audio.slots[0].audio.count);
+        for(unsigned i=0;i<c.count;++i) phone.datagram(audio_packet(key,c.count+1+i,i*c.duration,packets[i],static_cast<uint16_t>(123+i)),e.data_port);
+        f.until([&]{return f.audio.slots[0].audio.count==c.count;}); auto log=device->data; unsigned starts=device->starts;
+        CHECK(f.poll()==IAP2_OK&&device->data==log&&device->starts==starts);
+        CHECK(p.flush(p.context,91,e.lease,nullptr)==IAP2_OK); f.now+=10*ms;
+        auto pcm=expected(c.bit,packets,0,c.duration);
+        f.until([&]{return device->data.size()==log.size()+pcm.size();}); CHECK(device->starts==starts+1);
+        CHECK(Bytes(device->data.begin()+log.size(),device->data.end())==pcm); // Fresh codec history, including AAC priming.
+        device->pos=4; ++f.now;
+        CHECK(p.playback(p.context,91,e.lease,&pos)==IAP2_OK&&pos.has_position&&pos.sample_time==(c.count==2?1025u:1u));
+        p.close(p.context,91,e.lease); CHECK(f.closed==1&&!f.audio.wsa);
+    }
+}
 int main(int argc,char** argv) {
-    try { CHECK(argc==2); Winsock wsa; auto v=load_vectors(argv[1],33); codecs(v,false); codecs(v,true); failures(v);
-        std::cout<<"PASS: 3 decode service groups; real IPv4/IPv6 authenticated UDP, AAC/Opus, PCM ownership and device-clock seam; no physical playback\n"; return 0;
+    try { CHECK(argc==2); Winsock wsa; auto v=load_vectors(argv[1],33); codecs(v,false); codecs(v,true); failures(v); flush_codecs(v);
+        std::cout<<"PASS: 4 decode service groups; real IPv4/IPv6 authenticated UDP, AAC/Opus, PCM ownership, flush epochs and device-clock seam; no physical playback\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

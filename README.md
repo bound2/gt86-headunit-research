@@ -500,7 +500,7 @@ exchange, and retired IDs cannot be reused with reset counters. Failed allocatio
 output, start, EOF or timeout closes owned resources. Playback starts only after
 the correlated reply fully drains; partial and full teardown are distinct.
 
-Six session groups, expanded encrypted receiver tests, 42 public fixture values
+Seven session groups, expanded encrypted receiver tests, 42 public fixture values
 and independent key/plist checks pass. Its original endpoint-provider tests are
 synthetic; the Windows timing/event backend below now adds real sockets. Actual
 media drivers remain missing. This remains host-side implementation, not a QNX
@@ -571,7 +571,7 @@ conversion. The RTP sequence number is not authenticated in this envelope and
 is not used as order/replay authority. `projection_audio_services.h` connects
 actual peer-bound IPv4/IPv6 audio UDP ports to the session and an explicit
 decoder/output sink, with RECORD drain gating, backpressure and cleanup.
-Six core and six service groups, 13 independent fixtures and expanded encrypted
+Seven core and seven service groups, 13 independent fixtures and expanded encrypted
 receiver/timing/feedback integration pass. The original compressed-transport
 sink is synthetic; the optional codec and Windows PCM layers below now add
 decoding/output implementations. Physical playback is not yet verified.
@@ -585,7 +585,7 @@ See [the audio reception report](reports/projection-audio.md).
 Windows output endpoint, bounded PCM queues, prefilled RECORD-gated startup and
 actual device-clock position queries. It requires contiguous PCM timestamps;
 full pacing/loss handling and factory QNX integration are
-still missing. Seven output groups, Windows COM/clock argument checks and real
+still missing. Eight output groups, Windows COM/clock argument checks and real
 encrypted-UDP-to-output-engine integration use a synthetic final device. A
 separate opt-in probe can enumerate, prepare or silently exercise an explicitly
 selected physical endpoint. No physical playback test runs in CTest.
@@ -594,7 +594,7 @@ See [the PCM output report](reports/projection-pcm-output.md) for wiring and che
 `projection_decode.h` and `projection_decode_sink.h` now add optional real
 AAC-LC/Opus decoding and owned, bounded delivery into that PCM sink. Source-pinned
 Opus 1.6.1 and FAAD2 2.11.3 are explicit opt-ins; normal builds do not download or
-enable codecs. Five decoder and three actual-UDP integration groups pass, with
+enable codecs. Five decoder and four actual-UDP integration groups pass, with
 33 synthetic packets and 1,000 malformed-input mutations. The media build has
 42 passing CTest suites, and both new suites pass with codec dependencies under
 ASan/UBSan. A separate PyAV reference checks 59,648 samples and explicitly records
@@ -603,6 +603,16 @@ libopus comparison, not an independent-decoder claim. AAC priming and packet
 discontinuities still require real-phone validation and a full playout policy.
 See [the decoding report](reports/projection-decode.md) for dependencies, wiring,
 test limitations and next steps. This is not an installable factory CarPlay update.
+
+An optional authenticated, bodyless `FLUSH` now stops output, clears queued media
+and decoder history, preserves keys/nonce replay state, and resumes only after
+the encrypted reply drains. It requires exactly one audio stream and an explicit
+`RTP-Info` timestamp boundary. Real encrypted-control/UDP integration and codec
+reset tests use a synthetic final device. This classic AirPlay form is not
+verified CarPlay handset behavior; all already-queued media is discarded, not
+selectively retained beyond the boundary. Full latency/loss/pacing remains work.
+See [the step-by-step FLUSH report](reports/projection-flush.md) for its evidence,
+state transitions, regressions and limits.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayMedia.ps1

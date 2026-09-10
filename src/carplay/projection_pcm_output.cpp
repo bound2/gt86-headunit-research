@@ -36,7 +36,7 @@ Output::Slot *Output::find(uint64_t lease) noexcept {
     for(auto& s:slots_) if(lease&&s.lease==lease) return &s;
     return nullptr;
 }
-projection_audio_sink Output::sink() noexcept { return {this,open,start,submit,poll,playback,close}; }
+projection_audio_sink Output::sink() noexcept { return {this,open,start,submit,poll,playback,close,flush}; }
 int Output::open(void *ctx,uint64_t gen,const projection_session_resource *r,const projection_audio_format *f,uint64_t *lease) noexcept {
     auto& o=*static_cast<Output*>(ctx); projection_audio_format expected{};
     if(lease) *lease=0;
@@ -62,7 +62,7 @@ int Output::open(void *ctx,uint64_t gen,const projection_session_resource *r,con
 int Output::start(void *ctx,uint64_t gen,uint64_t lease) noexcept {
     auto& o=*static_cast<Output*>(ctx);
     if(!o.valid(gen)) return IAP2_INVALID;
-    Slot *s=o.find(lease); if(!s||s->armed) return IAP2_INVALID;
+    Slot *s=o.find(lease); if(!s||s->armed||s->flushing) return IAP2_INVALID;
     if(o.refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
     s->armed=true; return IAP2_OK; // Device is never started without prefilled media.
 }
@@ -176,5 +176,20 @@ void Output::close(void *ctx,uint64_t gen,uint64_t lease) noexcept {
     auto& o=*static_cast<Output*>(ctx);
     if(gen!=o.generation_||!o.bindings_.thread(o.bindings_.context)) return;
     Slot *s=o.find(lease); if(s) o.clear(*s);
+}
+int Output::flush(void *ctx,uint64_t gen,uint64_t lease,const projection_audio_flush_request *request) noexcept {
+    auto& o=*static_cast<Output*>(ctx);
+    if(!o.valid(gen)) return IAP2_INVALID;
+    Slot *s=o.find(lease); if(!s||(request?(!s->armed||s->flushing):!s->flushing)) return IAP2_INVALID;
+    if(o.refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
+    if(request) {
+        int r=s->device->reset(); if(r!=IAP2_OK) return o.fail(r);
+        pair_crypto_wipe(s->bytes.data(),s->bytes.size()); s->head=s->size=0;
+        s->queued_ns=s->written=s->started_ns=s->last_position=s->last_qpc=0;
+        s->next_sample=s->origin=0; s->armed=s->running=s->draining=s->has_input=s->observed=false;
+        s->flushing=true;
+        if(o.refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
+    } else { s->flushing=false; s->armed=true; }
+    return IAP2_OK;
 }
 }

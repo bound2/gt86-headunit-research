@@ -33,8 +33,13 @@ typedef struct projection_decode_sink_config {
  * format's rate. Decoder output does not become a played position. Any decoder,
  * output, clock or held-output failure closes/wipes all this adapter's resources;
  * the enclosing audio/root owners must propagate failure and retire the session.
- * Native compressed decoder state is stateful; discontinuities currently fail
- * closed. Full jitter/loss/flush/pacing and actual phone validation remain work.
+ * Optional downstream pcm.flush exposes two-phase stop/clear and reply-drained
+ * resume: discard pending PCM and recreate the codec at its original format,
+ * retaining the PCM lease. The enclosing audio owner MUST preserve replay/key
+ * state and fence incoming timestamps; codec reset grants no nonce reset.
+ * AAC re-primes; generic start cannot bypass the held flush. Unsignaled codec
+ * discontinuities still fail closed. Full jitter/loss/buffered flush/pacing and
+ * actual phone validation remain work.
  *
  * Destroy after closing the borrowing audio provider and before destroying the
  * downstream PCM owner. Destroy consumes the non-NULL owner exactly once.

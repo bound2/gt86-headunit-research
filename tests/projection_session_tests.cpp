@@ -6,7 +6,7 @@ static Vectors vectors;
 struct Harness {
     SessionBackend backend; projection_info_profile profile=info_fixture(2);
     projection_session s{}; Bytes scratch=Bytes(PROJECTION_INFO_LIMIT,0xa5); unsigned available_calls=0; int available_error=0;
-    explicit Harness(bool feedback=false) { auto cfg=backend.config(feedback); CHECK(projection_session_init(&s,&profile,available,this,&cfg,91)==IAP2_OK); CHECK(backend.opens==0&&available_calls==0); }
+    explicit Harness(bool feedback=false,bool flush=false) { auto cfg=backend.config(feedback); if(flush) cfg.provider.flush=SessionBackend::flush; CHECK(projection_session_init(&s,&profile,available,this,&cfg,91)==IAP2_OK); CHECK(backend.opens==0&&available_calls==0); }
     ~Harness() noexcept(false) { projection_session_close(&s); CHECK(backend.live.empty()); }
     static int available(void* context,uint64_t gen,const projection_info_profile* p) {
         auto& self=*static_cast<Harness*>(context); CHECK(gen==91&&p==&self.profile); ++self.available_calls; return self.available_error;
@@ -170,17 +170,50 @@ static void feedback_limits() {
       for(const auto& f:feedback_request(h)) CHECK(f.at("timestamp")==UINT64_C(0xffffffc400000000)); }
     for(const char* name:{"bad_array","bad_duplicate_key","bad_xml"}) { Harness h(true); h.begin(true);
         CHECK(h.message(vectors.at(name),"POST","/feedback")!=IAP2_OK&&h.backend.playback_calls==0&&h.backend.live.empty()); }
-    for(const char* method:{"GET","SETUP","RECORD","TEARDOWN"}) { Harness h(true); h.begin(true);
+    for(const char* method:{"GET","SETUP","RECORD","TEARDOWN","FLUSH","FLUSHBUFFERED"}) { Harness h(true); h.begin(true);
         CHECK(h.message({},method,"/feedback")==IAP2_UNSUPPORTED&&h.backend.playback_calls==0&&h.backend.live.empty()); }
     { Harness h(true); CHECK(h.message({},"POST","/feedback")==IAP2_INVALID&&h.backend.opens==0); }
     { Harness h; h.begin(true); CHECK(h.message({},"POST","/feedback")==IAP2_UNSUPPORTED&&h.backend.playback_calls==0); }
     { Harness h(true); h.begin(true); CHECK(h.message(vectors.at("session"),"POST","/feedback")==IAP2_OK&&h.backend.opens==7); } // Bounded dict metadata has no effect.
 }
+static void flush_lifecycle() {
+    auto ready=[](Harness& h) { h.begin(); CHECK(h.send("audio_new")==IAP2_OK); h.release(); CHECK(h.message({},"RECORD")==IAP2_OK); h.release(); };
+    auto send=[](Harness& h,const std::string& header,unsigned mode=0) {
+        auto req=session_message({},"FLUSH"); req.header_count=1; req.headers[0]={info_text("RTP-Info"),{reinterpret_cast<const uint8_t*>(header.data()),header.size()}};
+        if(mode==1) { req.headers[1]=req.headers[0]; req.header_count=2; }
+        if(mode==2) req.body=info_text("x"); if(mode==3) req.target=info_text("/different"); if(mode==4) req.header_count=0;
+        if(mode==5) req.target=info_text("/feedback");
+        return projection_session_request(&h.s,&req,vectors.at("shared").data(),h.scratch.data(),h.scratch.size());
+    };
+    for(auto header:{"seq=65535;rtptime=4294967295","\trtptime = 0 ; seq = 0\t"}) {
+        Harness h(false,true); ready(h); auto ids=h.s.used_count; auto opens=h.backend.opens,starts=h.backend.starts;
+        CHECK(send(h,header)==IAP2_OK&&h.backend.flushes==1&&!h.backend.resumes&&!h.s.reply_size&&h.s.pending==7);
+        CHECK(h.backend.boundary.sample_time==(header[0]=='s'?UINT32_MAX:0)&&h.backend.boundary.sequence==(header[0]=='s'?65535:0));
+        CHECK(send(h,header)==RTSP_BUSY&&h.backend.flushes==1); h.release();
+        CHECK(h.backend.resumes==1&&h.s.recording&&h.s.used_count==ids&&h.backend.opens==opens&&h.backend.starts==starts);
+        CHECK(send(h,header)==IAP2_OK); h.release(); CHECK(h.backend.flushes==2&&h.backend.resumes==2);
+    }
+    for(const char* bad:{"","seq=1","rtptime=1","seq=65536;rtptime=1","seq=1;rtptime=4294967296","seq=-1;rtptime=1","seq=1;rtptime=+1",
+                        "seq=1;rtptime=1;","seq=1;rtptime=1;seq=2","seq=1,rtptime=1","url=x;seq=1;rtptime=1","seq=;rtptime=0","seq=1;rtptime=1x"}) {
+        Harness h(false,true); ready(h); CHECK(send(h,bad)!=IAP2_OK&&!h.backend.flushes&&h.backend.live.empty());
+    }
+    for(unsigned mode=1;mode<=5;++mode) { Harness h(true,true); ready(h);
+        CHECK(send(h,"seq=1;rtptime=2",mode)!=IAP2_OK&&!h.backend.flushes&&!h.backend.playback_calls&&h.backend.live.empty()); }
+    { Harness h; ready(h); CHECK(send(h,"seq=1;rtptime=2")==IAP2_UNSUPPORTED&&!h.backend.flushes); }
+    { Harness h(false,true); h.begin(true); CHECK(h.message({},"RECORD")==IAP2_OK); h.release(); CHECK(send(h,"seq=1;rtptime=2")==IAP2_UNSUPPORTED&&!h.backend.flushes); }
+    { Harness h(false,true); h.begin(); CHECK(h.send("audio_new")==IAP2_OK); h.release(); CHECK(send(h,"seq=1;rtptime=2")==IAP2_INVALID&&!h.backend.flushes); }
+    for(bool resume:{false,true}) { Harness h(false,true); ready(h);
+        if(resume) h.backend.resume_error=-55; else h.backend.flush_error=-55;
+        CHECK(send(h,"seq=1;rtptime=2")== (resume?IAP2_OK:-55));
+        if(resume) CHECK(projection_session_release(&h.s)==-55);
+        CHECK(h.backend.live.empty());
+    }
+}
 int main(int argc,char** argv) {
     try { CHECK(argc==2||argc==3); vectors=load_vectors(argv[1],42);
         if(argc==3) { auto mode=std::string(argv[2]); CHECK(mode=="--emit"||mode=="--feedback"); if(mode=="--emit") lifecycle(true); else feedback_lifecycle(true); return 0; }
-        lifecycle(); schemas_and_boundaries(); allocation_failures(); capabilities_and_config(); feedback_lifecycle(); feedback_limits();
-        std::cout<<"PASS: 6 session groups; typed allocation, keys, teardown, capability/state gates and observed playback feedback; synthetic endpoints only\n";
+        lifecycle(); schemas_and_boundaries(); allocation_failures(); capabilities_and_config(); feedback_lifecycle(); feedback_limits(); flush_lifecycle();
+        std::cout<<"PASS: 7 session groups; typed allocation, keys, teardown, capability/state gates, observed playback feedback and two-phase FLUSH; synthetic endpoints only\n";
         std::cout<<"x64 session bytes: "<<sizeof(projection_session)<<"; caller scratch/stack additional\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

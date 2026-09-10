@@ -207,10 +207,28 @@ static void validation() {
         CHECK(c.last->emitted.size()==128*c.format.channels&&c.last->emitted[0]==0&&c.last->emitted[1]==0x80);
     }
 }
+static void flush_epochs() {
+    for(bool running:{false,true}) {
+        Fixture f(100); f.ready(); CHECK(f.submit(100,800)==IAP2_OK); if(running) CHECK(f.poll()==IAP2_OK);
+        CHECK(f.submit(900,800)==IAP2_OK); projection_audio_flush_request q{1700,0}; auto device=f.last;
+        CHECK(f.api.flush(f.api.context,92,f.lease,&q)==IAP2_INVALID&&f.last->resets==0);
+        CHECK(f.api.flush(f.api.context,91,f.lease,&q)==IAP2_OK&&device->resets==1&&!device->pad&&!f.observe().has_position);
+        CHECK(f.submit(1701)==IAP2_INVALID&&f.api.start(f.api.context,91,f.lease)==IAP2_INVALID);
+        CHECK(f.poll()==IAP2_OK&&device->starts==(running?1:0));
+        CHECK(f.api.flush(f.api.context,91,f.lease,nullptr)==IAP2_OK&&device==f.last&&!f.closed);
+        CHECK(f.api.flush(f.api.context,91,f.lease,nullptr)==IAP2_INVALID);
+        CHECK(f.submit(1701,800,0x55,0xaa)==IAP2_OK&&f.poll()==IAP2_OK);
+        CHECK(device->starts==(running?2:1)&&device->emitted.back()==0x55); device->pos=4; ++f.now;
+        CHECK(f.observe().has_position&&f.observe().sample_time==1702);
+    }
+    { Fixture f; f.ready(); uint64_t second=0; CHECK(f.prepare(101,&second)==IAP2_OK); f.last->bad_reset=-55;
+      CHECK(f.api.start(f.api.context,91,second)==IAP2_OK); projection_audio_flush_request q{};
+      CHECK(f.api.flush(f.api.context,91,second,&q)==-55&&f.closed==2); }
+}
 int main() {
     try {
-        arithmetic(); startup_and_pcm(); queue_and_wrap(); drain_and_restart(); cleanup_and_failure(); observations(); validation();
-        std::cout<<"PASS: 7 PCM output groups; device seam is synthetic, no speaker/microphone access.\n";
+        arithmetic(); startup_and_pcm(); queue_and_wrap(); drain_and_restart(); cleanup_and_failure(); observations(); validation(); flush_epochs();
+        std::cout<<"PASS: 8 PCM output groups including flush epochs; device seam is synthetic, no speaker/microphone access.\n";
         std::cout<<"x64 PCM output owner bytes: "<<sizeof(Output)<<" (includes three 65536-byte queues; device/OS allocations additional)\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

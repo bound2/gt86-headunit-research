@@ -74,7 +74,7 @@ handling requires an explicit runtime availability check; pre-pairing plaintext
 discovery additionally requires opt-in and has count/absolute-time bounds.
 A separate projection plist decoder supports 640 nodes and finite real values
 without loosening the existing Lockdown parser. Typed session/resource handling
-now adds six groups and optional owned SETUP/RECORD/TEARDOWN routes: advertised
+now adds seven groups and optional owned SETUP/RECORD/TEARDOWN/FLUSH routes: advertised
 capability gates, explicit endpoint leases, event/media key derivation, ID-reuse
 prevention and rollback/teardown/drain-start ownership. A real Windows endpoint
 provider now supplies peer-bound UDP timing, encrypted TCP events and optional
@@ -87,16 +87,20 @@ six pure groups and expanded real-socket tests. Optional typed control feedback
 now reports owned audio descriptors and fresh observed playback anchors using
 the real timing clock, with seven independently decoded output states. No
 played sample is inferred from a received packet or socket send. Encrypted audio
-RTP reception now adds six core and six actual UDP-service test groups, with
+RTP reception now adds seven core and seven actual UDP-service test groups, with
 17 explicit format mappings, nonce replay/reordering, gap reporting, PCM byte
 conversion and session/feedback integration. An explicit Windows WASAPI PCM sink
 now adds bounded queues, prefilled startup and device-clock observations, with
-seven output groups and separate COM/thread/clock checks. The final device in
+eight output groups and separate COM/thread/clock checks. The final device in
 automated playback tests remains synthetic. Optional real AAC-LC/Opus decoders
-and an owning PCM bridge now add five decoder and three loopback integration
+and an owning PCM bridge now add five decoder and four loopback integration
 groups, 33 synthetic packets and 1,000 mutation checks. A separate reference
 compares 59,648 samples, with explicitly documented noise/hybrid limitations.
-Physical playback verification, full timestamp pacing/loss handling, video/mic/input, control modes,
+An optional two-phase authenticated FLUSH now retires queued media and codec/
+device history without resetting keys or replay state, and resumes only after
+encrypted reply drain. Its single-audio classic AirPlay form is not verified
+CarPlay behavior; selective buffering and full timestamp pacing/loss remain work.
+Physical playback verification, video/mic/input, control modes,
 target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
 Python regression checks total 25, plus independent
@@ -116,13 +120,13 @@ service, two audio suites, PCM output/Windows argument checks and three TLS/cark
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-68, [the persistent-store report](pair-store.md),
+Steps 22-69, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
 and [event commands](projection-events.md) / [observed feedback](projection-feedback.md)
 / [audio reception](projection-audio.md) / [PCM output](projection-pcm-output.md)
-/ [compressed decoding](projection-decode.md). Hosted TLS
+/ [compressed decoding](projection-decode.md) / [authenticated FLUSH](projection-flush.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
@@ -2898,6 +2902,55 @@ interoperability checks. Factory execution/recovery, native USB/network,
 compatible existing authentication-chip access, remaining media/input/focus
 semantics and real iPhone acceptance are still necessary.
 
+## Step 69 - Own authenticated audio FLUSH without resetting replay state
+
+Date: 2026-09-10. Added [projection-flush.md](projection-flush.md) and an optional
+two-phase flush contract across session/root/audio providers, the codec bridge
+and PCM output. The pinned LIVI CarPlay stack does not define a FLUSH handler;
+Shairport Sync and OpenAirPlay supply primary references for the narrower classic
+AirPlay form. Real-iPhone acceptance of this form remains unverified.
+
+Exact bodyless FLUSH requires verified encrypted control after local MFi and
+RECORD drain, the already-bound target, one owned audio stream and one bounded
+RTP-Info header containing seq/rtptime. The named timestamp is the first allowed
+packet, not the last discarded packet; this was corrected after source review.
+Malformed or ambiguous requests fail closed before invoking flush. A new failing
+regression exposed and fixed a routing interaction with the POST-only /feedback
+endpoint; FLUSH cannot bypass that method check.
+
+Begin stops/resets output, wipes pending PCM/packet queues, recreates the codec
+and arms a timestamp fence. Keys, nonce window/floor, SSRC, source pinning,
+sockets, leases and lifetime tokens persist. Already-received nonces cannot be
+replayed, including unseen lower counters behind the retained delivery floor.
+New authenticated packets can queue while suspended, but submission/decoding and
+device start wait for actual encrypted-response drain and ordinary media prefill.
+Errors or close/deadline expiry retire all owned resources without resuming.
+
+This clears all already-owned media, including packets beyond the timestamp;
+it may introduce extra gaps and is not selective buffered flushing or partial-
+packet trimming. Sequence metadata never becomes UDP authentication authority.
+Actual device-clock observations remain the only source of playback feedback.
+No real endpoint or phone test establishes acoustic behavior or A/V timing.
+
+Expanded suites now contain seven session, seven audio, seven audio-service,
+eight PCM-output, five decoder and four decoder-service groups. They cover
+held/running media, replay/timestamp wrap/equality/half-range, stale tokens,
+queued compressed chunks, AAC re-priming, exact fresh-decoder PCM, new observed
+origins, reply-drain gating and reset/resume/timeout cleanup. Real loopback
+pairing/control/timing/events/audio cryptography uses public synthetic credentials
+and a synthetic final output device.
+
+Forty-two media, forty combined, twenty-two ordinary and twenty-five TLS-only
+CTest suites pass, plus twenty-five Python regressions and both audio reference
+checkers. Thirteen hosted and two codec-enabled sanitizer suites pass; strict
+C99/C++20 warnings and static analysis pass for the changed production units.
+The prior codec-reference and toolchain limitations remain documented.
+
+Next implement timestamp-aware latency/pacing and loss policy, then remaining
+media/input/control semantics. Factory identification, execution/recovery, native
+USB/network, existing authentication-chip access and real-phone acceptance remain
+unresolved. No vehicle, USB, physical playback or firmware operation occurred.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2909,8 +2962,11 @@ semantics and real iPhone acceptance are still necessary.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
 3. Validate the explicit PCM device backend and implement timestamp-aware pacing,
-   latency/loss/flush, remaining media/input backends and control mode/resource
-   semantics. Step 68 adds source-pinned AAC-LC/Opus decoding and owned PCM delivery,
+   latency/loss, selective buffered flush, remaining media/input backends and
+   control mode/resource semantics. Step 69 adds authenticated two-phase classic
+   FLUSH and media-state retirement without resetting replay protection; its
+   single-stream form and all-queue discard policy need actual phone validation.
+   Step 68 adds source-pinned AAC-LC/Opus decoding and owned PCM delivery,
    with codec/reference limitations documented separately. Step 67 adds Windows WASAPI PCM output and device-clock queries;
    automated playback tests still use a synthetic final device. Step 66 adds real
    encrypted audio UDP reception and PCM byte conversion through an explicit
