@@ -3258,6 +3258,28 @@ or CarPlay update. Only Markdown files changed; local links and whitespace were
 checked. The offline display-ownership investigation below remains available
 independently of obtaining the original archive.
 
+## Step 79 - Check owner reports of upgrades from 6.9.0WL
+
+Checked firsthand follow-ups on Toyota Owners Club and HybridLife, documented in
+[owner-upgrade-reports.md](owner-upgrade-reports.md). Found reported successes
+from the installed version, while separating recommendations, completion claims
+and missing post-install version evidence. These are not GT86 compatibility or
+CarPlay demonstrations.
+
+Both forum-linked official 6.13 and 6.17 archives returned HTTP HEAD 200 with
+ZIP metadata. No archive body was downloaded; the existing corpus is unchanged.
+Cross-checked the normal USB/activation workflow against Toyota's dealer guide.
+The report is research, not a prepared installation procedure for this car.
+
+The original-image acquisition task is for comparing loaders. It is not an
+established prerequisite for a normal stock upgrade. The appropriate stock-update
+check is Toyota's offered package and entitlement for the unit; current catalogue
+eligibility was not accessed. No further unavailable hardware-label information
+is requested, and native display research remains available offline.
+
+Only Markdown changed. Checked local file links and whitespace; no USB, vehicle,
+license, receiver-code or firmware-file changes were made.
+
 ## Next checks
 
 1. Trace the existing native navigation display request/release and ownership
@@ -3267,8 +3289,10 @@ independently of obtaining the original archive.
    part/revision as unknown. Target matching and recovery must still be resolved
    before preparing anything intended to execute on the car. Do not substitute
    corpus defaults or activate a NaviSync export to fill those gaps.
-2. Match the installed 6.9.0WL loader against the later corpus. The checks above
-   cannot establish that both versions contain the same defects.
+2. When original-version evidence becomes available, match the installed 6.9.0WL
+   loader against the later corpus. The checks above cannot establish that both
+   versions contain the same defects. This comparison is separate from a normal
+   official stock update and does not prevent offline work on the later corpus.
 3. Validate the explicit PCM device/rate-adjustment backend and actual sender
    timing form, implement continuous sender-clock/A-V synchronization, selective buffered
    flush, remaining media/input backends and control mode/resource semantics.
