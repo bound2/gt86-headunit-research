@@ -451,3 +451,40 @@ table are reused; Windows COM/GUID libraries are OS dependencies. The automated
 device seam is synthetic, while the opt-in physical probe requires explicit
 endpoint selection. See [projection-pcm-output.md](../reports/projection-pcm-output.md)
 for primary sources, verification and remaining factory/phone requirements.
+
+## Optional hosted audio codecs (Step 68)
+
+`projection_decode.c`/`.h`, `projection_decode_sink.c`/`.h`, their fixtures/tests
+and reference checker select GPL-3.0-only. They are local implementations using
+the upstream public decoder APIs, not copied decoder bodies. The explicit media
+build links source-only checkouts prepared under ignored `build/`:
+
+- [Opus 1.6.1](https://github.com/xiph/opus/tree/22244de5a79bd1d6d623c32e72bf1954b56235be),
+  tag `v1.6.1`, commit `22244de5a79bd1d6d623c32e72bf1954b56235be`.
+  Preserve its BSD-style copyright and patent-license notices. `COPYING` SHA256:
+  `01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551`.
+- [FAAD2 2.11.3](https://github.com/knik0/faad2/tree/6918ebb51b8f7e86278da15884bd7114e4b9661e),
+  tag `2.11.3`, commit `6918ebb51b8f7e86278da15884bd7114e4b9661e`.
+  Upstream identifies GPL-2.0-or-later and requires:
+  "Code from FAAD2 is copyright (c) Nero AG, www.nero.com".
+  `COPYING` SHA256:
+  `d3baf3a54943cf12a994c85867a18dec84f810901b2f2878ddfd77efcc3c150f`.
+  Its README flags possible patent obligations. This inventory is not legal
+  clearance or distribution advice.
+
+Preparation and CMake verify exact Git commits and clean trees, including extra
+ignored/untracked files. The hashes above identify notices, not a replacement
+for whole-checkout verification. No codec source is modified or vendored in the
+repository; no binary/firmware is distributed by this step. Optional codec source
+packages and their downstream notices/source obligations must be included as
+applicable in any future distribution. Default builds do not enable the codecs.
+
+The test-only reference environment pins [PyAV 18.1.0](https://pypi.org/project/av/18.1.0/),
+wheel `av-18.1.0-cp311-abi3-win_amd64.whl`, SHA256
+`ea1480b7a8d5405cb5f382b344731bf125fd2c1c6fae3964f6c48595628387ff`,
+in `scripts/media-reference-requirements.txt`. The wheel includes FFmpeg and codec
+libraries; retain their bundled license inventory if redistributing that test
+environment. It is not a receiver dependency. Fixtures contain only generated
+tones, not recorded user media. Native-FFmpeg and same-algorithm libopus checks
+are distinguished, including the unresolved hybrid disagreement. See
+[projection-decode.md](../reports/projection-decode.md) for exact scope and results.

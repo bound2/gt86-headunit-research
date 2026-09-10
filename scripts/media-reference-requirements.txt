@@ -1,0 +1,2 @@
+# Test-only Windows x64 CPython 3.11+ ABI3 wheel; not a receiver dependency.
+av==18.1.0 --hash=sha256:ea1480b7a8d5405cb5f382b344731bf125fd2c1c6fae3964f6c48595628387ff

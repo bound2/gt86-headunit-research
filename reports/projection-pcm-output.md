@@ -226,6 +226,8 @@ Alongside optional explicit-device validation, next implement compressed
 AAC-LC/Opus decoding and a timestamp-aware playout policy for packet gaps,
 overlaps, negotiated latency, flush and synchronized pacing. The current strict
 PCM continuity profile is not sufficient for arbitrary phone media traffic.
+Step 68 now supplies the optional codecs and owning PCM bridge in
+[projection-decode.md](projection-decode.md); the full playout policy remains next.
 Physical video/display/input, microphone and control mode/resource/audio-focus
 semantics remain necessary.
 

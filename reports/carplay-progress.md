@@ -92,8 +92,11 @@ RTP reception now adds six core and six actual UDP-service test groups, with
 conversion and session/feedback integration. An explicit Windows WASAPI PCM sink
 now adds bounded queues, prefilled startup and device-clock observations, with
 seven output groups and separate COM/thread/clock checks. The final device in
-automated playback tests remains synthetic; physical playback verification,
-compressed decoders, full timestamp pacing/loss handling, video/mic/input, control modes,
+automated playback tests remains synthetic. Optional real AAC-LC/Opus decoders
+and an owning PCM bridge now add five decoder and three loopback integration
+groups, 33 synthetic packets and 1,000 mutation checks. A separate reference
+compares 59,648 samples, with explicitly documented noise/hybrid limitations.
+Physical playback verification, full timestamp pacing/loss handling, video/mic/input, control modes,
 target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
 Python regression checks total 25, plus independent
@@ -105,24 +108,27 @@ and seven feedback output states, plus 13 independent audio fixtures and 17
 audio format descriptors.
 Native USB and actual phone pairing remain absent.
 All twenty-two ordinary, twenty-five TLS-only and forty combined crypto/TLS
-CTest suites pass. All eighteen protocol/capability/timing/event suites, five pairing/control/store suites,
+CTest suites pass; the optional codec-enabled configuration passes forty-two.
+Both new media suites pass ASan/UBSan with codec dependencies instrumented.
+All eighteen protocol/capability/timing/event suites, five pairing/control/store suites,
 the enrollment, real-file, MFiSAP, projection-session, receiver-router, real-socket
 service, two audio suites, PCM output/Windows argument checks and three TLS/carkit/integration suites pass under host
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-67, [the persistent-store report](pair-store.md),
+Steps 22-68, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
 and [event commands](projection-events.md) / [observed feedback](projection-feedback.md)
-/ [audio reception](projection-audio.md) / [PCM output](projection-pcm-output.md). Hosted TLS
+/ [audio reception](projection-audio.md) / [PCM output](projection-pcm-output.md)
+/ [compressed decoding](projection-decode.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
 The new SRP/enrollment target uses hosted Mbed TLS MPI heap allocation and is
 not included in either ARM claim. The new capability encoder, hosted MFi/AES and
-receiver/session targets, new timing/services/events/audio/PCM and Windows-only filesystem backend are also
+receiver/session targets, new timing/services/events/audio/PCM/codecs and Windows-only filesystem backend are also
 excluded; its file checksum is not encryption or rollback protection.
 No real Apple-chip authentication provider or device transport is connected.
 Accessory identification describes the endpoint to a phone; it does not read
@@ -2843,6 +2849,55 @@ timestamp-aware playout, then remaining media/input/control focus semantics.
 Factory execution/recovery, native USB, existing authentication-chip access and
 real-phone acceptance remain unresolved. No vehicle or audio preference changed.
 
+## Step 68 - Decode AAC-LC/Opus and own PCM delivery
+
+Date: 2026-09-10. Added [projection-decode.md](projection-decode.md), real optional
+Opus 1.6.1/FAAD2 2.11.3 decoders and an owning adapter into the PCM sink. Both
+source checkouts require exact pinned commits and clean trees. Default builds
+remain unchanged; the new media script opts in without installing codecs.
+
+Seventeen negotiated descriptors map to native PCM16, including raw AAC-LC
+stereo at 44.1/48 kHz and mono Opus at a 48 kHz clock, bounded to 120 ms. FAAD's
+first raw AAC AU primes without fabricated PCM. Subsequent output uses the
+packet's own timestamp; no guessed encoder delay or container pre-skip is used.
+Inputs must already be authenticated/ordered. Gaps, overlaps, codec changes or
+invalid media fail closed; loss concealment and seek/flush are not implemented.
+
+Each type 100..102 owns its decoder and downstream PCM lease. Submitted payloads
+are copied; pending decoded output prevents accepting another packet. Poll
+delivers at most one 8,192-byte chunk and preserves exact frame offsets. Absolute
+hold deadlines cannot be renewed by partial consumption. Failures retire every
+owned resource and propagate to the enclosing UDP/session owner. Playback still
+comes only from the downstream device clock, never from decoded/submitted frames.
+
+Five decoder/adapter groups cover all formats, priming, 120 ms chunking,
+backpressure, timestamp wrap, stale callbacks, failure ownership and 1,000 fresh/
+primed mutation cases. Three integration groups cross actual IPv4/IPv6 encrypted
+UDP, reverse arrival, RECORD gates, decoding and the PCM engine into a synthetic
+device, checking observed feedback and three-stream key/socket cleanup.
+
+The pinned test-only PyAV environment reproduces 33 synthetic packets and
+compares 59,648 PCM samples. Deterministic AAC/no-PNS and Opus CELT controls match
+native FFmpeg within one PCM16 unit. Original AAC noise-substitution fixtures
+use explicit residual/SNR checks. Original hybrid Opus differs from native FFmpeg
+by up to 1,836 units but matches PyAV/libopus exactly; its underlying cause is
+unresolved and the same-algorithm comparison is not called independent validation.
+The report preserves the initial failed comparison and added controls.
+
+Forty-two media, forty existing combined, twenty-two ordinary and twenty-five
+TLS-only CTest suites pass, plus twenty-five Python regressions and both audio
+reference checkers. Both new suites and their linked codecs pass ASan/UBSan;
+thirteen existing hosted suites also pass. The sample comparison agrees for
+MSVC release and instrumented Clang builds. Strict production C99 warnings and
+static analysis pass. Upstream notices, warning/toolchain limits and reproducible
+commands are recorded in the report and third-party inventory.
+
+No physical playback or car/phone access occurred. Next implement explicit
+timestamp-aware playout, latency/loss/flush/pacing and continue codec timing/
+interoperability checks. Factory execution/recovery, native USB/network,
+compatible existing authentication-chip access, remaining media/input/focus
+semantics and real iPhone acceptance are still necessary.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2853,9 +2908,10 @@ real-phone acceptance remain unresolved. No vehicle or audio preference changed.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Validate the new explicit PCM device backend and implement compressed decoding/
-   timestamp-aware pacing, remaining media/input backends and control mode/resource
-   semantics. Step 67 adds Windows WASAPI PCM output and device-clock queries;
+3. Validate the explicit PCM device backend and implement timestamp-aware pacing,
+   latency/loss/flush, remaining media/input backends and control mode/resource
+   semantics. Step 68 adds source-pinned AAC-LC/Opus decoding and owned PCM delivery,
+   with codec/reference limitations documented separately. Step 67 adds Windows WASAPI PCM output and device-clock queries;
    automated playback tests still use a synthetic final device. Step 66 adds real
    encrypted audio UDP reception and PCM byte conversion through an explicit
    output-sink boundary; its full receiver tests use synthetic sinks.
