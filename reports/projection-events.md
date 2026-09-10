@@ -180,6 +180,11 @@ guarantee.
 
 ## Step 6 - Implement control feedback and real media next
 
+Update: [Step 65 implements the owned control feedback route](projection-feedback.md),
+including typed observation/clock callbacks and actual timing-service integration.
+Actual media drivers and control mode/resource handling remain outstanding.
+The original next-step plan follows for continuity.
+
 Next implement explicit control `/feedback` handling with typed active-stream
 information and timestamps derived from actual media backend observations.
 Do not manufacture a playback position from a successful socket send. The

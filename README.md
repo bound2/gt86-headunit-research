@@ -500,7 +500,7 @@ exchange, and retired IDs cannot be reused with reset counters. Failed allocatio
 output, start, EOF or timeout closes owned resources. Playback starts only after
 the correlated reply fully drains; partial and full teardown are distinct.
 
-Four session groups, expanded encrypted receiver tests, 42 public fixture values
+Six session groups, expanded encrypted receiver tests, 42 public fixture values
 and independent key/plist checks pass. Its original endpoint-provider tests are
 synthetic; the Windows timing/event backend below now adds real sockets. Actual
 media drivers remain missing. This remains host-side implementation, not a QNX
@@ -519,7 +519,7 @@ wipe/close resources without reconnecting under reused keys. Receiver polling
 checks control deadlines first; RECORD reply drain gates unsolicited output.
 Media allocations require an explicit delegate, with no dummy default backend.
 
-Four timing groups and eight service groups pass, including real IPv4/IPv6
+Four timing groups and nine service groups pass, including real IPv4/IPv6
 loopback sockets through synthetic pairing/MFi/session integration. Eighteen
 ordinary and nine hosted suites pass ASan/UBSan; 12 clock/filter values agree
 with an independent Python checker. The event owner below now adds command
@@ -542,11 +542,27 @@ rejects concurrent use. RECORD reply drain gates outgoing commands. No automatic
 keyframe command schemas using the advertised profile. Six pure groups, eight
 independently decoded command plists and expanded real IPv4/IPv6 receiver/socket
 tests pass. These are protocol encoders, not actual input/media drivers. Control
-feedback and mode/resource command semantics remain next work. See
+mode/resource command semantics remain next work; feedback is implemented below. See
 [the event-message report](reports/projection-events.md).
 
 ```powershell
 python -B scripts/check_projection_commands.py build/crypto/Release/projection_events_tests.exe
+```
+
+Typed `POST /feedback` handling is now an explicit session opt-in on encrypted
+control after local MFi and session setup drain. It reports current audio
+descriptors and, only after RECORD, fresh actual playback observations paired
+with synchronized timing. Missing/stale observations omit timestamps; packet
+receipt or socket sends never manufacture played samples. The Windows provider
+maps live audio leases to an explicit media delegate and supplies its own real
+timing snapshot. Retired leases are rejected; pre-open/future observations and
+failed callbacks close resources. Seven outputs pass independent typed plist checks, with real
+IPv4/IPv6 timing/control integration and sanitizer coverage. Actual audio/video
+drivers and an installable target remain missing. See
+[the step-by-step feedback report](reports/projection-feedback.md).
+
+```powershell
+python -B scripts/check_projection_feedback.py build/crypto/Release/projection_session_tests.exe tests/fixtures/projection-session-vectors.txt
 ```
 
 ## Read-only firmware analysis

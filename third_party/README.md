@@ -414,3 +414,15 @@ local encoding conventions, with no new dependency. Python plistlib independentl
 decodes synthetic command bodies. See
 [projection-events.md](../reports/projection-events.md) for blobs, validation and
 the remaining control-feedback/physical-media boundary.
+
+The typed feedback extensions to sessions/receivers/Windows services, their
+tests and `check_projection_feedback.py` select GPL-3.0-only. The same pinned
+LIVI `cpStack.ts` and feedback tests provide control-route/field references;
+no upstream implementation body or real observation/credential is copied.
+Actual-playback-only reporting, freshness bounds, per-lease time guards, fixed-
+point timestamp mapping and failure/drain ownership are local policies, not
+Apple conformance guarantees. The existing session serializer and timing engine
+are reused without a new dependency. Independent Python plistlib checks cover
+public synthetic feedback values. See
+[projection-feedback.md](../reports/projection-feedback.md) for source blobs,
+verification and the unresolved physical media/target boundary.

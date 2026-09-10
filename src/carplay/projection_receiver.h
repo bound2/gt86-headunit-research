@@ -127,6 +127,8 @@ int projection_receiver_enable_info(projection_receiver *,uint64_t,const project
  * AFTER local MFi reply drain may allocate resources. No phone acceptance claim.
  * Sessions own transferred leases through close, deadline/EOF and reply failures.
  * Callback time must be refreshed before subsequent output/transport work.
+ * Nonzero session feedback_max_age_ms also owns exact POST /feedback on CONTROL
+ * (not the event socket), with the same MFi gate and encrypted reply ownership.
  * See projection_session.h for schemas, key lifetime and drain/start contract. */
 int projection_receiver_enable_session(projection_receiver *,uint64_t,const projection_session_config *,uint64_t);
 /* Optional local one-attempt authorization ID, not supplied by the wire. May be

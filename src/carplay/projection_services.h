@@ -22,9 +22,13 @@ typedef struct projection_services_config {
     control_cipher_config event;
     uint32_t accept_ms,poll_ms;
     uint8_t enabled_features; /* Explicit supported runtime features; no defaults. */
-    projection_session_provider media; /* Optional real media provider, no fallback. */
+    /* Optional real media provider, no fallback. playback, if supplied, uses
+     * clock_ns's exact domain and negotiated sample counter rate. Its clock
+     * callback is not used: this owner exports its synchronized timing snapshot.
+     * Backend/provider bindings must be established before obtaining provider. */
+    projection_session_provider media;
 } projection_services_config;
-typedef struct projection_services_media { uint64_t lease,child; uint32_t type; } projection_services_media;
+typedef struct projection_services_media { uint64_t lease,child,opened_ns; uint32_t type; } projection_services_media;
 typedef struct projection_services {
     projection_services_config config; projection_services_storage storage;
     projection_timing timing; control_cipher event;
@@ -62,6 +66,10 @@ typedef struct projection_services {
  * dummy listener/success. Features must match explicit config; nonzero features
  * require a media provider whose real support is attested by /info availability.
  * Delegate contexts obey session provider contracts, including cleanup on error.
+ * Optional playback observations map only live audio leases to the delegate;
+ * times before that lease's open invocation or after the refreshed clock fail.
+ * Clock snapshots use this owner's timing engine, never the delegate clock or
+ * OS wall time. Neither observer performs socket I/O or renews synchronization.
  *
  * poll performs at most4 timing receives,1 keepalive receive,1 accept,1 TCP
  * read/write and1 cipher feed per call, plus one bounded delegate poll. Queued

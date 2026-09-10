@@ -332,8 +332,8 @@ static int encrypted_session(Harness& h,const Bytes& body,const char* method="SE
     }
     return result;
 }
-static void session_enable(Harness& h,InfoBackend& info,SessionBackend& backend) {
-    info.profile=session_profile(); info.enable(h); auto cfg=backend.config();
+static void session_enable(Harness& h,InfoBackend& info,SessionBackend& backend,bool feedback=false) {
+    info.profile=session_profile(); info.enable(h); auto cfg=backend.config(feedback);
     CHECK(projection_receiver_enable_session(&h.s,91,&cfg,0)==IAP2_OK&&backend.opens==0);
 }
 static void session_mfi(Harness& h) {
@@ -411,14 +411,45 @@ static void session_gates_and_cleanup(const Vectors& v,const Vectors& setup_v,co
       rtsp_response response={501,{},nullptr,0,{}}; CHECK(projection_receiver_respond(&h.s,key,&response,1)==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
       projection_receiver_close(&h.s); CHECK(backend.live.empty()); }
 }
+static void feedback_routes(const Vectors& v,const Vectors& setup_v,const Vectors& sv) {
+    for(unsigned mode=0;mode<9;++mode) {
+        InfoBackend info(2); SessionBackend backend; Harness h(v,setup_v); session_enable(h,info,backend,mode!=8);
+        auto wire=bytes("POST /feedback RTSP/1.0\r\nCSeq: 31\r\n\r\n");
+        if(mode==0) { CHECK(h.feed(wire)==PROJECTION_RECEIVER_CLOSED&&backend.playback_calls==0); continue; }
+        h.pair();
+        if(mode==1) { CHECK(h.feed(h.frame(wire))==PROJECTION_RECEIVER_CLOSED&&backend.playback_calls==0); continue; }
+        session_mfi(h);
+        if(mode==2) { CHECK(h.feed(h.frame(wire))==PROJECTION_RECEIVER_CLOSED&&backend.playback_calls==0); continue; }
+        CHECK(encrypted_session(h,sv.at("session"))==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
+        CHECK(encrypted_session(h,sv.at("streams"))==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
+        CHECK(encrypted_session(h,{},"RECORD")==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK);
+        if(mode==3) wire=bytes("GET /feedback RTSP/1.0\r\nCSeq: 31\r\n\r\n");
+        if(mode==5) backend.playback_error=-55;
+        if(mode==7) { auto tail=bytes("POST /feedback RTSP/1.0\r\nCSeq: 32\r\n\r\n"); wire.insert(wire.end(),tail.begin(),tail.end()); }
+        auto encrypted=h.frame(wire); if(mode==4) encrypted.back()^=1;
+        int r=h.feed(encrypted);
+        if(mode==3||mode==4||mode==5) { CHECK(r==PROJECTION_RECEIVER_CLOSED&&backend.live.empty()); h.cleared(); continue; }
+        if(mode==8) { CHECK(r==RTSP_CHANNEL_REQUEST&&backend.playback_calls==0); rtsp_message req{}; rtsp_channel_key key{};
+            CHECK(projection_receiver_request(&h.s,&req,&key)==RTSP_CHANNEL_REQUEST); rtsp_response response{501,{},nullptr,0,{}};
+            CHECK(projection_receiver_respond(&h.s,key,&response,1)==RTSP_CHANNEL_OUTPUT); h.drain(true,IAP2_OK); continue; }
+        CHECK(r==RTSP_CHANNEL_OUTPUT&&backend.playback_calls==3&&backend.clock_calls==1&&backend.starts==1);
+        rtsp_response fake{200,{},nullptr,0,{}}; auto saved=snapshot(h.s);
+        CHECK(projection_receiver_respond(&h.s,h.s.key,&fake,UINT64_MAX)==RTSP_BUSY&&snapshot(h.s)==saved);
+        rtsp_message req{}; rtsp_channel_key key{}; CHECK(projection_receiver_request(&h.s,&req,&key)==IAP2_MORE&&!key.token);
+        CHECK(feedback_response(h.drain(true,IAP2_OK,mode!=6),31).size()==3);
+        if(mode==6) { CHECK(projection_receiver_release(&h.s,h.s.key,5001)==PROJECTION_RECEIVER_CLOSED&&backend.live.empty()); h.cleared(); }
+        if(mode==7) { CHECK(h.feed({})==RTSP_CHANNEL_OUTPUT&&backend.playback_calls==6&&backend.clock_calls==2);
+            CHECK(feedback_response(h.drain(true,IAP2_OK),32).size()==3&&backend.starts==1); }
+    }
+}
 int main(int argc,char** argv) {
     try {
         CHECK(argc==4); auto v=load_vectors(argv[1],39),setup_v=load_vectors(argv[2],51),session_v=load_vectors(argv[3],42);
         known_route(v,setup_v); enrollment_route(v,setup_v); permission_and_failure(v,setup_v);
         invalid_routes(v,setup_v); initial_lifetimes(v,setup_v); transactionality(v,setup_v); exhausted_and_late(v,setup_v);
         info_routes(v,setup_v); info_policy_and_errors(v,setup_v); info_configuration_and_limits(v,setup_v);
-        session_routes(v,setup_v,session_v); session_gates_and_cleanup(v,setup_v,session_v);
-        std::cout<<"PASS: 12 receiver-router groups; enrollment/verification/MFi, capabilities, owned session/resource routing and failure gates\n";
+        session_routes(v,setup_v,session_v); session_gates_and_cleanup(v,setup_v,session_v); feedback_routes(v,setup_v,session_v);
+        std::cout<<"PASS: 13 receiver-router groups; enrollment/verification/MFi, capabilities, sessions, observed feedback and failure gates\n";
         std::cout<<"x64 receiver bytes: "<<sizeof(projection_receiver)<<"; caller buffers/stack additional; synthetic credentials only\n";
         return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }

@@ -78,8 +78,12 @@ static int parse(const rtsp_message *req,request *out,uint8_t *scratch,size_t ca
     rtsp_slice type; int status=rtsp_header_get(req,(rtsp_slice){(const uint8_t *)"Content-Type",12},&type);
     pair_crypto_wipe(out,sizeof(*out));
     if(status!=IAP2_END&&(status!=IAP2_OK||!slice(type,"application/x-apple-binary-plist"))) return IAP2_INVALID;
+    if(slice(req->target,"/feedback")) {
+        if(!slice(req->method,"POST")) return IAP2_UNSUPPORTED;
+        out->kind=6; if(!req->body.size) return IAP2_OK;
+    }
     if(slice(req->method,"RECORD")) { if(req->body.size) return IAP2_INVALID; out->kind=3; return IAP2_OK; }
-    if(!slice(req->method,"SETUP")&&!slice(req->method,"TEARDOWN")) return IAP2_UNSUPPORTED;
+    if(out->kind!=6&&!slice(req->method,"SETUP")&&!slice(req->method,"TEARDOWN")) return IAP2_UNSUPPORTED;
     if(!req->body.size) { if(slice(req->method,"TEARDOWN")) { out->kind=5; return IAP2_OK; } return IAP2_INVALID; }
     if(status!=IAP2_OK||req->body.size>PROJECTION_INFO_LIMIT) return IAP2_INVALID;
     storage.nodes=nodes; storage.node_capacity=SERVICE_PLIST_PROJECTION_NODES; storage.bytes=scratch;
@@ -87,6 +91,7 @@ static int parse(const rtsp_message *req,request *out,uint8_t *scratch,size_t ca
     status=service_plist_decode_projection(req->body.data,req->body.size,&storage,&d);
     if(status!=IAP2_OK) goto done;
     if(d.nodes[0].type!=SERVICE_PLIST_DICT||encrypted_fields(&d,d.nodes)) { status=IAP2_INVALID; goto done; }
+    if(out->kind==6) goto done;
     streams=find(&d,d.nodes,"streams");
     if(streams) {
         if(streams->type!=SERVICE_PLIST_ARRAY||!streams->children||streams->children>PROJECTION_SESSION_STREAMS) { status=IAP2_INVALID; goto done; }
@@ -146,10 +151,46 @@ static void integer(plist *b,uint64_t v) {
     else { put(b,(uint8_t)(0x10|(n==8?3:n==4?2:n==2?1:0))); be(b,v,n); }
 }
 static void marker(plist *b,uint8_t kind,size_t n) { put(b,(uint8_t)(kind|(n<15?n:15))); if(n>=15) integer(b,n); }
-static int reply(projection_session *s,uint8_t kind,size_t first) {
+typedef struct feedback {
+    projection_playback_position position;
+    uint64_t connection_id,timestamp;
+    uint32_t type;
+} feedback;
+static int observe(projection_session *s,feedback out[3],size_t *count) {
+    projection_clock_snapshot clock={0,0,0}; size_t i; int status;
+    uint64_t max_age=(uint64_t)s->config.feedback_max_age_ms*1000000u;
+    *count=0;
+    for(i=1;i<s->count;++i) {
+        const projection_session_slot *slot=s->slots+i; feedback *f;
+        if(slot->request.type<100||slot->request.type>102) continue;
+        if(*count==3) return IAP2_INVALID;
+        f=out+(*count)++; f->type=slot->request.type; f->connection_id=slot->request.connection_id;
+        status=s->config.provider.playback(s->config.provider.context,s->generation,slot->endpoint.lease,&f->position);
+        if(status) return status;
+        if(!f->position.sample_rate||f->position.sample_rate>384000||f->position.has_position>1||
+           (!f->position.has_position&&(f->position.raw_ns||f->position.sample_time))) return IAP2_INVALID;
+    }
+    if(!*count) return IAP2_OK;
+    status=s->config.provider.clock(s->config.provider.context,s->generation,&clock); if(status) return status;
+    if(clock.synchronized>1) return IAP2_INVALID;
+    for(i=0;i<*count;++i) {
+        feedback *f=out+i; uint64_t age,ticks;
+        if(!f->position.has_position) continue;
+        if(f->position.raw_ns>clock.raw_ns) return IAP2_INVALID;
+        age=clock.raw_ns-f->position.raw_ns;
+        if(!s->recording||!clock.synchronized||age>max_age) { f->position.has_position=0; continue; }
+        /* Bounded <=60s age: quotient/remainder avoid overflow and preserve
+         * integer nanoseconds, NTP era wrap, and all uint64 connection bits. */
+        ticks=((age/1000000000u)<<32)+(((age%1000000000u)<<32)/1000000000u);
+        f->timestamp=clock.ntp-ticks;
+    }
+    return IAP2_OK;
+}
+static int reply(projection_session *s,uint8_t kind,size_t first,const feedback *observations,size_t observation_count) {
     plist b; uint16_t offsets[80]; size_t i,j,table; uint8_t root,array,dict; int status;
     pair_crypto_wipe(&b,sizeof(b)); b.out=s->reply; s->reply_size=0;
-    if(kind!=1&&kind!=2) return IAP2_OK;
+    if(kind!=1&&kind!=2&&kind!=6) return IAP2_OK;
+    if(kind==6&&!observation_count) return IAP2_OK;
     root=add(&b,255,13);
     if(kind==1) {
         const projection_session_endpoint *e=&s->slots[0].endpoint;
@@ -158,6 +199,16 @@ static int reply(projection_session *s,uint8_t kind,size_t first) {
         array=field(&b,root,"enabledFeatures",10);
         { static const char *names[]={"viewAreas","iAPChannel","hevc","altScreen"};
           for(i=0;i<4;++i) if(s->config.enabled_features&(1u<<i)) b.nodes[add(&b,array,5)].text=names[i]; }
+    } else if(kind==6) {
+        array=field(&b,root,"streams",10);
+        for(i=0;i<observation_count;++i) {
+            const feedback *f=observations+i;
+            dict=add(&b,array,13); number(&b,dict,"type",f->type); number(&b,dict,"sampleRate",f->position.sample_rate);
+            if(f->position.has_position) {
+                number(&b,dict,"streamConnectionID",f->connection_id); number(&b,dict,"timestamp",f->timestamp);
+                number(&b,dict,"timestampRawNs",f->position.raw_ns); number(&b,dict,"sampleTime",f->position.sample_time);
+            }
+        }
     } else {
         array=field(&b,root,"streams",10);
         for(i=first;i<s->count;++i) {
@@ -207,7 +258,8 @@ int projection_session_init(projection_session *s,const projection_info_profile 
     int (*available)(void *,uint64_t,const projection_info_profile *),void *context,const projection_session_config *cfg,uint64_t gen) {
     size_t n; int status;
     if(!s||!p||!available||!cfg||!gen||!cfg->provider.open||!cfg->provider.start||!cfg->provider.close||cfg->enabled_features>15||
-       ((cfg->provider.poll!=0)!=(cfg->provider.next_delay!=0))) return IAP2_ARGUMENT;
+       ((cfg->provider.poll!=0)!=(cfg->provider.next_delay!=0))||cfg->feedback_max_age_ms>60000||
+       (cfg->feedback_max_age_ms&&(!cfg->provider.playback||!cfg->provider.clock))) return IAP2_ARGUMENT;
     if(((cfg->enabled_features&PROJECTION_SESSION_HEVC)&&!p->hevc)||
        ((cfg->enabled_features&PROJECTION_SESSION_ALT_SCREEN)&&p->display_count!=2)) return IAP2_INVALID;
     status=projection_info_encode(p,0,0,&n); if(status) return status;
@@ -227,6 +279,18 @@ int projection_session_request(projection_session *s,const rtsp_message *req,con
     if(!s||!s->enabled||!req||!shared||!scratch||!capacity) return IAP2_ARGUMENT;
     if(s->state==PROJECTION_SESSION_HELD) return RTSP_BUSY;
     if(req->kind!=RTSP_REQUEST||!req->target.data||!req->target.size||req->target.size>sizeof(s->target)) return fail(s,IAP2_INVALID);
+    if(slice(req->target,"/feedback")) {
+        feedback observations[3]; size_t count=0;
+        if(!s->config.feedback_max_age_ms) return fail(s,IAP2_UNSUPPORTED);
+        if(s->state!=PROJECTION_SESSION_READY||!s->count) return fail(s,IAP2_INVALID);
+        status=parse(req,&q,scratch,capacity); if(status) return fail(s,status);
+        pair_crypto_wipe(observations,sizeof(observations));
+        status=observe(s,observations,&count);
+        if(!status) status=reply(s,6,0,observations,count);
+        pair_crypto_wipe(observations,sizeof(observations));
+        if(status) return fail(s,status);
+        s->pending=6; s->pending_first=0; s->state=PROJECTION_SESSION_HELD; return IAP2_OK;
+    }
     if(s->target_size&&(req->target.size!=s->target_size)) return fail(s,IAP2_INVALID);
     for(i=0;i<s->target_size;++i) if(req->target.data[i]!=s->target[i]) return fail(s,IAP2_INVALID);
     status=parse(req,&q,scratch,capacity); if(status) return fail(s,status);
@@ -272,7 +336,7 @@ int projection_session_request(projection_session *s,const rtsp_message *req,con
         }
     }
     if(!s->target_size) { copy(s->target,req->target.data,req->target.size); s->target_size=req->target.size; }
-    status=reply(s,q.kind,first); if(status) return fail(s,status);
+    status=reply(s,q.kind,first,0,0); if(status) return fail(s,status);
     s->pending=q.kind; s->pending_first=first; s->state=PROJECTION_SESSION_HELD; return IAP2_OK;
 }
 int projection_session_release(projection_session *s) {

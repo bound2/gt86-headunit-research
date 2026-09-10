@@ -32,6 +32,16 @@ typedef struct projection_session_endpoint {
     uint32_t stream_id; /* Explicit nonzero iAP response ID; otherwise zero. */
     uint16_t timing_port,event_port,keep_alive_port,data_port,control_port;
 } projection_session_endpoint;
+
+typedef struct projection_playback_position {
+    uint64_t raw_ns;
+    uint32_t sample_time,sample_rate;
+    uint8_t has_position;
+} projection_playback_position;
+typedef struct projection_clock_snapshot {
+    uint64_t raw_ns,ntp;
+    uint8_t synchronized;
+} projection_clock_snapshot;
 typedef struct projection_session_provider {
     void *context;
     /* Synchronous, bounded, no reentry/pointer retention or exceptions across
@@ -61,10 +71,26 @@ typedef struct projection_session_provider {
      * Both callbacks or neither; no hidden worker, socket I/O in next_delay. */
     int (*poll)(void *,uint64_t,uint64_t now_ms);
     uint32_t (*next_delay)(const void *,uint64_t);
+    /* Optional /feedback observations. Same bounded/serial contract as open.
+     * playback receives ONLY a currently owned audio lease. Always report its
+     * actual negotiated sample counter rate (1..384000); open must have checked
+     * format support. has_position=1 means sample_time (modulo 2^32) was actually
+     * played at raw_ns, NOT received, decoded, queued, or successfully sent.
+     * No position yet: has_position=0, raw_ns=sample_time=0. No extrapolation.
+     * raw_ns uses EXACTLY clock's monotonic ns domain; observations must belong
+     * to this lease/generation, not a retired stream. Copy results, retain no
+     * pointers. Only OK succeeds; failures terminate the owning session.
+     * clock is sampled after all playback observations; ntp is the matching
+     * NTP64 value at raw_ns, modulo 2^64. synchronized=0 suppresses all anchors,
+     * not a wall-clock fallback. A delegate may provide playback alone when its
+     * enclosing provider owns the timing clock. No default media observation. */
+    int (*playback)(void *,uint64_t,uint64_t lease,projection_playback_position *);
+    int (*clock)(void *,uint64_t,projection_clock_snapshot *);
 } projection_session_provider;
 typedef struct projection_session_config {
     projection_session_provider provider;
     uint8_t enabled_features; /* Explicit 0..15, no defaults. */
+    uint32_t feedback_max_age_ms; /* 0 disables /feedback; 1..60000 requires both observers. */
 } projection_session_config;
 typedef struct projection_session_slot {
     projection_session_resource request;
@@ -83,7 +109,7 @@ typedef struct projection_session {
     uint8_t reply[PROJECTION_SESSION_REPLY]; size_t reply_size;
     size_t pending_first;
     enum projection_session_state state;
-    uint8_t enabled,recording,pending; /* pending: initial, streams, record, partial/full teardown. */
+    uint8_t enabled,recording,pending; /* pending: initial, streams, record, partial/full teardown, feedback. */
 } projection_session;
 /* Internal child of projection_receiver: no caller attach, raw-key bind,
  * concurrent access or child calls on a live receiver. Fresh init validates
@@ -113,6 +139,18 @@ typedef struct projection_session {
  * streams added while recording also start only on their SETUP reply drain.
  * Valid TEARDOWN closes selected leases before replying; full teardown terminates
  * this connection after reply drain, never resets event/stream nonces in place.
+ *
+ * Explicit feedback_max_age_ms enables exact POST /feedback after initial
+ * session SETUP drain (not bound to the opaque session target). Empty or bounded
+ * binary dictionary request; unknown metadata has no effect. Enumerates current
+ * owned audio streams only; no audio gives an empty 200. Descriptors are supplied
+ * by playback even before RECORD. Only after RECORD drain, with synchronized
+ * clock and nonfuture observations aged <= max_age, are connection ID, NTP64
+ * timestamp, timestampRawNs and sampleTime included. Timestamp maps the ACTUAL
+ * observed raw_ns using this snapshot, without extrapolating playback. Missing,
+ * unsynchronized or stale positions omit anchors. Invalid/failing observations
+ * close all leases, never publish a partial reply. Feedback has normal held/drain
+ * ownership but never starts a resource or renews a timing synchronization budget.
  */
 int projection_session_init(projection_session *,const projection_info_profile *,
     int (*available)(void *,uint64_t,const projection_info_profile *),void *,

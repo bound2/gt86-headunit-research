@@ -65,7 +65,7 @@ and encrypted-control integration. MFiSAP response calculation and an owning
 encrypted `/auth-setup` route now add seven groups, including same-transport
 enrollment-to-verification-to-MFi handoff. Cryptography is real; the explicit
 certificate/signature test providers are synthetic, not Apple credentials or
-proof of handset acceptance. An initial receiver router now has twelve groups,
+proof of handset acceptance. An initial receiver router now has thirteen groups,
 explicit local permission and separate verified-candidate approval, automatic
 same-connection post-M6 transfer and public tokens stable across child phases.
 An explicit typed capability encoder adds four groups and three independent
@@ -74,23 +74,27 @@ handling requires an explicit runtime availability check; pre-pairing plaintext
 discovery additionally requires opt-in and has count/absolute-time bounds.
 A separate projection plist decoder supports 640 nodes and finite real values
 without loosening the existing Lockdown parser. Typed session/resource handling
-now adds four groups and optional owned SETUP/RECORD/TEARDOWN routes: advertised
+now adds six groups and optional owned SETUP/RECORD/TEARDOWN routes: advertised
 capability gates, explicit endpoint leases, event/media key derivation, ID-reuse
 prevention and rollback/teardown/drain-start ownership. A real Windows endpoint
 provider now supplies peer-bound UDP timing, encrypted TCP events and optional
 UDP keepalive, with explicit polling, deadlines and cleanup. Four pure timing
-and eight real IPv4/IPv6 loopback service groups pass; media delegates and MFi
+and nine real IPv4/IPv6 loopback service groups pass; media delegates and MFi
 providers in the integrated tests remain synthetic. An owned bidirectional
 event-message layer now adds atomic command batches, correlated replies,
 explicit request handling and typed HID/Siri/night/iAP/keyframe encoders, with
-six pure groups and expanded real-socket tests. Control feedback/mode semantics,
+six pure groups and expanded real-socket tests. Optional typed control feedback
+now reports owned audio descriptors and fresh observed playback anchors using
+the real timing clock, with seven independently decoded output states. No
+played sample is inferred from a received packet or socket send. Control modes,
 actual media, target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
 Python regression checks total 25, plus independent
 checkers for 21 pair-verification, 12 control-frame, 51 setup and 39 combined
 MFi/pair-verification fixture values, plus 42 session fixture values, 16 session
 directional key/zero values and three independently parsed session replies,
-plus 12 independent timing-clock/filter values and eight decoded event commands.
+plus 12 independent timing-clock/filter values, eight decoded event commands
+and seven feedback output states.
 Native USB and actual phone pairing remain absent.
 All twenty-two ordinary, twenty-five TLS-only and thirty-six combined crypto/TLS
 CTest suites pass. All eighteen protocol/capability/timing/event suites, five pairing/control/store suites,
@@ -98,11 +102,11 @@ the enrollment, real-file, MFiSAP, projection-session, receiver-router and real-
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-64, [the persistent-store report](pair-store.md),
+Steps 22-65, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
-and [event commands](projection-events.md). Hosted TLS
+and [event commands](projection-events.md) / [observed feedback](projection-feedback.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
@@ -2685,6 +2689,49 @@ input/output drivers. Target execution/recovery, USB-network ownership, factory
 authentication-chip access and phone validation remain unresolved. No installable
 CarPlay update or vehicle modification is produced.
 
+## Step 65 - Report control feedback from observed playback
+
+Date: 2026-09-10. Added [projection-feedback.md](projection-feedback.md) with
+pinned schema references, configuration, timestamp arithmetic, provider
+contracts, validation and remaining work. The owned session now optionally
+handles exact POST `/feedback` on verified encrypted control after local MFi
+and initial session SETUP reply drain. Feedback is disabled unless explicitly
+configured with a freshness limit and playback/clock observers.
+
+The handler enumerates only current audio leases, reports their actual counter
+rates, and includes timestamp anchors only after RECORD with fresh playback
+observations and a synchronized clock. Missing/stale positions omit anchors;
+receipt, decode, queueing and successful sends never become played samples.
+Integer nanosecond-to-NTP conversion preserves full uint64 IDs/times and modular
+wrap. Invalid output or callback failure closes every lease before any partial
+reply. Normal encrypted output/token/drain ownership protects the response and
+retained coalesced requests. Feedback never starts media or renews timing sync.
+
+The actual Windows provider remaps live audio leases to its explicit delegate
+and exports its own timing snapshot, without an OS wall-clock fallback. Review
+added a per-lease open-time guard so replacement streams cannot report positions
+from before their creation. The regression includes an otherwise fresh old
+timestamp, not only a retired lease lookup. Clock/observation callbacks perform
+no socket I/O; real peer-bound timing exchange remains in endpoint polling.
+
+Six session, thirteen receiver and nine service groups pass. Expanded tests
+cover mixed/absent observations, exact freshness bounds, invalid third-stream
+output, wrap, authentication and lifecycle gates, lease replacement, deadlines
+and actual IPv4/IPv6 timing sockets through synthetic pairing/MFi/control.
+Seven C outputs pass independent Python plist decoding; previous session keys
+and fixture outputs are unchanged. Validation passes 36 combined, 22 ordinary,
+25 TLS-only suites and 25 Python regressions, plus nine hosted ASan/UBSan suites
+with both crypto dependencies instrumented. Strict C99/C++20 warnings and static
+analysis pass. Context sizes on x64 are session 3,872, receiver 13,568 and service
+1,384 bytes, excluding buffers/stack/heap/kernel storage. No dependency is added;
+these components remain outside the existing import-free ARM claim.
+
+Next implement bounded audio reception/sequence handling and a real decoder/
+output backend that supplies actual playback observations, then remaining
+media, input and control mode/resource semantics. Factory execution/recovery,
+USB-network ownership, actual authentication-chip access and phone acceptance
+remain unresolved. This is not an installable CarPlay update or a vehicle change.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -2695,10 +2742,14 @@ CarPlay update or vehicle modification is produced.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Implement control feedback/mode semantics and network/media/input backends.
+3. Implement actual audio reception/playback and remaining media/input backends,
+   plus control mode/resource semantics. Step 65 adds explicit control feedback
+   from typed observed playback and the actual timing service, including lease
+   replacement and freshness gates. Real playback observations still require
+   an actual audio backend; current media-provider tests are synthetic.
    Step 64 adds event message ownership and explicit command encoders, with
-   real-socket integration; `/feedback` is a separate control route requiring
-   actual media observations. Physical input capture, control mode/resource
+   real-socket integration; `/feedback` is a separate control route now handled
+   in Step 65. Physical input capture, control mode/resource
    semantics and media drivers are still missing. Step 63 adds actual
    peer-bound Windows timing/event/keepalive sockets and receiver polling, tested
    over loopback. Stream record/packet processing and a QNX socket backend remain

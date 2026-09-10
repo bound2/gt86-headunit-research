@@ -255,7 +255,8 @@ int projection_receiver_feed(projection_receiver *s, uint64_t gen, const uint8_t
             int got=projection_auth_request(&s->auth,&req,&key);
             if(got!=RTSP_CHANNEL_REQUEST) return stop(s,PROJECTION_RECEIVER_REASON_INFO,got);
             if(equals(req.target,"/info")) return info_reply(s,&req,key,0,now);
-            if(s->session.enabled&&(equals(req.method,"SETUP")||equals(req.method,"RECORD")||equals(req.method,"TEARDOWN")))
+            if(s->session.enabled&&(equals(req.method,"SETUP")||equals(req.method,"RECORD")||equals(req.method,"TEARDOWN")||
+               (s->session.config.feedback_max_age_ms&&equals(req.target,"/feedback"))))
                 return session_reply(s,&req,key,now);
         }
         return sync(s,r);

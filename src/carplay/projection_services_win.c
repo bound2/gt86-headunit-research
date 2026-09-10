@@ -75,7 +75,7 @@ int projection_services_init(projection_services *s,const projection_services_co
        !c->accept_ms||c->accept_ms>60000||!c->poll_ms||c->poll_ms>1000||c->enabled_features>15||!b->network||
        b->network_size<1||b->network_size>CONTROL_CIPHER_MAX_PAYLOAD+18||
        ((c->media.open!=0)!=(c->media.start!=0))||((c->media.open!=0)!=(c->media.close!=0))||
-       ((c->media.poll!=0)!=(c->media.next_delay!=0))||(!c->media.open&&(c->enabled_features||c->media.poll))) return IAP2_ARGUMENT;
+       ((c->media.poll!=0)!=(c->media.next_delay!=0))||(!c->media.open&&(c->enabled_features||c->media.poll||c->media.playback))) return IAP2_ARGUMENT;
     r=projection_timing_init(&timing,&c->timing,c->mono_origin_ns,c->ntp_origin); if(r) return r;
     r=control_cipher_init(&cipher,&c->event,b->cipher_rx,b->cipher_rx_size,b->plain,b->plain_size,b->cipher_tx,b->cipher_tx_size,gen,c->mono_origin_ns/1000000);
     if(r) return r; pair_crypto_wipe(&cipher,sizeof(cipher));
@@ -96,10 +96,12 @@ static int open_resource(void *context,uint64_t gen,const projection_session_res
         if(!s->event_lease||!s->config.media.open) return IAP2_UNSUPPORTED;
         if(s->media_count==PROJECTION_SESSION_STREAMS) return IAP2_NO_SPACE;
         r=refresh(s); if(r) return r;
+        now=s->now_ns;
         r=s->config.media.open(s->config.media.context,gen,q,features,keys,&e);
         if(e.lease) {
             for(i=0;i<s->media_count;++i) if(s->media[i].child==e.lease) return fail(s,IAP2_INVALID);
             s->media[s->media_count].child=e.lease; s->media[s->media_count].type=q->type;
+            s->media[s->media_count].opened_ns=now;
             s->media[s->media_count++].lease=s->next_lease; e.lease=s->next_lease++;
         }
         *out=e; return r;
@@ -267,8 +269,31 @@ uint32_t projection_services_next_delay(const projection_services *s,uint64_t ge
 }
 static int poll_provider(void *s,uint64_t gen,uint64_t now) { (void)now; return projection_services_poll((projection_services *)s,gen); }
 static uint32_t delay_provider(const void *s,uint64_t gen) { return projection_services_next_delay((const projection_services *)s,gen); }
+static int playback_provider(void *context,uint64_t gen,uint64_t lease,projection_playback_position *out) {
+    projection_services *s=(projection_services *)context; size_t i; int r;
+    if(out) pair_crypto_wipe(out,sizeof(*out)); if(!out) return IAP2_ARGUMENT;
+    r=owner(s,gen); if(r) return r;
+    if(!s->event_lease||!s->config.media.playback) return IAP2_UNSUPPORTED;
+    for(i=0;i<s->media_count;++i) if(s->media[i].lease==lease) break;
+    if(i==s->media_count||s->media[i].type<100||s->media[i].type>102) return IAP2_INVALID;
+    r=refresh(s); if(r) return r;
+    r=s->config.media.playback(s->config.media.context,gen,s->media[i].child,out);
+    if(r) { pair_crypto_wipe(out,sizeof(*out)); return fail(s,r); }
+    r=refresh(s);
+    if(!r&&out->has_position&&(out->raw_ns<s->media[i].opened_ns||out->raw_ns>s->now_ns)) r=fail(s,IAP2_INVALID);
+    if(r) pair_crypto_wipe(out,sizeof(*out)); return r;
+}
+static int clock_provider(void *context,uint64_t gen,projection_clock_snapshot *out) {
+    projection_services *s=(projection_services *)context; int r;
+    if(out) pair_crypto_wipe(out,sizeof(*out)); if(!out) return IAP2_ARGUMENT;
+    r=owner(s,gen); if(r) return r; if(!s->event_lease) return IAP2_UNSUPPORTED;
+    r=refresh(s); if(r) return r;
+    out->raw_ns=s->now_ns; out->ntp=projection_timing_now(&s->timing,s->now_ns); out->synchronized=s->timing.synced;
+    return IAP2_OK;
+}
 projection_session_provider projection_services_provider(projection_services *s) {
-    projection_session_provider p; p.context=s; p.open=open_resource; p.start=start_resources; p.close=close_resource; p.poll=poll_provider; p.next_delay=delay_provider; return p;
+    projection_session_provider p; p.context=s; p.open=open_resource; p.start=start_resources; p.close=close_resource; p.poll=poll_provider; p.next_delay=delay_provider;
+    p.playback=s&&s->ready&&s->config.media.playback?playback_provider:0; p.clock=clock_provider; return p;
 }
 int projection_services_event_peek(const projection_services *s,uint64_t gen,rtsp_slice *out,control_cipher_key *key) {
     int r; if(out) pair_crypto_wipe(out,sizeof(*out)); if(key) pair_crypto_wipe(key,sizeof(*key));
