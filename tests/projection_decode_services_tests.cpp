@@ -21,11 +21,11 @@ struct Pipeline {
         int position(uint64_t& p,uint64_t& q) noexcept override { tick(); p=pos; q=owner.now; return IAP2_OK; }
     };
     std::vector<Device*> devices;
-    projection_pcm::Output output{{this,open_device,clock,thread},91,100,0};
+    projection_pcm::Output output;
     std::unique_ptr<projection_decode_sink,decltype(&projection_decode_sink_destroy)> decoder{nullptr,projection_decode_sink_destroy};
     projection_audio_services audio{};
     Bytes storage=Bytes(3*8*8192+1,0xaa),network=Bytes(8192+36+1,0xaa);
-    explicit Pipeline(bool v6=false,bool paced=false):automatic(paced) {
+    explicit Pipeline(bool v6=false,bool paced=false,uint32_t late=0):automatic(paced),output({this,open_device,clock,thread},91,100,0,late) {
         projection_decode_sink_config dc{output.sink(),clock,this,100,paced?120u:0u,paced?40u:0u,static_cast<uint8_t>(paced)}; projection_decode_sink* raw=nullptr;
         CHECK(projection_decode_sink_create(&dc,91,&raw)==IAP2_OK); decoder.reset(raw);
         projection_audio_services_config cfg{}; cfg.local=cfg.peer=loopback(v6); cfg.clock_ns=clock; cfg.clock_context=this; cfg.poll_ms=2;
@@ -166,8 +166,44 @@ static void sustained_loss(const Vectors& v) {
         p.close(p.context,91,e.lease); CHECK(f.closed==1&&!f.audio.wsa); Socket reuse(SOCK_DGRAM,ipv6,1,e.data_port);
     }
 }
+static void delayed_burst(const Vectors& v) {
+    for(bool ipv6:{false,true}) for(bool aac:{false,true}) {
+        auto owner=std::make_unique<Pipeline>(ipv6,true,30); auto& f=*owner; Socket phone(SOCK_DGRAM,ipv6);
+        uint32_t bit=aac?0x400000:0x10000000,duration=aac?1024:960,rate=aac?44100:48000,first=UINT32_MAX-999;
+        const unsigned count=100; auto e=f.open(100,bit,100); auto d=f.devices[0]; auto p=projection_audio_services_provider(&f.audio);
+        f.start(e.lease); uint64_t beginning=f.now; unsigned sent=0,after=0; uint8_t key[32]; std::fill(key,key+32,9);
+        std::vector<Bytes> packets; for(unsigned i=0;i<count;++i) packets.push_back(v.at(std::string(aac?"aac44100_":"opus20_")+std::to_string(i%5)));
+        auto packet=[&](unsigned i) { return audio_packet(key,i,first+i*duration,packets[i]); };
+        for(uint64_t elapsed=0;elapsed<=uint64_t(count)*duration*1000000000/rate+250*ms;elapsed+=ms) {
+            f.now=beginning+elapsed;
+            unsigned gate=sent==20?40:sent;
+            if(sent<count&&elapsed>=uint64_t(gate)*duration*1000000000/rate) {
+                for(unsigned end=std::min(count,sent+(sent==20?25:5));sent<end;++sent) {
+                    phone.datagram(packet(sent),e.data_port);
+                    f.until([&]{return f.audio.slots[0].audio.received&&f.audio.slots[0].audio.highest==sent;});
+                }
+            }
+            CHECK(f.poll()==IAP2_OK); projection_playback_position pos{};
+            CHECK(p.playback(p.context,91,e.lease,&pos)==IAP2_OK);
+            if(pos.has_position) {
+                uint32_t frame=pos.sample_time-first; CHECK(frame<count*duration);
+                uint64_t due=beginning+100*ms+uint64_t(frame)*1000000000/rate;
+                CHECK(pos.raw_ns<=due+30*ms+1000000000/rate+1);
+                if(frame>=50*duration) ++after;
+            }
+        }
+        auto pcm=expected(bit,packets,first,duration); size_t tail=20*duration*(aac?4:2);
+        CHECK(sent==count&&d->starts>=2&&d->starts<=4&&after>500);
+        CHECK(d->data.size()<pcm.size()&&d->data.size()>pcm.size()/2&&d->data.size()>=tail);
+        CHECK(std::equal(d->data.end()-tail,d->data.end(),pcm.end()-tail)); // Dropping playback never resets codec history.
+        auto& stream=f.audio.slots[0]; CHECK(!stream.audio.count&&stream.audio.highest==count-1&&stream.peer_port==phone.port);
+        auto seen=stream.audio.seen; phone.datagram(packet(20),e.data_port); CHECK(f.poll()==IAP2_OK&&stream.audio.highest==count-1&&stream.audio.seen==seen);
+        CHECK(Bytes(stream.audio.key,stream.audio.key+32)==Bytes(key,key+32));
+        p.close(p.context,91,e.lease); CHECK(f.closed==1&&!f.audio.wsa); Socket reuse(SOCK_DGRAM,ipv6,1,e.data_port);
+    }
+}
 int main(int argc,char** argv) {
-    try { CHECK(argc==2); Winsock wsa; auto v=load_vectors(argv[1],33); codecs(v,false); codecs(v,true); failures(v); flush_codecs(v); sustained_loss(v);
-        std::cout<<"PASS: 5 decode service groups; real IPv4/IPv6 authenticated UDP, AAC/Opus, sustained timed loss recovery, flush epochs and device-clock seam; no physical playback\n"; return 0;
+    try { CHECK(argc==2); Winsock wsa; auto v=load_vectors(argv[1],33); codecs(v,false); codecs(v,true); failures(v); flush_codecs(v); sustained_loss(v); delayed_burst(v);
+        std::cout<<"PASS: 6 decode service groups; real IPv4/IPv6 authenticated UDP, AAC/Opus, sustained loss/late-burst recovery, flush epochs and device-clock seam; no physical playback\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

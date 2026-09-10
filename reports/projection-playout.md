@@ -182,12 +182,15 @@ No new dependency, device test or firmware input is needed.
 
 ## Step 7 - Remaining work toward actual CarPlay
 
-Next address late-media/drop-resynchronization policy and clock drift, then
+Continued in [Step 71: late PCM recovery](projection-late-audio.md), which adds
+opt-in stale-output discard and device-epoch restart without resetting codec or
+replay state. The preceding Step 70 results are historical. Next address clock drift, then
 sender timing/A-V synchronization. A gap is currently recovered only when a
 following authenticated packet establishes its duration. Trailing loss without
 that evidence, unsignaled DTX/timestamp jumps, retransmission/FEC, adaptive jitter,
-selective buffered FLUSH and perceptual smoothing remain unfinished. Delayed
-packets already accepted by the decoder are not yet dropped/rebased by deadline.
+selective buffered FLUSH and perceptual smoothing remain unfinished. Step 71
+keeps the original local timeline; it does not rebase sender clocks or rescue an
+already-expired decoder/transport ownership deadline.
 
 Physical endpoint validation, microphone/video/display/input and control mode/
 resource/audio-focus semantics remain. Factory module identity, installed-version

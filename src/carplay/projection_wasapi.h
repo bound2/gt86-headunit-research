@@ -11,6 +11,7 @@ typedef struct projection_wasapi_config {
     const wchar_t *endpoint_id; /* Explicit IMMDevice ID, copied; no default. */
     uint32_t buffer_ms; /* 40..500, requested shared-mode buffer capacity. */
     uint32_t startup_ms; /* 0..500, wait after first queued packet for prefill. */
+    uint32_t late_ms; /* 0=disabled; 1..1000 discards overdue timed PCM. */
 } projection_wasapi_config;
 /* Windows-only PCM16 output, types 100..102, one stream of each type. Creates
  * an STA COM scope on this thread (fails if already in an incompatible MTA).
@@ -29,12 +30,22 @@ typedef struct projection_wasapi_config {
  * consumes none. Empty packets are no-ops. Within a continuous run, timestamps
  * must be contiguous modulo 2^32; gaps/overlaps are UNSUPPORTED, not guessed.
  * A new timestamp origin is allowed only after the device drains and queue is
- * empty or after authenticated FLUSH. The optional decoder bridge supplies
+ * empty (except when timed late-drop is enabled) or after authenticated FLUSH.
+ * The optional decoder bridge supplies
  * bounded loss recovery and local timed delivery; this PCM backend does not
  * invent those policies. Timed packets can prefill before presentation_ns, but
  * the device starts no earlier than that bound. It preserves contiguous time
  * metadata within one ns of rounding. No peer-NTP/A-V sync or drift correction.
  * Two-phase FLUSH clears prefilled/playing media and re-arms on reply drain.
+ * Optional late_ms drops queued frames more than this budget past their original
+ * presentation time, then trims to the first current/future frame (hysteresis).
+ * An overdue prefill/observed device epoch is Stop/Reset,
+ * discarding its ENTIRE pending buffer (possibly including fresh frames), then
+ * queued PCM is trimmed and startup resumes on the unchanged timeline. Codec,
+ * input continuity, keys and replay state are not reset. This can cause audible
+ * gaps; it is not resampling, drift correction, a wire FLUSH or acoustic timing.
+ * Untimed PCM and late_ms=0 retain previous behavior. Decoder ownership deadlines
+ * still fail closed; this policy does not rescue an unpolled/expired session.
  *
  * Low buffer headroom stops appending: drain known frames, Stop/Reset, then
  * prefill a new epoch. This can cause an audible gap, not a false clock anchor.

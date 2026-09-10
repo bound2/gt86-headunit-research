@@ -41,7 +41,7 @@ struct WasapiDevice final:projection_pcm::Device {
     int start() noexcept override { return result(client->Start()); }
     int reset() noexcept override {
         HRESULT r=client->Stop(); if(FAILED(r)) return result(r);
-        return result(client->Reset());
+        r=client->Reset(); return SUCCEEDED(r)?IAP2_OK:result(r); // S_FALSE: already reset.
     }
     int position(uint64_t& p,uint64_t& q) noexcept override {
         UINT64 raw=0; HRESULT r=clock->GetPosition(&p,&raw);
@@ -56,8 +56,8 @@ struct projection_wasapi {
     wchar_t endpoint[1024]{};
     bool com=false;
     projection_pcm::Output output;
-    projection_wasapi(uint64_t gen,uint32_t buffer,uint32_t startup) noexcept:
-        output({this,open,clock,on_thread},gen,buffer,startup) {}
+    projection_wasapi(uint64_t gen,uint32_t buffer,uint32_t startup,uint32_t late_budget) noexcept:
+        output({this,open,clock,on_thread},gen,buffer,startup,late_budget) {}
     static bool on_thread(void *p) noexcept { return static_cast<projection_wasapi*>(p)->thread==GetCurrentThreadId(); }
     static uint64_t clock(void*) noexcept { return projection_wasapi_clock_ns(nullptr); }
     static int open(void *p,const projection_audio_format& f,uint32_t buffer,projection_pcm::Device*& out) noexcept {
@@ -104,10 +104,10 @@ extern "C" uint64_t projection_wasapi_clock_ns(void*) {
 }
 extern "C" int projection_wasapi_create(const projection_wasapi_config *c,uint64_t gen,projection_wasapi **out) {
     if(out) *out=nullptr;
-    if(!c||!out||!gen||!c->endpoint_id||!c->endpoint_id[0]||c->buffer_ms<40||c->buffer_ms>500||c->startup_ms>500) return IAP2_ARGUMENT;
+    if(!c||!out||!gen||!c->endpoint_id||!c->endpoint_id[0]||c->buffer_ms<40||c->buffer_ms>500||c->startup_ms>500||c->late_ms>1000) return IAP2_ARGUMENT;
     size_t n=0; while(n<1024&&c->endpoint_id[n]) ++n;
     if(n==1024) return IAP2_ARGUMENT;
-    auto *owner=new(std::nothrow) projection_wasapi(gen,c->buffer_ms,c->startup_ms);
+    auto *owner=new(std::nothrow) projection_wasapi(gen,c->buffer_ms,c->startup_ms,c->late_ms);
     if(!owner) return IAP2_NO_SPACE;
     HRESULT r=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
     if(FAILED(r)) { delete owner; return IAP2_PROVIDER_FAILED; }

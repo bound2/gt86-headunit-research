@@ -19,8 +19,8 @@ static bool same(const projection_audio_format& a,const projection_audio_format&
     return a.bit==b.bit&&a.clock_rate==b.clock_rate&&a.input_rate==b.input_rate&&
         a.codec==b.codec&&a.channels==b.channels&&a.aac_config==b.aac_config;
 }
-Output::Output(Bindings b,uint64_t gen,uint32_t buffer,uint32_t startup) noexcept:
-    bindings_(b),generation_(gen),buffer_ms_(buffer),startup_ms_(startup) {}
+Output::Output(Bindings b,uint64_t gen,uint32_t buffer,uint32_t startup,uint32_t late_budget) noexcept:
+    bindings_(b),generation_(gen),buffer_ms_(buffer),startup_ms_(startup),late_ms_(late_budget) {}
 Output::~Output() noexcept { shutdown(); }
 bool Output::valid(uint64_t gen) const noexcept {
     return gen&&gen==generation_&&!failed_&&bindings_.thread&&bindings_.thread(bindings_.context);
@@ -45,7 +45,7 @@ projection_audio_sink Output::sink() noexcept { return {this,open,start,submit,p
 int Output::open(void *ctx,uint64_t gen,const projection_session_resource *r,const projection_audio_format *f,uint64_t *lease) noexcept {
     auto& o=*static_cast<Output*>(ctx); projection_audio_format expected{};
     if(lease) *lease=0;
-    if(!o.valid(gen)||!r||!f||!lease||!o.bindings_.open||!o.bindings_.clock) return IAP2_ARGUMENT;
+    if(!o.valid(gen)||!r||!f||!lease||!o.bindings_.open||!o.bindings_.clock||o.late_ms_>1000) return IAP2_ARGUMENT;
     if(r->type<100||r->type>102||r->peer_data_port||r->audio_format!=f->bit||
        projection_audio_format_get(f->bit,&expected)!=IAP2_OK||!same(*f,expected)||f->codec!=PROJECTION_AUDIO_PCM16||
        r->frames_per_packet>PROJECTION_AUDIO_PAYLOAD/(2u*f->channels)) return IAP2_UNSUPPORTED;
@@ -122,10 +122,55 @@ int Output::observe(Slot& s,projection_playback_position& out,uint64_t& frames) 
 }
 int Output::activate(Slot& s) noexcept {
     if(now_<s.start_due) return IAP2_MORE;
+    if(s.timed&&late(now_,s.start_due)) {
+        int r=reset_epoch(s); return r==IAP2_OK?IAP2_MORE:r;
+    }
     s.started_ns=now_;
     int r=s.device->start(); if(r!=IAP2_OK) return fail(r);
     s.running=true; s.primed=false;
     if(refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
+    return IAP2_OK;
+}
+bool Output::late(uint64_t now,uint64_t due) const noexcept {
+    return late_ms_&&now>due&&now-due>uint64_t(late_ms_)*ms;
+}
+int Output::scheduled(const Slot& s,uint64_t frames,uint64_t& due) noexcept {
+    uint64_t elapsed=0;
+    if(!scale(frames,s.format.clock_rate,1000000000,elapsed)||s.time_origin_ns>=UINT64_MAX-elapsed) return fail(IAP2_INVALID);
+    due=s.time_origin_ns+elapsed; return IAP2_OK;
+}
+int Output::reset_epoch(Slot& s) noexcept {
+    int r=s.device->reset(); if(r!=IAP2_OK) return fail(r);
+    s.running=s.primed=s.draining=s.observed=false; s.written=0;
+    s.last_position=s.last_qpc=s.started_ns=s.start_due=s.device_origin_frames=0;
+    s.concealed_device.fill(0);
+    return refresh(); // Keep input continuity, queued media and original schedule.
+}
+int Output::trim_late(Slot& s) noexcept {
+    if(!late_ms_||!s.timed||!s.size) return IAP2_OK;
+    const size_t frame=2u*s.format.channels,count=s.size/frame;
+    const uint64_t first_frame=s.input_frames-count;
+    uint64_t first_due=0;
+    if(scheduled(s,first_frame,first_due)!=IAP2_OK) return IAP2_INVALID;
+    if(!late(now_,first_due)) return IAP2_OK;
+    size_t lo=0,hi=count;
+    // After crossing the late threshold, catch up to now, not the threshold.
+    // This hysteresis avoids repeated resets at the budget's rounding boundary.
+    // Bounded by the fixed queue (at most 16 comparisons), not elapsed time.
+    while(lo<hi) {
+        size_t mid=lo+(hi-lo)/2; uint64_t due=0;
+        if(scheduled(s,first_frame+mid,due)!=IAP2_OK) return IAP2_INVALID;
+        if(now_>due) lo=mid+1; else hi=mid;
+    }
+    if(!lo) return IAP2_OK;
+    // Skipping queued frames cannot be appended to the old contiguous device
+    // epoch, even if its clock observation was unavailable on this poll.
+    if(s.running||s.primed) { int r=reset_epoch(s); if(r!=IAP2_OK) return r; }
+    size_t bytes=lo*frame,first=std::min(bytes,queue_bytes-s.head);
+    pair_crypto_wipe(s.bytes.data()+s.head,first); pair_crypto_wipe(s.bytes.data(),bytes-first);
+    for(size_t i=0;i<bytes;i+=2) mark(s.concealed_queue.data(),((s.head+i)%queue_bytes)/2,false);
+    s.head=(s.head+bytes)%queue_bytes; s.size-=bytes;
+    if(!s.size) s.queued_ns=0;
     return IAP2_OK;
 }
 int Output::pump(Slot& s) noexcept {
@@ -138,15 +183,18 @@ int Output::pump(Slot& s) noexcept {
     if(s.running) {
         int r=observe(s,observed,frames);
         if(r!=IAP2_OK&&r!=IAP2_MORE) return r;
-        if(r==IAP2_OK&&frames>=s.written) {
-            r=s.device->reset(); if(r!=IAP2_OK) return fail(r);
-            s.running=false; s.draining=false; s.observed=false; s.written=0;
-            s.last_position=s.last_qpc=s.started_ns=0;
-            s.concealed_device.fill(0);
-            if(!s.size) s.has_input=false;
-            if(refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;
+        bool overdue=false;
+        if(r==IAP2_OK&&frames<s.written&&s.timed&&late_ms_) {
+            uint64_t due=0;
+            if(scheduled(s,s.device_origin_frames+frames,due)!=IAP2_OK) return IAP2_INVALID;
+            overdue=late(s.last_qpc,due); // Accurate device observation, not guessed playback.
+        }
+        if(r==IAP2_OK&&(frames>=s.written||overdue)) {
+            r=reset_epoch(s); if(r!=IAP2_OK) return r;
+            if(!s.size&&!(s.timed&&late_ms_)) s.has_input=false;
         }
     }
+    int trimmed=trim_late(s); if(trimmed!=IAP2_OK) return trimmed;
     uint64_t before=now_;
     int r=s.device->padding(padding);
     if(r!=IAP2_OK) return fail(r);
@@ -173,10 +221,9 @@ int Output::pump(Slot& s) noexcept {
     if(s.running&&now_-before>=s.device->period_ns) return fail(IAP2_PROVIDER_FAILED);
     if(!s.running) {
         s.origin=s.next_sample-static_cast<uint32_t>(s.size/frame); s.start_due=0;
+        s.device_origin_frames=s.input_frames-s.size/frame;
         if(s.timed) {
-            uint64_t elapsed=0;
-            if(!scale(s.input_frames-s.size/frame,s.format.clock_rate,1000000000,elapsed)||s.time_origin_ns>UINT64_MAX-elapsed) return fail(IAP2_INVALID);
-            s.start_due=s.time_origin_ns+elapsed;
+            if(scheduled(s,s.device_origin_frames,s.start_due)!=IAP2_OK) return IAP2_INVALID;
         }
     }
     for(size_t j=0;j<n;++j) {
@@ -225,7 +272,7 @@ int Output::flush(void *ctx,uint64_t gen,uint64_t lease,const projection_audio_f
         pair_crypto_wipe(s->bytes.data(),s->bytes.size()); s->head=s->size=0;
         s->queued_ns=s->written=s->started_ns=s->last_position=s->last_qpc=0;
         s->next_sample=s->origin=0; s->armed=s->running=s->draining=s->has_input=s->observed=false;
-        s->time_origin_ns=s->input_frames=s->start_due=0; s->timed=s->primed=false;
+        s->time_origin_ns=s->input_frames=s->start_due=s->device_origin_frames=0; s->timed=s->primed=false;
         s->concealed_queue.fill(0); s->concealed_device.fill(0);
         s->flushing=true;
         if(o.refresh()!=IAP2_OK) return IAP2_PROVIDER_FAILED;

@@ -31,7 +31,7 @@ struct Bindings {
 bool scale(uint64_t value,uint64_t frequency,uint32_t rate,uint64_t& out) noexcept;
 class Output {
 public:
-    Output(Bindings,uint64_t,uint32_t buffer_ms,uint32_t startup_ms) noexcept;
+    Output(Bindings,uint64_t,uint32_t buffer_ms,uint32_t startup_ms,uint32_t late_ms=0) noexcept;
     ~Output() noexcept;
     Output(const Output&)=delete; Output& operator=(const Output&)=delete;
     projection_audio_sink sink() noexcept;
@@ -44,13 +44,13 @@ private:
         std::array<uint8_t,device_frames/8> concealed_device{};
         size_t head=0,size=0;
         uint64_t lease=0,queued_ns=0,written=0,started_ns=0,last_position=0,last_qpc=0;
-        uint64_t time_origin_ns=0,input_frames=0,start_due=0;
+        uint64_t time_origin_ns=0,input_frames=0,start_due=0,device_origin_frames=0;
         uint32_t type=0,next_sample=0,origin=0;
         bool armed=false,running=false,draining=false,has_input=false,observed=false,flushing=false;
         bool timed=false,primed=false;
     };
     Bindings bindings_; uint64_t generation_,serial_=0,now_=0;
-    uint32_t buffer_ms_,startup_ms_; bool failed_=false;
+    uint32_t buffer_ms_,startup_ms_,late_ms_; bool failed_=false;
     std::array<Slot,3> slots_{};
     bool valid(uint64_t) const noexcept;
     int refresh() noexcept;
@@ -60,6 +60,10 @@ private:
     int observe(Slot&,projection_playback_position&,uint64_t&) noexcept;
     int pump(Slot&) noexcept;
     int activate(Slot&) noexcept;
+    bool late(uint64_t now,uint64_t due) const noexcept;
+    int scheduled(const Slot&,uint64_t frames,uint64_t& due) noexcept;
+    int reset_epoch(Slot&) noexcept;
+    int trim_late(Slot&) noexcept;
     static int open(void*,uint64_t,const projection_session_resource*,const projection_audio_format*,uint64_t*) noexcept;
     static int start(void*,uint64_t,uint64_t) noexcept;
     static int submit(void*,uint64_t,uint64_t,const projection_audio_format*,const projection_audio_packet*) noexcept;

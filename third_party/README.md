@@ -526,3 +526,15 @@ implementation body is copied. Existing codec notices, the hybrid reference disc
 heap-erasure limitation remain unchanged. See
 [projection-playout.md](../reports/projection-playout.md) for exact scope,
 primary sources, tests and unfinished timing/factory requirements.
+
+## Late PCM recovery (Step 71)
+
+The output/Windows adapter and test extensions retain GPL-3.0-only. Official
+GStreamer jitter-buffer documentation supplies a packet-lateness comparison,
+not a copied implementation. Microsoft's IAudioClient::Reset documentation
+establishes Stop/Reset behavior and the already-reset S_FALSE success case.
+The timed PCM discard/hysteresis and unchanged input/codec/replay ownership
+policy are local design choices, not Apple conformance or acoustic guarantees.
+No new dependency, copied upstream body, credential or media recording is added.
+See [projection-late-audio.md](../reports/projection-late-audio.md) for primary
+links, verification scope and remaining integration work.

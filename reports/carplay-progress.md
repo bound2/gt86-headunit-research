@@ -91,9 +91,9 @@ RTP reception now adds seven core and seven actual UDP-service test groups, with
 17 explicit format mappings, nonce replay/reordering, gap reporting, PCM byte
 conversion and session/feedback integration. An explicit Windows WASAPI PCM sink
 now adds bounded queues, prefilled startup and device-clock observations, with
-nine output groups and separate COM/thread/clock checks. The final device in
+eleven output groups and separate COM/thread/clock checks. The final device in
 automated playback tests remains synthetic. Optional real AAC-LC/Opus decoders
-and an owning PCM bridge now add seven decoder and five loopback integration
+and an owning PCM bridge now add seven decoder and six loopback integration
 groups, 33 synthetic packets and 1,000 mutation checks. A separate reference
 compares 59,648 samples, with explicitly documented noise/hybrid limitations.
 An optional two-phase authenticated FLUSH now retires queued media and codec/
@@ -102,7 +102,8 @@ encrypted reply drain. Its single-audio classic AirPlay form is not verified
 CarPlay behavior. Explicit relative pacing and bounded nonce-gap recovery now
 add Opus PLC, marked PCM/AAC silence, timed startup and concealment-aware feedback.
 Four sustained real-UDP timelines pass with a synthetic progressing device;
-adaptive drift, late-media policy, sender/A-V sync and selective buffering remain work.
+opt-in late PCM discard now also recovers delayed bursts without resetting codec
+history or replay state. Adaptive drift, sender/A-V sync and selective buffering remain work.
 Physical playback verification, video/mic/input, control modes,
 target QNX storage, approval/revocation UI, broader discovery/phone
 interoperability and hardware integration remain missing.
@@ -123,14 +124,14 @@ service, two audio suites, PCM output/Windows argument checks and three TLS/cark
 address/undefined-behavior sanitizers, including both crypto dependencies.
 The twenty freestanding C99
 components also compile to 32-bit ARM objects without runtime imports; see
-Steps 22-70, [the persistent-store report](pair-store.md),
+Steps 22-71, [the persistent-store report](pair-store.md),
 [the encrypted MFi report](mfi-sap.md), [receiver routing](receiver-routing.md)
 and [projection capabilities](projection-capabilities.md) /
 [session resources](projection-session.md), [real endpoint services](projection-services.md)
 and [event commands](projection-events.md) / [observed feedback](projection-feedback.md)
 / [audio reception](projection-audio.md) / [PCM output](projection-pcm-output.md)
 / [compressed decoding](projection-decode.md) / [authenticated FLUSH](projection-flush.md)
-/ [relative playout](projection-playout.md). Hosted TLS
+/ [relative playout](projection-playout.md) / [late PCM recovery](projection-late-audio.md). Hosted TLS
 uses heap/platform services and is not included in that ARM claim. The new
 separate ten-unit pairing/control/store crypto object compiles/links for ARM but needs four runtime
 helpers; it is not an import-free target or verified QNX port.
@@ -3001,6 +3002,36 @@ more work. Factory execution/recovery, native USB/network, existing Apple-chip
 access, remaining media/input/focus and handset acceptance remain unresolved.
 No car, physical output, default device, firmware or USB operation occurred.
 
+## Step 71 - Discard late PCM and recover on the original timeline
+
+Date: 2026-09-10. Added [projection-late-audio.md](projection-late-audio.md) and
+explicit `projection_wasapi_config.late_ms` (0 disabled; 1..1000 ms timed-only).
+An overdue software queue is trimmed to the first current/future frame, with
+strict timing boundaries and hysteresis. Overdue prefilled or accurately observed
+device epochs are stopped/reset before restarting on the original timeline.
+Whole-device-buffer discard may lose fresh frames and create audible gaps.
+
+Codec history, accepted-input continuity, original presentation time, generation/
+leases, keys, peer pinning and replay state remain intact. This is neither a wire
+FLUSH nor rate correction. Existing backpressure/ownership deadlines still fail
+closed. Microsoft-documented already-reset `S_FALSE` is now accepted as reset
+success; physical endpoint behavior is not claimed from that documentation check.
+
+Eleven PCM and six decoder-service groups pass, including four delayed AAC/Opus
+bursts over actual IPv4/IPv6 authenticated UDP. Synthetic device-clock tests
+verify output discard/restart, continued feedback, unchanged decode-history
+tail bytes, replay refusal and cleanup. Exact trimming across all twelve PCM
+formats, prefill delay, reset errors, concealment retirement and FLUSH are covered.
+
+All 42 media and 40 combined CTest suites, 25 Python regressions, both codec-enabled
+and all 13 hosted sanitizer checks pass. Strict production C++20 warnings/static
+analysis pass; no sanitizer instrumentation is disabled. Prior toolchain and
+codec-reference limitations remain unchanged.
+
+No device, speaker, microphone, phone, firmware, USB or car was changed. Next
+implement clock-drift handling and sender/A-V synchronization; factory execution,
+native transport, authentication-chip access and phone acceptance remain gates.
+
 ## Next checks
 
 1. Obtain read-only identification of the actual Go module and establish a
@@ -3011,9 +3042,11 @@ No car, physical output, default device, firmware or USB operation occurred.
    suitable evidence; do not change service-menu flags to obtain it.
 2. Match the installed 6.9.0WL loader against the later corpus. The checks above
    cannot establish that both versions contain the same defects.
-3. Validate the explicit PCM device backend, implement late-media/drop-resync and
-   adaptive clock-drift policy, sender/A-V synchronization, selective buffered
+3. Validate the explicit PCM device backend, implement adaptive clock-drift
+   policy, sender/A-V synchronization, selective buffered
    flush, remaining media/input backends and control mode/resource semantics.
+   Step 71 adds opt-in late PCM discard/device restart on the original timeline,
+   with unchanged codec/replay history; no adaptive drift correction is implied.
    Step 70 adds opt-in relative timed PCM delivery and bounded packet-loss recovery
    with concealment-aware feedback; sustained tests still use a synthetic device.
    Step 69 adds authenticated two-phase classic

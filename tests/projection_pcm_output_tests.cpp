@@ -33,9 +33,9 @@ struct Fixture {
     std::unique_ptr<Output> output;
     projection_audio_sink api{}; projection_audio_format format{}; uint64_t lease=0;
     Mock *last=nullptr;
-    explicit Fixture(uint32_t startup=0,uint32_t bit=4) {
+    explicit Fixture(uint32_t startup=0,uint32_t bit=4,uint32_t late=0) {
         CHECK(projection_audio_format_get(bit,&format)==IAP2_OK);
-        output=std::make_unique<Output>(projection_pcm::Bindings{this,open,clock,on_thread},91,100,startup);
+        output=std::make_unique<Output>(projection_pcm::Bindings{this,open,clock,on_thread},91,100,startup,late);
         api=output->sink();
     }
     ~Fixture() { output.reset(); }
@@ -253,10 +253,81 @@ static void timed_and_concealed() {
         if(bad==2) CHECK(b.submit(100,100,0,0,false,UINT64_MAX,true)==IAP2_INVALID);
     }
 }
+static void late_queue() {
+    // Strict boundary, sample wrap, and partial-prefix trimming at every PCM rate.
+    for(uint32_t bit:{4u,8u,16u,32u,64u,128u,256u,512u,1024u,2048u,16384u,32768u}) for(int edge:{-1,0,1}) {
+        Fixture f(0,bit,1); f.device_capacity=f.format.clock_rate/10; f.device_frequency=uint64_t(f.format.clock_rate)*4;
+        f.ready(); auto& d=*f.last; uint64_t due=f.now; uint32_t first=UINT32_MAX-200,cut=123;
+        CHECK(f.submit(first,700,0x55,0xaa,false,due,true)==IAP2_OK);
+        f.now=due+ms+uint64_t(cut)*1000000000/f.format.clock_rate+edge;
+        uint32_t dropped=0; while(dropped<700&&due+uint64_t(dropped)*1000000000/f.format.clock_rate<f.now) ++dropped;
+        int result=f.poll(); CHECK(result==IAP2_OK||result==IAP2_MORE); f.now+=1000000000/f.format.clock_rate+1;
+        result=f.poll(); CHECK(result==IAP2_OK||result==IAP2_MORE);
+        CHECK(d.starts==1&&d.emitted.size()==size_t(700-dropped)*2*f.format.channels);
+        CHECK(d.emitted.front()==0xaa&&d.emitted.back()==0x55);
+        d.pos=4; ++f.now; auto p=f.observe(); CHECK(p.has_position&&p.sample_time==first+dropped+1);
+    }
+    { Fixture f(0,4,20); f.ready(); uint64_t due=f.now; auto& d=*f.last;
+      // A completely stale block is consumed without opening a device epoch.
+      CHECK(f.submit(100,800,0,0,true,due,true)==IAP2_OK); f.now+=121*ms;
+      CHECK(f.poll()==IAP2_MORE&&!d.starts&&d.emitted.empty()&&!f.observe().has_position);
+      CHECK(f.submit(900,800,0x55,0xaa,false,due+100*ms,true)==IAP2_OK);
+      CHECK(f.poll()==IAP2_OK&&d.acquired==632&&d.starts==1); d.pos=4; ++f.now;
+      CHECK(f.observe().has_position&&f.observe().sample_time==1069); // No stale concealment bits.
+      d.pos=uint64_t(d.acquired)*4; d.pad=0; f.now+=100*ms; CHECK(f.poll()==IAP2_MORE);
+      CHECK(f.submit(1700,800,0,0,false,due+200*ms,true)==IAP2_OK&&f.poll()==IAP2_MORE); // Original schedule, not new receipt base.
+      f.now+=125000; CHECK(f.poll()==IAP2_OK);
+      CHECK(f.submit(99999,1,0,0,false,due+300*ms,true)==IAP2_UNSUPPORTED); }
+    { Fixture f(0,4,50); f.ready(); uint64_t due=f.now; uint32_t sample=0;
+      for(int i=0;i<8;++i) { CHECK(f.submit(sample,4096,0,0,true,due+uint64_t(sample)*125000,true)==IAP2_OK); sample+=4096; }
+      f.now=due+5000*ms; CHECK(f.poll()==IAP2_MORE&&f.last->emitted.empty()); // Wipe a whole full ring.
+      CHECK(f.submit(sample,800,0x55,0xaa,false,due+uint64_t(sample)*125000,true)==IAP2_OK);
+      CHECK(f.poll()==IAP2_MORE&&f.last->emitted.empty()); }
+    // Disabled policy and untimed input retain the old late-play behavior.
+    for(bool timed:{false,true}) { Fixture f(0,4,timed?0:50); f.ready(); uint64_t due=f.now;
+      CHECK(f.submit(0,800,0,0,false,timed?due:0,timed)==IAP2_OK); f.now+=5000*ms;
+      CHECK(f.poll()==IAP2_OK&&f.last->acquired==800); }
+    { Fixture f(0,4,1001); CHECK(f.prepare()==IAP2_ARGUMENT&&!f.opened); }
+    for(int edge:{-1,0,1}) { Fixture f(0,4,20); f.ready(); uint64_t due=f.now;
+      CHECK(f.submit(0,800,0,0,false,due,true)==IAP2_OK); f.now=due+20*ms+edge;
+      int r=f.poll(); CHECK(r==IAP2_OK||r==IAP2_MORE);
+      CHECK(f.last->acquired==(edge==1?639u:800u)); }
+}
+static void late_device() {
+    { Fixture f(0,4,20); f.ready(); auto& d=*f.last; uint64_t due=f.now+50*ms;
+      CHECK(f.submit(0,800,0,0,false,due,true)==IAP2_OK&&f.poll()==IAP2_MORE&&!d.starts);
+      f.now=due+20*ms+1; CHECK(f.poll()==IAP2_MORE&&d.resets==1&&!d.starts&&!d.pad);
+      CHECK(!f.observe().has_position); // Entire overdue prefill is discarded, not reported played.
+      CHECK(f.submit(800,800,0x55,0xaa,false,due+100*ms,true)==IAP2_OK&&f.poll()==IAP2_MORE);
+      f.now=due+100*ms; CHECK(f.poll()==IAP2_OK&&d.starts==1); d.pos=4; ++f.now;
+      CHECK(f.observe().has_position&&f.observe().sample_time==801); }
+    for(bool inaccurate:{false,true}) { Fixture f(0,4,20); f.ready(); auto& d=*f.last; uint64_t due=f.now;
+      CHECK(f.submit(0,800,0,0,true,due,true)==IAP2_OK&&f.poll()==IAP2_OK);
+      CHECK(f.submit(800,800,0x55,0xaa,false,due+100*ms,true)==IAP2_OK);
+      d.pos=400; d.pad=700; d.bad_position=inaccurate?IAP2_MORE:0;
+      f.now+=50*ms; CHECK(f.poll()==(inaccurate?IAP2_OK:IAP2_MORE));
+      if(inaccurate) { CHECK(d.resets==0); f.now=due+225*ms; // Stale queue also forces reset without inventing a position.
+        CHECK(f.poll()==IAP2_MORE&&d.resets==1&&!d.pad); }
+      else { CHECK(d.resets==1&&d.starts==1&&!d.pos); f.now=due+100*ms;
+        CHECK(f.poll()==IAP2_OK&&d.starts==2); d.pos=4; ++f.now;
+        CHECK(f.observe().has_position&&f.observe().sample_time==801); }
+    }
+    { Fixture f(0,4,20); f.ready(); auto& d=*f.last; uint64_t due=f.now;
+      CHECK(f.submit(0,800,0,0,false,due,true)==IAP2_OK&&f.poll()==IAP2_OK);
+      d.pos=4; f.now+=21*ms; d.bad_reset=-55;
+      CHECK(f.poll()==-55&&f.closed==1); }
+    { Fixture f(0,4,20); f.ready(); auto& d=*f.last; uint64_t due=f.now;
+      CHECK(f.submit(0,800,0,0,false,due,true)==IAP2_OK); d.release_delay=21*ms;
+      CHECK(f.poll()==IAP2_MORE&&!d.starts&&d.resets==1); // Work crossing the late bound cannot start stale prefill.
+      projection_audio_flush_request q{};
+      CHECK(f.api.flush(f.api.context,91,f.lease,&q)==IAP2_OK&&f.poll()==IAP2_OK);
+      CHECK(f.api.flush(f.api.context,91,f.lease,nullptr)==IAP2_OK); d.release_delay=0;
+      CHECK(f.submit(9000,800)==IAP2_OK&&f.poll()==IAP2_OK&&d.starts==1); }
+}
 int main() {
     try {
-        arithmetic(); startup_and_pcm(); queue_and_wrap(); drain_and_restart(); cleanup_and_failure(); observations(); validation(); flush_epochs(); timed_and_concealed();
-        std::cout<<"PASS: 9 PCM output groups including scheduled startup and concealment-aware feedback; device seam is synthetic, no speaker/microphone access.\n";
+        arithmetic(); startup_and_pcm(); queue_and_wrap(); drain_and_restart(); cleanup_and_failure(); observations(); validation(); flush_epochs(); timed_and_concealed(); late_queue(); late_device();
+        std::cout<<"PASS: 11 PCM output groups including scheduled startup, late-media recovery and concealment-aware feedback; device seam is synthetic, no speaker/microphone access.\n";
         std::cout<<"x64 PCM output owner bytes: "<<sizeof(Output)<<" (includes three 65536-byte queues; device/OS allocations additional)\n"; return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

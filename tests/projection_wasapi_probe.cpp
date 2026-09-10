@@ -27,8 +27,8 @@ struct Owner {
 static void arguments() {
     projection_wasapi *p=reinterpret_cast<projection_wasapi*>(1);
     CHECK(projection_wasapi_create(nullptr,91,&p)==IAP2_ARGUMENT&&!p);
-    projection_wasapi_config config{L"not-a-real-render-endpoint-gt86-test",100,20};
-    for(int bad=0;bad<6;++bad) {
+    projection_wasapi_config config{L"not-a-real-render-endpoint-gt86-test",100,20,50};
+    for(int bad=0;bad<7;++bad) {
         auto c=config; uint64_t gen=91;
         if(bad==0) c.endpoint_id=nullptr;
         if(bad==1) c.endpoint_id=L"";
@@ -36,6 +36,7 @@ static void arguments() {
         if(bad==3) c.buffer_ms=501;
         if(bad==4) c.startup_ms=501;
         if(bad==5) gen=0;
+        if(bad==6) c.late_ms=1001;
         CHECK(projection_wasapi_create(&c,gen,&p)==IAP2_ARGUMENT&&!p);
     }
     std::wstring long_id(1024,L'x'); auto c=config; c.endpoint_id=long_id.c_str();
@@ -76,7 +77,7 @@ static void list() {
     }
 }
 static void device(const wchar_t *id,bool silent) {
-    Owner owner; projection_wasapi_config config{id,100,20};
+    Owner owner; projection_wasapi_config config{id,100,20,0};
     CHECK(projection_wasapi_create(&config,91,&owner.p)==IAP2_OK);
     auto sink=projection_wasapi_sink(owner.p);
     projection_audio_format f{}; CHECK(projection_audio_format_get(32768,&f)==IAP2_OK);
