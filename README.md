@@ -827,6 +827,10 @@ from a [MainConcept-associated internal decoder](reports/air-mainconcept-decoder
 The latter now has traced construction, compressed-byte submission and frame
 planes, but no verified outside-AIR API or on-unit decoding/performance test.
 Its read-only evidence checker is `python -B scripts/inspect_air_mainconcept.py`.
+The [frame-storage follow-up](reports/air-frame-storage.md) distinguishes borrowed
+descriptors from actual pixel copying and identifies a current-frame release
+boundary. The next implementation targets a separately buildable decoder with
+owned output; the AIR offsets are not a supported integration API.
 
 Only operate on the pinned, checksum-verified corpus when using these extraction
 commands. The scripts and analyzer are research tooling, not a general archive

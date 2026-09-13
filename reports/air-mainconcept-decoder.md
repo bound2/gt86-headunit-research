@@ -4,6 +4,10 @@ Date: 2026-09-13. Starting checkpoint: `41de6b2`.
 Continues [CarPlay progress, Step 85](carplay-progress.md#step-85---trace-the-air-mainconcept-decoder-input-and-frame-boundaries)
 and [the separate AIR MMF graph investigation](air-video-graph.md).
 
+Follow-up: [Step 86 frame storage and initialization](air-frame-storage.md)
+distinguishes descriptor borrowing from pixel copying and updates the next
+implementation decision. The Step 85 observations below are historical.
+
 ## Step 1 - State what this changes
 
 The `H264 - MainConcept` lead is now connected to a constructed

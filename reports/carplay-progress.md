@@ -153,7 +153,8 @@ in resident update control flow, with explicit mock assumptions. Adobe AIR also
 contains H.264 decoder class references: Steps 84-85 now trace its separate
 [MMF graph](air-video-graph.md) and [MainConcept-associated input/frame path](air-mainconcept-decoder.md).
 The latter constructs an internal byte-submission backend and handles frame
-planes, but its external ABI and target performance remain unverified. Neither
+planes; Step 86 distinguishes [borrowed descriptors from pixel copying](air-frame-storage.md).
+Its external ABI and target performance remain unverified. Neither
 result establishes a working CarPlay receiver or a demonstrated recovery
 method. All work below is on the local PC.
 
@@ -3422,13 +3423,36 @@ companion-object role to determine ownership and outside-AIR dependencies.
 The standalone QNX/backend feasibility decision remains open. CarPlay is not
 yet implemented on the owner's unit.
 
+## Step 86 - Separate AIR frame borrowing, copying and core initialization
+
+Traced the deeper core's allocation/callbacks and separate initialization
+command. Backend command `0x10027` fills a descriptor from current-frame queries;
+`0x10007` has actual row-copy/conversion paths into supplied storage. The backend
+releases and clears its current-frame pointer before handling further input.
+Copied descriptors therefore cannot be assumed to own or preserve pixels.
+Zero-result branches can skip copying entirely. The companion constructor's
+coefficient/table behavior favors a color helper, not another H.264 engine;
+that role is still an inference. Evidence and limits are in
+[air-frame-storage.md](air-frame-storage.md).
+
+Extended the pinned inspector and added five tests; all 83 Python tests pass.
+No vendor execution, receiver production code, firmware or vehicle state changed.
+Private AIR offsets still do not provide a verified external API or matching
+installed-version backend. The next implementation step is a separately
+buildable H.264 backend with owned output and real bitstream tests, after
+checking required profile/format support. This remains a software-only route
+toward the factory unit, not a replacement host-only completion criterion.
+
 ## Next checks
 
-1. Trace the AIR internal backend's deeper constructor (`0x576644`), output
-   command cases (`0x10027/0x10007` in `0x574440`) and companion object.
+1. Check required H.264 profile/format support, then implement a separately
+   buildable decoder/backend with owned output, real compressed-frame tests,
+   configuration/reset/drain handling and an ARM/QNX porting assessment.
+   Keep AIR as reference evidence rather than calling private offsets. Step 86
+   traces core initialization and distinguishes descriptor pointers from actual
+   copying; the complete external ABI and target speed remain unresolved.
    Step 85 establishes construction, compressed-byte submission and plane
-   handling; pixel ownership, complete ABI, outside-AIR initialization and
-   target speed remain unresolved. Step 84 traces the MMF graph's
+   handling. Step 84 traces the MMF graph's
    runtime buffer-push callback and Screen writer, not a CPU-frame decoder API;
    control/decoder availability and complete ABI remain unresolved. Step 83
    finds RAW pixel copying and a null-returning WFD client factory. Step 82 identifies CPU pixel staging,
@@ -3542,9 +3566,10 @@ yet implemented on the owner's unit.
    validate complete certificates and coordinate bus ownership. iPhone
    acceptance remains a separate test. This is a condition on the software-only
    approach, not a requirement for an added receiver module.
-4. Resolve whether either AIR decoder path can be used outside AIR or whether
-   a separate decoder is needed. Step 85's internal MainConcept-associated
-   byte/frame interface is not a verified public API. Step 84 identifies MMF
+4. The immediate video implementation now targets a separately buildable decoder
+   (Step 86); either AIR path would still need a verified outside-AIR interface
+   before use. Step 85's internal MainConcept-associated byte/frame interface is
+   not a verified public API. Step 84 identifies MMF
    filter/callback/writer dependencies, not their availability or a supported
    external decoder API.
    Step 83's null WFD factory must not be treated as an available alternative.
