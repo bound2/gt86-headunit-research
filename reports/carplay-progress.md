@@ -154,7 +154,11 @@ contains H.264 decoder class references: Steps 84-85 now trace its separate
 [MMF graph](air-video-graph.md) and [MainConcept-associated input/frame path](air-mainconcept-decoder.md).
 The latter constructs an internal byte-submission backend and handles frame
 planes; Step 86 distinguishes [borrowed descriptors from pixel copying](air-frame-storage.md).
-Its external ABI and target performance remain unverified. Neither
+Its external ABI and target performance remain unverified. Step 87 adds a
+separate [source-built H.264 backend](projection-h264.md) with owned frames,
+395 independently verified I/P pictures, explicit AU/drain handling and complete
+codec ASan/UBSan checks. B slices are rejected after independent pixel differences;
+no video transport, renderer or ARM/QNX decoder build is supplied. Neither
 result establishes a working CarPlay receiver or a demonstrated recovery
 method. All work below is on the local PC.
 
@@ -3443,11 +3447,30 @@ buildable H.264 backend with owned output and real bitstream tests, after
 checking required profile/format support. This remains a software-only route
 toward the factory unit, not a replacement host-only completion criterion.
 
+## Step 87 - Build a real H.264 backend with owned output
+
+Added optional pinned OpenH264 2.6.0 decoding behind a generation-bound C API,
+with independent tight I420 frames, explicit AU completion/drain, coded-size and
+input-budget gates, and failure cleanup. Baseline/Main/High progressive 8-bit I/P
+decoding matches 395 independently decoded FFmpeg frames, including 300 multi-
+slice pictures. B-frame pixel differences remain unresolved and B slices are
+rejected. A delayed-output ordering discrepancy made AU boundaries mandatory.
+A local memcpy header override fixes the observed upstream non-GNU unaligned-load
+sanitizer error without modifying the dependency checkout or suppressing checks.
+
+All 23 optional-video CTest tests, full video/codec ASan/UBSan, the independent
+reference check and all 83 Python tests pass. The decoder remains separate from
+receiver capability declarations. This is host implementation, not a QNX build,
+display integration, phone acceptance or installable update. Reproduction, pins,
+limits and next transport/configuration work are in [projection-h264.md](projection-h264.md).
+
 ## Next checks
 
-1. Check required H.264 profile/format support, then implement a separately
-   buildable decoder/backend with owned output, real compressed-frame tests,
-   configuration/reset/drain handling and an ARM/QNX porting assessment.
+1. Build the owning video-input layer around Step 87's decoder: verify projection
+   framing/configuration and authentication/order, preserve complete AU/timestamp/
+   generation boundaries, and bound queued frames. Keep B slices disabled until
+   their independent pixel discrepancy is resolved. Obtain a matching ARM/QNX
+   build and on-unit resource/performance evidence separately.
    Keep AIR as reference evidence rather than calling private offsets. Step 86
    traces core initialization and distinguishes descriptor pointers from actual
    copying; the complete external ABI and target speed remain unresolved.
@@ -3566,8 +3589,9 @@ toward the factory unit, not a replacement host-only completion criterion.
    validate complete certificates and coordinate bus ownership. iPhone
    acceptance remains a separate test. This is a condition on the software-only
    approach, not a requirement for an added receiver module.
-4. The immediate video implementation now targets a separately buildable decoder
-   (Step 86); either AIR path would still need a verified outside-AIR interface
+4. The source-built host decoder is implemented in Step 87; the next layer is
+   video transport/configuration ownership. Either AIR path would still need a
+   verified outside-AIR interface
    before use. Step 85's internal MainConcept-associated byte/frame interface is
    not a verified public API. Step 84 identifies MMF
    filter/callback/writer dependencies, not their availability or a supported

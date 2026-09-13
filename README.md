@@ -829,8 +829,18 @@ planes, but no verified outside-AIR API or on-unit decoding/performance test.
 Its read-only evidence checker is `python -B scripts/inspect_air_mainconcept.py`.
 The [frame-storage follow-up](reports/air-frame-storage.md) distinguishes borrowed
 descriptors from actual pixel copying and identifies a current-frame release
-boundary. The next implementation targets a separately buildable decoder with
-owned output; the AIR offsets are not a supported integration API.
+boundary. A [separate source-built H.264 backend](reports/projection-h264.md) now
+provides owned I420 output and explicit AU/drain handling. Its tested I/P subset
+matches 395 independent FFmpeg frames; B slices remain disabled after pixel
+differences. This is host decoding, not an ARM/QNX build or a displayed CarPlay
+session. The AIR offsets are not a supported integration API.
+
+The optional video build does not enable receiver capabilities or touch hardware:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayVideo.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Check-CarPlayVideoSanitizers.ps1
+```
 
 Only operate on the pinned, checksum-verified corpus when using these extraction
 commands. The scripts and analyzer are research tooling, not a general archive

@@ -1,0 +1,71 @@
+# Optional source-only decoder. No downloads at configure/build time, no encoder,
+# assembly, runtime DLL discovery, display driver or receiver capability changes.
+set(CARPLAY_OPENH264_SOURCE "" CACHE PATH "Pinned OpenH264 2.6.0 checkout")
+if(CARPLAY_OPENH264_SOURCE)
+  find_package(Git REQUIRED)
+  if(NOT IS_DIRECTORY "${CARPLAY_OPENH264_SOURCE}/.git")
+    message(FATAL_ERROR "OpenH264 must be a pinned source checkout")
+  endif()
+  execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${CARPLAY_OPENH264_SOURCE}" rev-parse HEAD
+    OUTPUT_VARIABLE _h264_head OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE _h264_result)
+  if(NOT _h264_result EQUAL 0 OR NOT _h264_head STREQUAL "652bdb7719f30b52b08e506645a7322ff1b2cc6f")
+    message(FATAL_ERROR "OpenH264 2.6.0 commit mismatch")
+  endif()
+  execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${CARPLAY_OPENH264_SOURCE}" status
+    --porcelain --untracked-files=all --ignored=matching
+    OUTPUT_VARIABLE _h264_changed OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE _h264_result)
+  if(NOT _h264_result EQUAL 0 OR NOT _h264_changed STREQUAL "")
+    message(FATAL_ERROR "OpenH264 checkout changed; preserved, not overwritten")
+  endif()
+  execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${CARPLAY_OPENH264_SOURCE}" diff --quiet HEAD --
+    RESULT_VARIABLE _h264_result)
+  if(NOT _h264_result EQUAL 0)
+    message(FATAL_ERROR "OpenH264 tracked source mismatch")
+  endif()
+  # Explicit generic C++ lists from the pinned common/decoder meson.build files.
+  set(_h264_common common_tables copy_mb cpu crt_util_safe_x deblocking_common
+    expand_pic intra_pred_common mc memory_align sad_common utils welsCodecTrace
+    WelsTaskThread WelsThread WelsThreadLib WelsThreadPool)
+  set(_h264_decoder au_parser bit_stream cabac_decoder deblocking decode_mb_aux
+    decode_slice decoder decoder_core decoder_data_tables error_concealment fmo
+    get_intra_predictor manage_dec_ref memmgr_nal_unit mv_pred parse_mb_syn_cabac
+    parse_mb_syn_cavlc pic_queue rec_mb wels_decoder_thread)
+  set(_h264_sources "${CARPLAY_OPENH264_SOURCE}/codec/decoder/plus/src/welsDecoderExt.cpp")
+  foreach(_h264_file IN LISTS _h264_common)
+    list(APPEND _h264_sources "${CARPLAY_OPENH264_SOURCE}/codec/common/src/${_h264_file}.cpp")
+  endforeach()
+  foreach(_h264_file IN LISTS _h264_decoder)
+    list(APPEND _h264_sources "${CARPLAY_OPENH264_SOURCE}/codec/decoder/core/src/${_h264_file}.cpp")
+  endforeach()
+  find_package(Threads REQUIRED)
+  add_library(carplay_openh264 STATIC ${_h264_sources})
+  # Reviewed against all six decoder/common include sites: none reside beside
+  # the upstream header, so this explicit first include directory is effective.
+  # Portable native-endian memcpy replaces its unaligned integer-pointer casts.
+  target_include_directories(carplay_openh264 BEFORE PRIVATE "${CMAKE_SOURCE_DIR}/third_party/openh264")
+  target_include_directories(carplay_openh264 SYSTEM PUBLIC "${CARPLAY_OPENH264_SOURCE}/codec/api/wels"
+    PRIVATE "${CARPLAY_OPENH264_SOURCE}/codec/common/inc"
+    "${CARPLAY_OPENH264_SOURCE}/codec/decoder/core/inc"
+    "${CARPLAY_OPENH264_SOURCE}/codec/decoder/plus/inc")
+  target_link_libraries(carplay_openh264 PRIVATE Threads::Threads)
+  if(MSVC)
+    target_compile_definitions(carplay_openh264 PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
+  if(NOT WIN32)
+    target_link_libraries(carplay_openh264 PRIVATE m)
+  endif()
+  add_library(carplay_h264 STATIC src/carplay/projection_h264.cpp)
+  target_include_directories(carplay_h264 PUBLIC src/carplay)
+  target_link_libraries(carplay_h264 PRIVATE carplay_openh264)
+  if(MSVC)
+    target_compile_options(carplay_h264 PRIVATE /W4 /permissive-)
+  else()
+    target_compile_options(carplay_h264 PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
+  add_executable(projection_h264_tests tests/projection_h264_tests.cpp tests/projection_h264_c_api.c
+    "${CARPLAY_OPENH264_SOURCE}/test/api/sha1.c")
+  target_include_directories(projection_h264_tests PRIVATE "${CARPLAY_OPENH264_SOURCE}/test")
+  target_link_libraries(projection_h264_tests PRIVATE carplay_h264)
+  add_test(NAME projection_h264_tests COMMAND projection_h264_tests "${CARPLAY_OPENH264_SOURCE}/res")
+  set_tests_properties(projection_h264_tests PROPERTIES TIMEOUT 60)
+endif()

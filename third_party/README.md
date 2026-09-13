@@ -560,3 +560,34 @@ recording is copied. Bounds, ownership, initial-only scheduling and retained
 replay/FLUSH policy are local choices. See
 [projection-sender-anchor.md](../reports/projection-sender-anchor.md) for exact
 primary references, synthetic validation and interoperability/security limits.
+
+## Source-built H.264 decoding (Step 87)
+
+Optional [Cisco OpenH264 v2.6.0](https://github.com/cisco/openh264/tree/652bdb7719f30b52b08e506645a7322ff1b2cc6f),
+commit `652bdb7719f30b52b08e506645a7322ff1b2cc6f`, supplies decoder/common source
+and public compressed test fixtures. Its BSD-style two-condition source LICENSE
+has SHA256 `dd5c1c9668512530fa5a96e4c29ac4033d70a7eeb0eed7a42fddb6dd794ebdbb`.
+The source checkout stays ignored, unmodified and commit/cleanliness-verified.
+No prebuilt Cisco binary or firmware is downloaded/distributed by this step.
+
+The adapter, C API, tests and local `openh264/ls_defines.h` replacement select
+GPL-3.0-only. The replacement is a local native-endian memcpy implementation of
+the pinned codec's load/store macro interface, not a copied upstream body. It
+overrides the upstream header (original SHA256
+`56275df0d8b346e9fcd135aa34cad43836e0990d9e43276f3b6e20b2ebd6a20b`)
+through an explicit private include path to avoid unaligned dereferences in both
+ordinary and sanitizer builds. No checks are suppressed.
+
+Test-only SHA1 is compiled directly from the pinned checkout's `test/api/sha1.c`
+(SHA256 `e63c7e58f38bb7f090fa2f459a8c96fd2372de9766397b16f15647602d92fec0`)
+and `test/sha1.h`
+(`71e267cb782d63b9cbda256e8cb96a104013ba327769ec6c9965bfa7cfede9bd`).
+These retain Paul E. Jones's existing copyright and two-condition notices.
+The independent reference reuses the hash-pinned PyAV environment above; FFmpeg
+is test-only, not linked into the receiver. Public compressed media stays in
+the ignored checkout, not vendored here.
+
+Preserve dependency notices/source obligations in any future distribution; this
+research step provides no patent clearance or distribution advice. See
+[projection-h264.md](../reports/projection-h264.md) for tested scope, known B-frame
+differences, reproducible results and remaining factory requirements.
