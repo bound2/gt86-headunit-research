@@ -31,7 +31,9 @@ typedef struct projection_h264_view {
 } projection_h264_view;
 /* Optional source-built OpenH264, serial/non-reentrant, one owner per stream.
  * No network, authentication, file, renderer, conversion or capability changes.
- * Input must already be authenticated, ordered and split into complete NALs.
+ * Compressed slices must already be authenticated, ordered and split into NALs.
+ * Out-of-band SPS/PPS may follow an explicit caller clear-configuration policy;
+ * do not label that configuration authenticated merely because slices are.
  * Each push accepts EXACTLY ONE Annex-B NAL (3/4-byte start code, <=1 MiB).
  * SPS preflight admits only progressive 8-bit 4:2:0 profile 66/77/100, bounded
  * coded dimensions and <=16 references; it is NOT a full H.264 validator or a

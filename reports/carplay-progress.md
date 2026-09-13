@@ -157,10 +157,13 @@ planes; Step 86 distinguishes [borrowed descriptors from pixel copying](air-fram
 Its external ABI and target performance remain unverified. Step 87 adds a
 separate [source-built H.264 backend](projection-h264.md) with owned frames,
 395 independently verified I/P pictures, explicit AU/drain handling and complete
-codec ASan/UBSan checks. B slices are rejected after independent pixel differences;
-no video transport, renderer or ARM/QNX decoder build is supplied. Neither
-result establishes a working CarPlay receiver or a demonstrated recovery
-method. All work below is on the local PC.
+codec ASan/UBSan checks. B slices are rejected after independent pixel differences.
+Step 88 adds an [owning encrypted video-input layer](projection-video-stream.md)
+with explicit clear-configuration provenance, bounded decoded-frame queues and
+740 independently encrypted/decrypted/decoded frame checks. No video socket
+provider, renderer or ARM/QNX decoder build is supplied. These results do not
+establish a working CarPlay receiver or a demonstrated recovery method.
+All work below is on the local PC.
 
 The Apple-authentication path is now traced through both stock ARM modules:
 17 synthetic-bus checks pass, including cached identity reporting, certificate
@@ -3464,11 +3467,35 @@ receiver capability declarations. This is host implementation, not a QNX build,
 display integration, phone acceptance or installable update. Reproduction, pins,
 limits and next transport/configuration work are in [projection-h264.md](projection-h264.md).
 
+## Step 88 - Own encrypted screen input and decoded-frame queues
+
+Added a memory-input video child around Step 87's real decoder. Pinned LIVI
+source establishes the selected 128-byte header, frame authentication/counter
+and cleartext configuration distinction. The implementation uses bounded
+AVC/box parsing, complete-AU conversion, explicit configuration epochs/IDR gates,
+owned queues, receive/hold deadlines and fail-closed cleanup. Reconfiguration
+never resets the nonce. Output separately marks authenticated frame records and
+unauthenticated configuration; opaque decoder timestamps are counters, not
+guessed wire presentation times.
+
+Independent PyCA encryption feeds 740 real decoded frames across nine variants,
+including a 198,956-byte access unit. All 30 optional-video CTest suites, three
+full video/codec/crypto sanitizer suites, the 395-frame FFmpeg reference check
+and all 83 Python tests pass. Wire records remain synthetic, not a phone capture.
+This does not yet add a TCP/session provider, rendering, QNX port or installable
+CarPlay functionality. Reproduction, primary-source pins, ownership/security
+limits and the next session-bound service are recorded in
+[projection-video-stream.md](projection-video-stream.md).
+
 ## Next checks
 
-1. Build the owning video-input layer around Step 87's decoder: verify projection
-   framing/configuration and authentication/order, preserve complete AU/timestamp/
-   generation boundaries, and bound queued frames. Keep B slices disabled until
+1. Connect Step 88's owning video-input layer to the session resource provider:
+   peer-bound single-connection TCP, coalesced-tail ownership/backpressure,
+   deadlines, configuration-epoch propagation, RECORD reply-drain startup and
+   TEARDOWN/failure cleanup. Test real IPv4/IPv6 loopback through the decoder.
+   Actual phone framing/configuration and presentation timing remain unverified;
+   authenticated frame records do not authenticate clear configuration. Add
+   rendering/timing only with explicit output ownership. Keep B slices disabled until
    their independent pixel discrepancy is resolved. Obtain a matching ARM/QNX
    build and on-unit resource/performance evidence separately.
    Keep AIR as reference evidence rather than calling private offsets. Step 86
@@ -3522,7 +3549,8 @@ limits and next transport/configuration work are in [projection-h264.md](project
    in Step 65. Physical input capture, control mode/resource
    semantics and media drivers are still missing. Step 63 adds actual
    peer-bound Windows timing/event/keepalive sockets and receiver polling, tested
-   over loopback. Audio packet processing is added in Step 66; video/iAP stream
+   over loopback. Audio packet processing is added in Step 66; Step 88 adds
+   memory-input video processing, but its session/socket integration, iAP stream
    processing and a QNX socket backend remain missing.
    Step 62 adds
    typed session/resource ownership and key derivation, with strict capability/
@@ -3589,8 +3617,9 @@ limits and next transport/configuration work are in [projection-h264.md](project
    validate complete certificates and coordinate bus ownership. iPhone
    acceptance remains a separate test. This is a condition on the software-only
    approach, not a requirement for an added receiver module.
-4. The source-built host decoder is implemented in Step 87; the next layer is
-   video transport/configuration ownership. Either AIR path would still need a
+4. The source-built host decoder is implemented in Step 87 and memory-input
+   video/configuration ownership in Step 88; the next layer is a peer-bound
+   session/socket service, followed by timing/rendering. Either AIR path would still need a
    verified outside-AIR interface
    before use. Step 85's internal MainConcept-associated byte/frame interface is
    not a verified public API. Step 84 identifies MMF

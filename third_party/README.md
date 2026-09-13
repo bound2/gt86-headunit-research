@@ -591,3 +591,26 @@ Preserve dependency notices/source obligations in any future distribution; this
 research step provides no patent clearance or distribution advice. See
 [projection-h264.md](../reports/projection-h264.md) for tested scope, known B-frame
 differences, reproducible results and remaining factory requirements.
+
+## Owning encrypted video input (Step 88)
+
+The local video-input C API, implementation and tests select GPL-3.0-only.
+Pinned LIVI TypeScript/Rust screen and NAL helpers supply wire/configuration
+observations, not copied implementation bodies. FFmpeg n8.1's H.264 extradata
+reader and Apple's QuickTime format documentation cross-check field/box layout;
+neither adds a receiver dependency. Exact primary links and LIVI blob pins are
+in [projection-video-stream.md](../reports/projection-video-stream.md).
+
+The owner privately uses already pinned Monocypher 4.0.3 for frame AEAD and the
+Step 87 OpenH264 adapter for decoding. Their existing notices remain unchanged;
+the control/pairing AEAD limit is not broadened. Clear-configuration provenance,
+bounded parsing, terminal authentication failure, one-transport key lifetime,
+configuration epochs, IDR gates and queue/deadline limits are local policies,
+not Apple conformance or phone acceptance claims.
+
+The independent wire checker reuses test-only cryptography 50.0.1 from the
+version-pinned (not hash-pinned) pair-reference environment and the existing
+public SHA256-pinned OpenH264 fixtures/FFmpeg-checked pixel goldens. PyCA encrypts
+synthetic records; no actual phone capture, credential or upstream media is
+committed. Test SHA1 retains the Step 87 upstream notices and is not used for
+authentication. No new library or prebuilt receiver binary is introduced.

@@ -835,7 +835,15 @@ matches 395 independent FFmpeg frames; B slices remain disabled after pixel
 differences. This is host decoding, not an ARM/QNX build or a displayed CarPlay
 session. The AIR offsets are not a supported integration API.
 
-The optional video build does not enable receiver capabilities or touch hardware:
+The [owning video-input follow-up](reports/projection-video-stream.md) now
+authenticates fragmented screen-frame records, parses explicit cleartext AVC
+configuration and queues independently owned decoded pictures. Nine synthetic
+wire variants produce 740 frames matching independently checked pixel/order
+goldens. Frame authentication does not authenticate the clear configuration;
+presentation timestamps, TCP/session integration and display output remain work.
+
+The optional video build now includes the existing pinned Monocypher dependency
+alongside OpenH264. It does not enable receiver capabilities or touch hardware:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayVideo.ps1

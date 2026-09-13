@@ -9,8 +9,6 @@ import re
 import subprocess
 import sys
 
-import av
-
 PINS = {
     "Static.264": "46ce837b059b07d9e44f2df957772335a51d17162e3357b613f3988143c1f420",
     "test_qcif_cabac.264": "d5a2d70c45100cf8143572d9e9e48a867c04890690e4de7633ed4e655dd95f9e",
@@ -21,6 +19,8 @@ PINS = {
 
 
 def check(executable: Path, fixtures: Path) -> None:
+    import av
+
     if av.__version__ != "18.1.0" or av.library_versions["libavcodec"] != (62, 28, 102):
         raise RuntimeError("Use pinned PyAV 18.1.0 / libavcodec 62.28.102")
     for name, expected in PINS.items():

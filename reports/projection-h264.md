@@ -162,11 +162,15 @@ firmware, owner photographs or phone media are inputs or committed files.
 
 ## 5. Next work and target assessment
 
-Next: implement an owning video-input layer after establishing the actual
-projection stream framing/configuration. Authenticate/order payloads, convert
-validated length-prefixed AVC/configuration NALs, preserve complete AU/timestamp/
-generation boundaries and bound retained frames. Do not invent wire constants
-or infer the phone transport from these compressed test fixtures.
+Follow-up: [Step 88](projection-video-stream.md) implements owning memory-input
+screen framing, authenticated frame records, explicit clear AVC configuration,
+complete-AU conversion and bounded frame queues using a pinned public reference.
+It preserves configuration epochs and raw authenticated headers, with record
+counters rather than guessed presentation timestamps. Its 740-frame independent
+encryption/decoding check uses synthetic wire records, not actual phone captures.
+The next layer is a peer-bound session/socket service; actual phone framing and
+timing still need verification. The build/test counts above record Step 87;
+Step 88's report records the expanded optional build and checks.
 
 ARM/QNX porting remains separate: establish a matching compiler/C++ runtime and
 OS/thread/time/allocation APIs, then measure memory and latency at the actual
