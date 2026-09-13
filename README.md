@@ -822,6 +822,12 @@ uses those same files to distinguish RAW pixel copying from H.264 decoding and
 identify a null-returning WFD client factory. It does not produce a working
 CarPlay decoder or authorize flashing the later corpus onto the owner's unit.
 
+The AIR follow-ups distinguish the [MMF graph/filter path](reports/air-video-graph.md)
+from a [MainConcept-associated internal decoder](reports/air-mainconcept-decoder.md).
+The latter now has traced construction, compressed-byte submission and frame
+planes, but no verified outside-AIR API or on-unit decoding/performance test.
+Its read-only evidence checker is `python -B scripts/inspect_air_mainconcept.py`.
+
 Only operate on the pinned, checksum-verified corpus when using these extraction
 commands. The scripts and analyzer are research tooling, not a general archive
 security audit or a firmware flasher. Raw firmware, extracted vendor files and
