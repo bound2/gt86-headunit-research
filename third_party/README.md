@@ -614,3 +614,20 @@ public SHA256-pinned OpenH264 fixtures/FFmpeg-checked pixel goldens. PyCA encryp
 synthetic records; no actual phone capture, credential or upstream media is
 committed. Test SHA1 retains the Step 87 upstream notices and is not used for
 authentication. No new library or prebuilt receiver binary is introduced.
+
+## Session-bound video TCP reception (Step 89)
+
+The local Windows video service, C interface and tests select GPL-3.0-only.
+They compose the existing session/socket/audio and Step 88 video owners; no
+additional protocol implementation body or media fixture is copied. Existing
+LIVI wire observations and Monocypher/OpenH264 notices remain unchanged.
+The optional build now also selects the existing Mbed TLS 3.6.7 dependency for
+receiver/session integration, not a new cryptographic implementation.
+
+Windows IP Helper (`iphlpapi`) is linked only into the socket test to inspect
+actual per-process IPv4/IPv6 listener state. Microsoft's API documentation
+establishes the supported table classes; no Microsoft implementation source is
+copied. Socket/lease ownership, budgets and output-sink policy are local design
+choices, not Apple conformance or a usable factory display driver. See
+[projection-video-services.md](../reports/projection-video-services.md) for
+primary API attribution, verification and remaining unit-integration requirements.

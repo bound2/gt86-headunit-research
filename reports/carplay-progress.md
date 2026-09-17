@@ -160,8 +160,11 @@ separate [source-built H.264 backend](projection-h264.md) with owned frames,
 codec ASan/UBSan checks. B slices are rejected after independent pixel differences.
 Step 88 adds an [owning encrypted video-input layer](projection-video-stream.md)
 with explicit clear-configuration provenance, bounded decoded-frame queues and
-740 independently encrypted/decrypted/decoded frame checks. No video socket
-provider, renderer or ARM/QNX decoder build is supplied. These results do not
+740 independently encrypted/decrypted/decoded frame checks. Step 89 connects
+the [session-bound video service](projection-video-services.md) to real IPv4/IPv6
+TCP, reply-drain startup, sink ownership and cleanup, preserving audio delegation.
+All 44 optional-video CTest suites and four video sanitizer suites pass. No actual
+renderer or ARM/QNX decoder build is supplied. These results do not
 establish a working CarPlay receiver or a demonstrated recovery method.
 All work below is on the local PC.
 
@@ -3487,12 +3490,36 @@ CarPlay functionality. Reproduction, primary-source pins, ownership/security
 limits and the next session-bound service are recorded in
 [projection-video-stream.md](projection-video-stream.md).
 
+## Step 89 - Receive session-bound video over real TCP
+
+Added a peer-bound Windows video service around Step 88's owning input/decoder.
+Each screen accepts one matching transport, closes its listener and retains
+coalesced input and busy-sink output under absolute deadlines. Output uses an
+explicit borrowed-view/copy contract, configuration epochs and the existing
+RECORD/SETUP reply-drain gate. Partial TEARDOWN and fresh-key replacement work;
+terminal errors close delegated audio too. Playback/FLUSH lease remapping keeps
+the existing audio path available alongside screen reception.
+
+Real IPv4/IPv6 socket tests now run through paired control, synthetic MFi,
+session resources and actual H.264 decoding. They cover concurrent screens,
+concurrent real audio UDP, closed-listener observation, replay/tag failures,
+deadlines and cleanup. All 44 optional-video CTest suites, four fully instrumented
+video/decoder/service sanitizer suites, 83 Python tests and the existing 740-frame
+encryption/395-frame FFmpeg checks pass. The sanitizer build now uses the actual
+clang-cl driver for Mbed TLS's MSVC-style configuration. Details and encountered
+test/environment issues are in [projection-video-services.md](projection-video-services.md).
+
+Final audio/display providers remain synthetic in these integration tests.
+No actual renderer, phone acceptance, ARM/QNX integration or installable CarPlay
+update is claimed. Factory execution/recovery and hardware routing remain open.
+
 ## Next checks
 
-1. Connect Step 88's owning video-input layer to the session resource provider:
-   peer-bound single-connection TCP, coalesced-tail ownership/backpressure,
-   deadlines, configuration-epoch propagation, RECORD reply-drain startup and
-   TEARDOWN/failure cleanup. Test real IPv4/IPv6 loopback through the decoder.
+1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
+   coalesced-tail ownership/backpressure, deadlines, configuration epochs,
+   reply-drain startup and TEARDOWN/failure cleanup, verified over real IPv4/IPv6
+   loopback through the decoder. Next implement a real explicitly selected
+   display sink with owned output, epoch invalidation and measurable presentation.
    Actual phone framing/configuration and presentation timing remain unverified;
    authenticated frame records do not authenticate clear configuration. Add
    rendering/timing only with explicit output ownership. Keep B slices disabled until
@@ -3550,8 +3577,9 @@ limits and the next session-bound service are recorded in
    semantics and media drivers are still missing. Step 63 adds actual
    peer-bound Windows timing/event/keepalive sockets and receiver polling, tested
    over loopback. Audio packet processing is added in Step 66; Step 88 adds
-   memory-input video processing, but its session/socket integration, iAP stream
-   processing and a QNX socket backend remain missing.
+   memory-input video processing and Step 89 connects its real Windows TCP/session
+   service. Actual video output, iAP stream processing and a QNX socket backend
+   remain missing.
    Step 62 adds
    typed session/resource ownership and key derivation, with strict capability/
    state gates, lease cleanup and reply-drain/start handling. Media allocation
@@ -3617,9 +3645,9 @@ limits and the next session-bound service are recorded in
    validate complete certificates and coordinate bus ownership. iPhone
    acceptance remains a separate test. This is a condition on the software-only
    approach, not a requirement for an added receiver module.
-4. The source-built host decoder is implemented in Step 87 and memory-input
-   video/configuration ownership in Step 88; the next layer is a peer-bound
-   session/socket service, followed by timing/rendering. Either AIR path would still need a
+4. The source-built host decoder is implemented in Step 87, memory-input
+   video/configuration ownership in Step 88 and the peer-bound Windows
+   session/socket service in Step 89; timing/rendering remain next. Either AIR path would still need a
    verified outside-AIR interface
    before use. Step 85's internal MainConcept-associated byte/frame interface is
    not a verified public API. Step 84 identifies MMF

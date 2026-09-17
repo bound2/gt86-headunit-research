@@ -230,6 +230,12 @@ Recorded verification:
 
 ## 6. Next implementation and factory requirements
 
+Follow-up: [Step 89](projection-video-services.md) implements and verifies the
+session-bound Windows TCP service described below, including explicit sink
+ownership and concurrent audio delegation. The memory-input layer and historical
+Step 88 counts above remain separate; actual rendering/timing and target
+integration are still unfinished.
+
 Next add a session-bound video service: allocate the screen TCP endpoint from
 the existing resource lease, pin the expected peer, admit one transport, own
 coalesced tails/backpressure/deadlines, and propagate CONFIG epochs, RECORD

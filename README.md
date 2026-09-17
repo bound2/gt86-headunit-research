@@ -839,11 +839,16 @@ The [owning video-input follow-up](reports/projection-video-stream.md) now
 authenticates fragmented screen-frame records, parses explicit cleartext AVC
 configuration and queues independently owned decoded pictures. Nine synthetic
 wire variants produce 740 frames matching independently checked pixel/order
-goldens. Frame authentication does not authenticate the clear configuration;
-presentation timestamps, TCP/session integration and display output remain work.
+goldens. Frame authentication does not authenticate the clear configuration.
+The [session-bound video service](reports/projection-video-services.md) now adds
+real peer-bound IPv4/IPv6 TCP reception, reply-drain startup, output-sink ownership
+and teardown/failure propagation, preserving concurrent audio through delegation.
+Presentation timestamps, actual rendering and the factory ARM/QNX path remain
+work; test MFi/display providers are synthetic, not real phone/unit acceptance.
 
-The optional video build now includes the existing pinned Monocypher dependency
-alongside OpenH264. It does not enable receiver capabilities or touch hardware:
+The optional video build now includes the existing pinned Monocypher and Mbed
+TLS dependencies alongside OpenH264. All 44 CTest suites and four video sanitizer
+suites pass. It does not enable receiver capabilities or touch hardware:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayVideo.ps1
