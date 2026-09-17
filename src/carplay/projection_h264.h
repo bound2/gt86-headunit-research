@@ -23,11 +23,21 @@ typedef enum projection_h264_result {
     PROJECTION_H264_MEMORY = -6,
     PROJECTION_H264_BACKEND = -7
 } projection_h264_result;
+typedef struct projection_h264_source {
+    uint32_t sar_width, sar_height; /* 0:0 = unspecified, NOT implicitly square. */
+    uint32_t num_units_in_tick, time_scale; /* Nominal VUI syntax, NOT sender PTS. */
+    uint8_t vui_present, aspect_present, aspect_idc, signal_present;
+    uint8_t video_format, full_range, colour_present;
+    uint8_t primaries, transfer, matrix; /* H.264 code points; 2 = unspecified. */
+    uint8_t chroma_present, chroma_top, chroma_bottom;
+    uint8_t timing_present, fixed_frame_rate;
+} projection_h264_source;
 typedef struct projection_h264_view {
     const uint8_t *plane[3]; /* Tight I420 Y, U, V; no codec padding. */
     uint32_t width, height, stride[3];
     uint64_t generation, timestamp; /* Opaque input timestamp, NOT a played clock. */
     size_t bytes;
+    projection_h264_source source; /* Immutable per-picture SPS/VUI snapshot. */
 } projection_h264_view;
 /* Optional source-built OpenH264, serial/non-reentrant, one owner per stream.
  * No network, authentication, file, renderer, conversion or capability changes.
@@ -53,6 +63,11 @@ typedef struct projection_h264_view {
  * Timestamp follows the codec's VCL timestamp, not a transport clock
  * conversion or scheduling guarantee. Supply the same timestamp to every slice
  * of a picture. No C++ exception crosses this C API.
+ * SPS/PPS IDs select each picture's source metadata; internal codec tokens keep
+ * delayed output associated even when caller timestamps repeat. At most 32
+ * pending picture snapshots; exhaustion/missing associations fail closed.
+ * Absent VUI keeps unspecified SAR/colour and normative limited-range default,
+ * not a resolution-derived guess. This metadata is not separately authenticated.
  * create returns MORE on success; no frame is produced by initialization.
  */
 int projection_h264_create(uint64_t generation, uint32_t max_width,

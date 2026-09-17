@@ -37,9 +37,25 @@ int projection_video_bgra(const projection_h264_view *v,enum projection_video_co
     return 0;
 }
 int projection_video_fit(uint32_t w,uint32_t h,uint32_t tw,uint32_t th,projection_video_rect *out) {
+    return projection_video_fit_sar(w,h,1,1,tw,th,out);
+}
+int projection_video_fit_sar(uint32_t w,uint32_t h,uint32_t sw,uint32_t sh,uint32_t tw,uint32_t th,projection_video_rect *out) {
     projection_video_rect r={0,0,0,0};
-    if(!out||!w||!h||w>PROJECTION_H264_MAX_WIDTH||h>PROJECTION_H264_MAX_HEIGHT||!tw||!th||tw>4096||th>4096) return -1;
-    if((uint64_t)w*th>(uint64_t)h*tw) { r.width=tw; r.height=(uint32_t)((uint64_t)h*tw/w); if(!r.height) r.height=1; }
-    else { r.height=th; r.width=(uint32_t)((uint64_t)w*th/h); if(!r.width) r.width=1; }
+    uint64_t dw,dh;
+    if(!out||!w||!h||w>PROJECTION_H264_MAX_WIDTH||h>PROJECTION_H264_MAX_HEIGHT||!tw||!th||tw>4096||th>4096||
+       !sw||!sh||sw>65535||sh>65535) return -1;
+    dw=(uint64_t)w*sw; dh=(uint64_t)h*sh;
+    if(dw*th>dh*tw) { r.width=tw; r.height=(uint32_t)(dh*tw/dw); if(!r.height) r.height=1; }
+    else { r.height=th; r.width=(uint32_t)(dw*th/dh); if(!r.width) r.width=1; }
     r.x=(tw-r.width)/2; r.y=(th-r.height)/2; *out=r; return 0;
+}
+int projection_video_source_color(const projection_h264_source *s,enum projection_video_color *out) {
+    enum projection_video_color color;
+    if(!s||!out||s->vui_present!=1||s->signal_present!=1||s->colour_present!=1||s->full_range>1||
+       (s->primaries!=1&&s->primaries!=5&&s->primaries!=6)||
+       (s->transfer!=1&&s->transfer!=6)) return -1;
+    if(s->matrix==1) color=s->full_range?PROJECTION_VIDEO_BT709_FULL:PROJECTION_VIDEO_BT709_LIMITED;
+    else if(s->matrix==5||s->matrix==6) color=s->full_range?PROJECTION_VIDEO_BT601_FULL:PROJECTION_VIDEO_BT601_LIMITED;
+    else return -1;
+    *out=color; return 0;
 }

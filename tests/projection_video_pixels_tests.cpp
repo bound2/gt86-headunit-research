@@ -78,4 +78,32 @@ static void maximum() {
     }
     CHECK(std::all_of(output.end()-17,output.end(),[](auto b){return b==0xa5;}));
 }
-int main() { CHECK(projection_video_pixels_c_api_test()); colors(); geometry(); invalid(); maximum(); std::cout<<"PASS: explicit I420/BGRA conversion, padding/alias/bounds and fit geometry\n"; }
+static void source_metadata() {
+    projection_h264_source s{}; s.vui_present=s.signal_present=s.colour_present=1; s.primaries=s.transfer=1;
+    for(unsigned matrix:{1u,5u,6u}) for(unsigned range=0;range<2;++range) {
+        s.matrix=uint8_t(matrix); s.full_range=uint8_t(range); auto color=PROJECTION_VIDEO_SOURCE;
+        CHECK(projection_video_source_color(&s,&color)==0&&unsigned(color)==(matrix==1?3u:1u)+range);
+    }
+    auto valid=s;
+    for(unsigned mode=0;mode<11;++mode) { s=valid; auto color=PROJECTION_VIDEO_SOURCE;
+        if(mode==0) s.vui_present=0; if(mode==1) s.signal_present=0; if(mode==2) s.colour_present=0;
+        if(mode==3) s.full_range=2; if(mode==4) s.matrix=2; if(mode==5) s.matrix=9;
+        if(mode==6) s.transfer=16; if(mode==7) s.transfer=18; if(mode==8) s.primaries=9;
+        if(mode==9) s.transfer=2; if(mode==10) s.primaries=2;
+        CHECK(projection_video_source_color(&s,&color)==-1&&color==PROJECTION_VIDEO_SOURCE);
+    }
+    projection_video_rect r{}; CHECK(projection_video_fit_sar(720,576,16,15,800,480,&r)==0&&r.x==80&&r.y==0&&r.width==640&&r.height==480);
+    CHECK(projection_video_fit_sar(152,100,2,1,304,200,&r)==0&&r.width==304&&r.height==100&&r.y==50);
+    CHECK(projection_video_fit_sar(152,100,1,2,304,200,&r)==0&&r.width==152&&r.height==200&&r.x==76);
+    auto before=r; CHECK(projection_video_fit_sar(152,100,0,1,304,200,&r)==-1&&r.x==before.x);
+    CHECK(projection_video_fit_sar(152,100,1,65536,304,200,&r)==-1);
+    for(unsigned sw:{1u,2u,15u,65535u}) for(unsigned sh:{1u,2u,16u,65535u})
+        for(unsigned tw:{1u,257u,4096u}) for(unsigned th:{1u,513u,4096u}) {
+            CHECK(projection_video_fit_sar(1920,1088,sw,sh,tw,th,&r)==0);
+            double ratio=1920.0*sw/(1088.0*sh);
+            unsigned ew,eh; if(ratio>double(tw)/th) { ew=tw; eh=std::max(1u,unsigned(std::floor(tw/ratio))); }
+            else { eh=th; ew=std::max(1u,unsigned(std::floor(th*ratio))); }
+            CHECK(r.width==ew&&r.height==eh&&r.x==(tw-ew)/2&&r.y==(th-eh)/2);
+        }
+}
+int main() { CHECK(projection_video_pixels_c_api_test()); colors(); geometry(); invalid(); maximum(); source_metadata(); std::cout<<"PASS: explicit I420/BGRA conversion, padding/alias/bounds, source colour and sample-aspect fit\n"; }

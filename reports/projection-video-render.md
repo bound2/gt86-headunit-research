@@ -2,6 +2,10 @@
 
 Date: 2026-09-17. Continues [session-bound video TCP](projection-video-services.md).
 
+Follow-up: [Step 91](projection-video-source.md) implements per-picture SPS/VUI
+metadata and opt-in strict source colour/SAR rendering. This report retains the
+Step 90 policy and test counts as historical evidence.
+
 ## Result and boundary
 
 Decoded video now has a real Windows GDI sink, with independently owned BGRA

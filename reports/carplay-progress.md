@@ -165,7 +165,9 @@ the [session-bound video service](projection-video-services.md) to real IPv4/IPv
 TCP, reply-drain startup, sink ownership and cleanup, preserving audio delegation.
 Step 90 adds [owned colour conversion and native GDI rendering](projection-video-render.md),
 verified with actual offscreen pixels and 40 independently checked rendered
-frames. All 46 optional-video CTest suites and six video sanitizer suites pass.
+frames. Step 91 adds [per-picture source metadata](projection-video-source.md),
+strict opt-in source colour/SAR rendering and 40 further independently verified
+readbacks. All 48 optional-video CTest suites and eight video sanitizer suites pass.
 No factory renderer or ARM/QNX decoder build is supplied. These results do not
 establish a working CarPlay receiver or a demonstrated recovery method.
 All work below is on the local PC.
@@ -3539,6 +3541,34 @@ presentation timing, on-unit integration and performance remain unresolved. Exac
 contracts, primary references, reproduction and limitations are in
 [projection-video-render.md](projection-video-render.md).
 
+## Step 91 - Select source colour/aspect from owned per-picture metadata
+
+Extended SPS preflight through VUI/trailing bits and retained explicit colour,
+range, sample aspect, chroma-location and nominal timing fields. PPS/SPS selection
+now snapshots metadata per picture; unique internal codec tokens map delayed
+output back to the original timestamp even when caller timestamps repeat.
+The fixed 32-snapshot bound, missing/duplicate output checks and no-wrap token
+limit fail closed. Returned frames retain values across replacement/destruction.
+
+The GDI sink adds explicit `PROJECTION_VIDEO_SOURCE` policy, requiring supported
+signalled SDR colour and nonzero SAR with no resolution/default guess. Existing
+manual modes remain explicit square-pixel overrides. Converted frames retain
+resolved SAR for repaint; configuration/teardown clears it with the pixels.
+VUI timing is not promoted to presentation timestamps, and clear configuration
+is not promoted to authenticated metadata.
+
+All 48 CTest suites, eight video sanitizer suites and 83 Python tests pass.
+New public-API tests cover 30 VUI variants, SPS/PPS selection, repeated timestamps
+and malformed input; separate injected tests cover delayed association/limits.
+Forty source-selected TCP/GDI readbacks match FFmpeg's independent VUI decode
+and colour/integer-scaling calculation with zero RGB error. The previous 40
+manual-mode renders, 395 independent decoder frames and 740 encrypted-frame
+checks still pass. ARM pixel compilation now declares `__aeabi_uidiv` and
+`__aeabi_uldivmod`; no QNX execution or factory performance is established.
+
+See [projection-video-source.md](projection-video-source.md) for step-by-step
+contracts, provenance, reproduction and remaining timing/display/unit gates.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3546,8 +3576,9 @@ contracts, primary references, reproduction and limitations are in
    reply-drain startup and TEARDOWN/failure cleanup, verified over real IPv4/IPv6
    loopback through the decoder. Step 90 adds explicit native host rendering with
    owned output, epoch invalidation and measured offscreen pixels, not presentation
-   timing. Next carry verified source colour/range and sample-aspect-ratio metadata
-   into that path; separately validate visible-device behavior and sender timing.
+   timing. Step 91 carries per-picture source colour/range/SAR into an explicit
+   rendering policy. Next trace sender timestamp fields against pinned evidence
+   before scheduling; separately validate visible-device behavior and A/V mapping.
    Actual phone framing/configuration and presentation timing remain unverified;
    authenticated frame records do not authenticate clear configuration. Add
    rendering/timing only with explicit output ownership. Keep B slices disabled until
@@ -3676,7 +3707,8 @@ contracts, primary references, reproduction and limitations are in
 4. The source-built host decoder is implemented in Step 87, memory-input
    video/configuration ownership in Step 88 and the peer-bound Windows
    session/socket service in Step 89. Step 90 implements a host GDI renderer;
-   source colour/aspect metadata, timing and native factory output remain next.
+   Step 91 adds source colour/aspect metadata. Timing and native factory output
+   remain next.
    Either AIR path would still need a
    verified outside-AIR interface
    before use. Step 85's internal MainConcept-associated byte/frame interface is

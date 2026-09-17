@@ -648,3 +648,19 @@ RGB independently and compares real GDI DIB pixels; FFmpeg is not linked into
 the receiver. No owner media, screenshot, phone capture or binary is committed.
 The native backend is Windows-only; the separately ARM-compiled local converter
 still requires its declared division runtime helper and is not a QNX executable.
+
+## Per-picture source metadata (Step 91)
+
+The local SPS/VUI inspection, source selection, sample-aspect fitting and tests
+select GPL-3.0-only. H.264 syntax/semantics and the pinned OpenH264 ParseVui/API
+code were consulted; no additional upstream implementation body is copied.
+The existing dependency and media pins remain unchanged. Test SPS/PPS metadata
+is generated locally over the public Static.264 coding parameters, not extracted
+from an owner's phone or firmware. The independent PyAV/native-FFmpeg checker
+reuses the existing environment and remains a test-only dependency.
+
+Sample-aspect fitting adds the declared ARM compiler-runtime helper
+`__aeabi_uldivmod` alongside `__aeabi_uidiv`. These imports are not hidden under
+the earlier import-free core result. See
+[projection-video-source.md](../reports/projection-video-source.md) for sources,
+tests and the unverified physical/factory integration boundary.

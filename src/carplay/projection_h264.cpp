@@ -4,6 +4,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <array>
+
+struct SourceSet {
+    projection_h264_source source{};
+    uint32_t width=0,height=0;
+    bool valid=false;
+};
+struct PictureSource { SourceSet set{}; uint64_t token=0,timestamp=0; };
 
 struct projection_h264 {
     ISVCDecoder *codec = nullptr;
@@ -12,12 +20,18 @@ struct projection_h264 {
     size_t waiting_bytes = 0;
     unsigned waiting_nals = 0;
     uint64_t au_timestamp = 0;
+    std::array<SourceSet,32> sources{};
+    struct Pps { uint32_t sps=0; bool valid=false; };
+    std::array<Pps,256> pps{};
+    std::array<PictureSource,32> pictures{};
+    uint64_t next_token=1,au_token=0;
+    uint32_t au_pps=0;
     bool sps = false, draining = false, ended = false, pending = false, has_vcl = false;
 };
 struct projection_h264_frame { projection_h264_view view; uint8_t *pixels; };
 
 namespace {
-// Size-prefix SPS inspection only: the decoder still validates full syntax.
+// Bounded SPS/VUI inspection; the decoder still validates coded picture syntax.
 // All loops, shifts, signed Golomb values and RBSP storage are bounded here.
 struct Bits {
     const uint8_t *data;
@@ -43,7 +57,55 @@ struct Bits {
     }
 };
 
-int sps_dimensions(const uint8_t *data, size_t size, const projection_h264 *owner) {
+void hrd(Bits &b) {
+    uint32_t count=b.ue();
+    if(count>31) { b.ok=false; return; }
+    b.read(4); b.read(4);
+    for(uint32_t i=0;i<=count&&b.ok;++i) { b.ue(); b.ue(); b.read(1); }
+    b.read(5); b.read(5); b.read(5); b.read(5);
+}
+void vui(Bits &b,projection_h264_source &s) {
+    static const uint16_t ratios[17][2]={{0,0},{1,1},{12,11},{10,11},{16,11},{40,33},
+        {24,11},{20,11},{32,11},{80,33},{18,11},{15,11},{64,33},{160,99},{4,3},{3,2},{2,1}};
+    s.aspect_present=uint8_t(b.read(1));
+    if(s.aspect_present) {
+        s.aspect_idc=uint8_t(b.read(8));
+        if(s.aspect_idc<17) { s.sar_width=ratios[s.aspect_idc][0]; s.sar_height=ratios[s.aspect_idc][1]; }
+        else if(s.aspect_idc==255) {
+            s.sar_width=b.read(16); s.sar_height=b.read(16);
+            if(!s.sar_width||!s.sar_height) s.sar_width=s.sar_height=0;
+        } else { b.ok=false; return; }
+    }
+    if(b.read(1)) b.read(1); // overscan (no crop is performed here)
+    s.signal_present=uint8_t(b.read(1));
+    if(s.signal_present) {
+        s.video_format=uint8_t(b.read(3)); s.full_range=uint8_t(b.read(1)); s.colour_present=uint8_t(b.read(1));
+        if(s.video_format>5) { b.ok=false; return; }
+        if(s.colour_present) { s.primaries=uint8_t(b.read(8)); s.transfer=uint8_t(b.read(8)); s.matrix=uint8_t(b.read(8)); }
+    }
+    s.chroma_present=uint8_t(b.read(1));
+    if(s.chroma_present) {
+        uint32_t top=b.ue(),bottom=b.ue();
+        if(top>5||bottom>5) { b.ok=false; return; }
+        s.chroma_top=uint8_t(top); s.chroma_bottom=uint8_t(bottom);
+    }
+    s.timing_present=uint8_t(b.read(1));
+    if(s.timing_present) {
+        s.num_units_in_tick=b.read(32); s.time_scale=b.read(32); s.fixed_frame_rate=uint8_t(b.read(1));
+        if(!s.num_units_in_tick||!s.time_scale) { b.ok=false; return; }
+    }
+    bool nal=b.read(1)!=0; if(nal) hrd(b);
+    bool vcl=b.read(1)!=0; if(vcl) hrd(b);
+    if(nal||vcl) b.read(1);
+    b.read(1); // pic_struct_present_flag; no SEI presentation-time claim
+    if(b.read(1)) {
+        b.read(1);
+        for(unsigned i=0;i<4;++i) if(b.ue()>16) b.ok=false;
+        uint32_t reorder=b.ue(),buffer=b.ue();
+        if(buffer>16||reorder>buffer) b.ok=false;
+    }
+}
+int sps_dimensions(const uint8_t *data, size_t size, projection_h264 *owner) {
     uint8_t rbsp[4096];
     if (size > sizeof(rbsp)) return PROJECTION_H264_LIMIT;
     size_t used = 0;
@@ -58,7 +120,8 @@ int sps_dimensions(const uint8_t *data, size_t size, const projection_h264 *owne
     if (profile != 66 && profile != 77 && profile != 100) return PROJECTION_H264_BITSTREAM;
     if (b.read(8) & 3u) return PROJECTION_H264_BITSTREAM; // reserved_zero_2bits
     b.read(8); // level; full level syntax/feature validation belongs to codec
-    if (b.ue() > 31) return PROJECTION_H264_BITSTREAM;
+    uint32_t id=b.ue();
+    if (id > 31) return PROJECTION_H264_BITSTREAM;
     if (profile == 100) {
         if (b.ue() != 1 || b.ue() != 0 || b.ue() != 0) return PROJECTION_H264_BITSTREAM;
         b.read(1); // qpprime_y_zero_transform_bypass_flag
@@ -95,13 +158,21 @@ int sps_dimensions(const uint8_t *data, size_t size, const projection_h264 *owne
     if (w >= owner->max_width / 16 || h >= owner->max_height / 16) return PROJECTION_H264_LIMIT;
     if (b.read(1) != 1) return PROJECTION_H264_BITSTREAM; // no fields/MBAFF
     b.read(1); // direct_8x8_inference_flag
+    SourceSet set{}; set.width=(w+1)*16; set.height=(h+1)*16;
     if (b.read(1)) {
         uint64_t left = b.ue(), right = b.ue(), top = b.ue(), bottom = b.ue();
         if ((left + right) * 2 >= (w + 1) * 16 || (top + bottom) * 2 >= (h + 1) * 16)
             return PROJECTION_H264_BITSTREAM;
+        set.width-=uint32_t((left+right)*2); set.height-=uint32_t((top+bottom)*2);
     }
-    b.read(1); // VUI presence, not parsed here; no color/range claims in frame view
-    return b.ok ? PROJECTION_H264_MORE : PROJECTION_H264_BITSTREAM;
+    set.source.video_format=5; set.source.primaries=set.source.transfer=set.source.matrix=2;
+    set.source.vui_present=uint8_t(b.read(1));
+    if(set.source.vui_present) vui(b,set.source);
+    if(b.read(1)!=1) b.ok=false; // rbsp_stop_one_bit and alignment, no ignored tail
+    while(b.ok&&b.bit%8) if(b.read(1)) b.ok=false;
+    if(!b.ok||b.bit!=used*8) return PROJECTION_H264_BITSTREAM;
+    set.valid=true; owner->sources[id]=set;
+    return PROJECTION_H264_MORE;
 }
 
 int inspect_nal(const uint8_t *data, size_t size, projection_h264 *owner, uint64_t timestamp,
@@ -137,20 +208,33 @@ int inspect_nal(const uint8_t *data, size_t size, projection_h264 *owner, uint64
         if (result != PROJECTION_H264_MORE) return result;
         sps = true;
     } else if ((type == 1 || type == 5 || type == 8) && !owner->sps) return PROJECTION_H264_BITSTREAM;
-    if (type == 1 || type == 5) {
-        // Only the first two Exp-Golomb fields are needed, each at most 61 bits.
+    if (type == 1 || type == 5 || type == 8) {
+        // First three Exp-Golomb fields fit within this bounded prefix.
         uint8_t prefix_bits[32]; size_t used = 0; zeros = 0;
         for (size_t i = prefix + 1; i < end && used < sizeof(prefix_bits); ++i) {
             if (zeros == 2 && data[i] == 3) { zeros = 0; continue; }
             prefix_bits[used++] = data[i]; zeros = data[i] == 0 ? zeros + 1 : 0;
         }
         Bits b{prefix_bits, used};
-        uint32_t first_mb = b.ue(), slice = b.ue();
+        if(type==8) {
+            uint32_t pps=b.ue(),sps_id=b.ue();
+            if(!b.ok||pps>255||sps_id>31||!owner->sources[sps_id].valid) return PROJECTION_H264_BITSTREAM;
+            owner->pps[pps]={sps_id,true}; return PROJECTION_H264_MORE;
+        }
+        uint32_t first_mb = b.ue(), slice = b.ue(),pps=b.ue();
         if (!b.ok || slice > 9 || (slice % 5 != 0 && slice % 5 != 2) ||
-            (type == 5 && slice % 5 != 2)) return PROJECTION_H264_BITSTREAM;
+            (type == 5 && slice % 5 != 2)||pps>255||!owner->pps[pps].valid) return PROJECTION_H264_BITSTREAM;
         if (first_mb >= (owner->max_width / 16) * (owner->max_height / 16)) return PROJECTION_H264_LIMIT;
         if ((!owner->has_vcl && first_mb != 0) ||
-            (owner->has_vcl && (!first_mb || timestamp != owner->au_timestamp))) return PROJECTION_H264_BITSTREAM;
+            (owner->has_vcl && (!first_mb || timestamp != owner->au_timestamp||pps!=owner->au_pps))) return PROJECTION_H264_BITSTREAM;
+        if(!owner->has_vcl) {
+            if(!owner->next_token) return PROJECTION_H264_LIMIT;
+            PictureSource *picture=nullptr;
+            for(auto &p:owner->pictures) if(!p.token) { picture=&p; break; }
+            if(!picture) return PROJECTION_H264_LIMIT;
+            owner->au_token=owner->next_token++; owner->au_pps=pps;
+            *picture={owner->sources[owner->pps[pps].sps],owner->au_token,timestamp};
+        }
         vcl = true;
     }
     return PROJECTION_H264_MORE;
@@ -176,12 +260,16 @@ int copy_frame(projection_h264 *owner, DECODING_STATE status, uint8_t *planes[3]
     if (status != dsErrorFree && status != dsFramePending)
         return fail(owner, (status & dsOutOfMemory) ? PROJECTION_H264_MEMORY : PROJECTION_H264_BITSTREAM);
     if (info.iBufferStatus == 0) return PROJECTION_H264_MORE;
+    PictureSource *source=nullptr;
+    for(auto &p:owner->pictures) if(p.token&&p.token==info.uiOutYuvTimeStamp) { source=&p; break; }
+    if(!source) return fail(owner,PROJECTION_H264_BACKEND);
     const auto &s = info.UsrData.sSystemBuffer;
     if (info.iBufferStatus != 1 || !planes[0] || !planes[1] || !planes[2] ||
         s.iWidth <= 0 || s.iHeight <= 0 || s.iWidth % 2 || s.iHeight % 2 ||
         s.iWidth > static_cast<int>(owner->max_width) || s.iHeight > static_cast<int>(owner->max_height) ||
         s.iFormat != videoFormatI420 || s.iStride[0] < s.iWidth || s.iStride[1] < s.iWidth / 2 ||
-        s.iStride[0] > 16384 || s.iStride[1] > 8192) return fail(owner, PROJECTION_H264_BACKEND);
+        s.iStride[0] > 16384 || s.iStride[1] > 8192||
+        uint32_t(s.iWidth)!=source->set.width||uint32_t(s.iHeight)!=source->set.height) return fail(owner, PROJECTION_H264_BACKEND);
     size_t y_size = static_cast<size_t>(s.iWidth) * s.iHeight, total = y_size + y_size / 2;
     auto *frame = static_cast<projection_h264_frame *>(std::calloc(1, sizeof(projection_h264_frame)));
     if (!frame) return fail(owner, PROJECTION_H264_MEMORY);
@@ -189,7 +277,8 @@ int copy_frame(projection_h264 *owner, DECODING_STATE status, uint8_t *planes[3]
     if (!frame->pixels) { std::free(frame); return fail(owner, PROJECTION_H264_MEMORY); }
     auto &v = frame->view;
     v.width = static_cast<uint32_t>(s.iWidth); v.height = static_cast<uint32_t>(s.iHeight);
-    v.generation = owner->generation; v.timestamp = info.uiOutYuvTimeStamp; v.bytes = total;
+    v.generation = owner->generation; v.timestamp = source->timestamp; v.bytes = total;
+    v.source=source->set.source; *source=PictureSource{};
     v.plane[0] = frame->pixels; v.plane[1] = frame->pixels + y_size; v.plane[2] = frame->pixels + y_size + y_size / 4;
     size_t offset = 0;
     for (unsigned p = 0; p < 3; ++p) {
@@ -261,7 +350,7 @@ extern "C" int projection_h264_push(projection_h264 *owner, uint64_t generation,
     try {
         uint8_t *planes[3] = {};
         SBufferInfo info{};
-        info.uiInBsTimeStamp = timestamp;
+        info.uiInBsTimeStamp = vcl?owner->au_token:0;
         auto status = owner->codec->DecodeFrame2(data, static_cast<int>(size), planes, &info);
         return copy_frame(owner, status, planes, info, out);
     } catch (const std::bad_alloc &) { return fail(owner, PROJECTION_H264_MEMORY); }
@@ -293,7 +382,10 @@ extern "C" int projection_h264_drain(projection_h264 *owner, uint64_t generation
         int remaining = 0;
         if (owner->codec->GetOption(DECODER_OPTION_NUM_OF_FRAMES_REMAINING_IN_BUFFER, &remaining) != 0 ||
             remaining < 0 || remaining > 16) return fail(owner, PROJECTION_H264_BACKEND);
-        if (!remaining) { owner->ended = true; return PROJECTION_H264_END; }
+        if (!remaining) {
+            for(const auto &p:owner->pictures) if(p.token) return fail(owner,PROJECTION_H264_BACKEND);
+            owner->ended = true; return PROJECTION_H264_END;
+        }
         uint8_t *planes[3] = {};
         SBufferInfo info{};
         auto status = owner->codec->FlushFrame(planes, &info);

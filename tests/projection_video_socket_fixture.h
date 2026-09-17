@@ -27,6 +27,9 @@ struct Media {
         }
         CHECK(begin); nals.emplace_back(b.begin()+begin,b.end()); CHECK(nals.size()==12);
         CHECK((nals[0][0]&31)==7 && (nals[1][0]&31)==8 && (nals[2][0]&31)==5);
+        configure();
+    }
+    void configure() {
         config={1,nals[0][1],nals[0][2],nals[0][3],0xff,0xe1};
         be16(config,nals[0].size()); config.insert(config.end(),nals[0].begin(),nals[0].end()); config.push_back(1);
         be16(config,nals[1].size()); config.insert(config.end(),nals[1].begin(),nals[1].end()); config=record(1,config);

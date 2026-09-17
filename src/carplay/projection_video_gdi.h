@@ -10,7 +10,7 @@ extern "C" {
 typedef struct projection_video_gdi projection_video_gdi;
 typedef struct projection_video_gdi_target {
     uint32_t type; /* 110 or 111, unique; no default target. */
-    enum projection_video_color color;
+    enum projection_video_color color; /* Explicit square-pixel override OR SOURCE (strict VUI). */
     uintptr_t window; /* Caller-owned HWND from this process/current thread. */
     uintptr_t memory_dc; /* OR caller-owned exclusive memory HDC with 32-bit DIB. Test/offscreen only. */
 } projection_video_gdi_target;
@@ -22,6 +22,8 @@ typedef struct projection_video_gdi_status {
     uint64_t lease,epoch,counter,draws,repaints;
     uint32_t width,height,target_width,target_height;
     uint8_t active,started,has_frame;
+    uint32_t sar_width,sar_height;
+    enum projection_video_color color; /* Resolved mode of the retained frame, or zero. */
 } projection_video_gdi_status;
 /* Optional Windows sink, not a QNX backend or default /info capability.
  * Windows 10 1607+ APIs. Window AND calling thread must be per-monitor DPI
@@ -36,8 +38,10 @@ typedef struct projection_video_gdi_status {
  * BGRA buffers per configured screen, reused across frames; no playback queue.
  * submit returns MORE without accepting on a hidden/minimized/zero-size window.
  * Successful GDI drawing+GdiFlush increments draws, NOT a scan-out/presentation
- * clock. No invented PTS, vsync or A/V synchronization. Explicit square-pixel
- * fit/nearest scaling, opaque BGRA, no automatic source colour interpretation.
+ * clock. No invented PTS, vsync or A/V synchronization. Modes 1..4 explicitly
+ * override stream colour/SAR with square pixels. SOURCE requires signalled SDR
+ * colour and a nonzero SAR; unknown values fail closed, with no fallback guess.
+ * Source RGB is not display colour-managed; nearest scaling/chroma replication.
  * configure retires old frame storage and clears the target before returning.
  * poll repaints a resized target; caller routes WM_PAINT to paint below.
  * close invalidates all owned copies; blanking an unavailable/lost OS target is

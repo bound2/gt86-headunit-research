@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only; real GDI surfaces/TCP/decoder, no visible window. */
 #include "projection_video_socket_fixture.h"
 #include "projection_video_gdi.h"
+#include "projection_h264_source_fixture.h"
 #include <cstdlib>
 #include <thread>
 #include <fcntl.h>
@@ -152,8 +153,8 @@ static void hidden_window(bool terminal) {
 }
 static uint64_t test_clock(void*) { return 1000000; }
 struct Video { projection_video_services *s=nullptr; ~Video(){projection_video_services_destroy(s);} };
-static void stream(const Media &m,unsigned color,bool v6,bool emit) {
-    Dib target(152,100); Render render(target,color); Video video;
+static void stream(const Media &m,unsigned color,bool v6,bool emit,bool source=false) {
+    Dib target(source?304:152,source?200:100); Render render(target,source?5:color); Video video;
     projection_video_services_config config{}; config.local=config.peer=loopback(v6); config.clock_ns=test_clock;
     config.video={1920,1088,1000,2000,2,1}; config.sink=render.sink(); config.accept_ms=1000; config.poll_ms=2;
     CHECK(projection_video_services_create(&config,91,&video.s)==IAP2_OK); auto p=projection_video_services_provider(video.s);
@@ -167,21 +168,59 @@ static void stream(const Media &m,unsigned color,bool v6,bool emit) {
     for(unsigned i=0;i<10;++i) {
         if(i) phone.send_bytes(m.frame(keys.read,i,i+2)); until([&]{return render.status().draws==i+1;});
         CHECK(render.status().counter==i&&render.status().width==152&&render.status().height==100);
-        if(emit) { uint32_t header[]={color,152,100,i}; auto pixels=target.copy();
+        if(source) CHECK(unsigned(render.status().color)==color&&render.status().sar_width==(color%2?2u:1u)&&render.status().sar_height==(color%2?1u:2u));
+        if(emit) { uint32_t header[]={color,target.width,target.height,i}; auto pixels=target.copy();
             std::cout.write(reinterpret_cast<const char*>(header),sizeof(header)); std::cout.write(reinterpret_cast<const char*>(pixels.data()),std::streamsize(pixels.size())); }
     }
-    phone.send_bytes(m.config); until([&]{return render.status().epoch==2;}); CHECK(target.black()&&!render.status().has_frame);
+    Media replacement=m;
+    if(source) { source_fixture::Spec spec; spec.matrix=color<=2?6:1; spec.full=color%2;
+        spec.sw=color%2?1:2; spec.sh=color%2?2:1; replacement.nals[0]=source_fixture::sps(spec); replacement.configure(); }
+    phone.send_bytes(replacement.config); until([&]{return render.status().epoch==2;}); CHECK(target.black()&&!render.status().has_frame);
     phone.send_bytes(m.frame(keys.read,10)); until([&]{return render.status().has_frame!=0;}); CHECK(render.status().counter==10);
+    if(source) CHECK(unsigned(render.status().color)==(color%2?color+1:color-1)&&render.status().sar_width==(color%2?1u:2u)&&render.status().sar_height==(color%2?2u:1u));
     auto bad=m.frame(keys.read,11,3); bad.back()^=1; phone.send_bytes(bad); auto end=std::chrono::steady_clock::now()+std::chrono::seconds(3);
     int result=IAP2_OK; while(result==IAP2_OK) { CHECK(std::chrono::steady_clock::now()<end); result=projection_video_services_poll(video.s,91); }
     CHECK(result==PROJECTION_VIDEO_SERVICES_CLOSED&&projection_video_services_error(video.s)==PROJECTION_VIDEO_AUTH&&target.black()&&!render.status().active);
 }
+static void source_policy() {
+    { Dib target(8,8); Render render(target,5); auto child=render.open(); render.configure(child); render.start(child);
+      Picture v; auto &s=v.view.source; s.vui_present=s.aspect_present=s.signal_present=s.colour_present=1;
+      s.sar_width=2; s.sar_height=1; s.primaries=s.transfer=s.matrix=1; render.submit(child,v);
+      auto first=target.copy(); Bytes raw(64); CHECK(projection_video_bgra(&v.view,PROJECTION_VIDEO_BT709_LIMITED,raw.data(),64,16)==0);
+      for(unsigned y=0;y<8;++y) for(unsigned x=0;x<8;++x) for(unsigned c=0;c<3;++c)
+          CHECK(first[(y*8+x)*4+c]==(y<2||y>=6?0:raw[((y-2)*4+x/2)*4+c]));
+      // Retained SAR too: source descriptor lifetime ends with submit.
+      s.sar_width=1; s.sar_height=2; target.resize(16,16); auto p=render.sink(); CHECK(p.poll(p.context,91,child,1000000)==IAP2_OK);
+      CHECK(render.status().sar_width==2&&render.status().sar_height==1);
+      auto bigger=target.copy(); for(unsigned y=0;y<16;++y) for(unsigned x=0;x<16;++x) for(unsigned c=0;c<3;++c)
+          CHECK(bigger[(y*16+x)*4+c]==(y<4||y>=12?0:raw[(((y-4)/2)*4+x/4)*4+c]));
+      render.configure(child,2); CHECK(target.black()&&!render.status().sar_width);
+    }
+    for(unsigned mode=0;mode<7;++mode) {
+        Dib target; Render render(target,5); auto child=render.open(); render.configure(child); render.start(child);
+        Picture v; auto &s=v.view.source; s.vui_present=s.aspect_present=s.signal_present=s.colour_present=1;
+        s.sar_width=s.sar_height=1; s.primaries=s.transfer=s.matrix=1;
+        render.submit(child,v); v.counter(1);
+        if(mode==0) s.colour_present=0; if(mode==1) s.sar_width=0; if(mode==2) s.matrix=2;
+        if(mode==3) s.transfer=16; if(mode==4) s.aspect_present=0; if(mode==5) s.sar_height=65536; if(mode==6) s.primaries=9;
+        auto p=render.sink(); CHECK(p.submit(p.context,91,child,&v.view,&v.meta)==PROJECTION_VIDEO_GDI_CLOSED);
+        CHECK(projection_video_gdi_error(render.g)==IAP2_UNSUPPORTED&&target.black());
+    }
+}
 int main(int argc,char **argv) {
     try {
-        CHECK(argc==2||argc==3); bool emit=argc==3; if(emit) { CHECK(std::string(argv[2])=="--emit"); CHECK(_setmode(_fileno(stdout),_O_BINARY)!=-1); }
+        CHECK(argc==2||argc==3); bool emit=argc==3,source=emit&&std::string(argv[2])=="--emit-source";
+        if(emit) { CHECK(source||std::string(argv[2])=="--emit"); CHECK(_setmode(_fileno(stdout),_O_BINARY)!=-1); }
         CHECK(projection_video_gdi_c_api_test()); Winsock sockets; Media media(argv[1]);
-        if(!emit) { lifecycle(); state_and_failure(); dc_state_and_screens(); hidden_window(false); hidden_window(true); }
-        for(unsigned color=1;color<=4;++color) { stream(media,color,false,emit); if(!emit) stream(media,color,true,false); }
+        if(!emit) { lifecycle(); state_and_failure(); dc_state_and_screens(); source_policy(); hidden_window(false); hidden_window(true); }
+        if(!source) for(unsigned color=1;color<=4;++color) { stream(media,color,false,emit); if(!emit) stream(media,color,true,false); }
+        if(!emit||source) for(unsigned color=1;color<=4;++color) {
+            Media specified=media; source_fixture::Spec spec; spec.matrix=color<=2?6:1; spec.full=color%2==0;
+            spec.sw=color%2?2:1; spec.sh=color%2?1:2; specified.nals[0]=source_fixture::sps(spec); specified.configure();
+            if(emit) { uint32_t n=uint32_t(specified.nals[0].size()); std::cout.write(reinterpret_cast<const char*>(&n),sizeof(n));
+                std::cout.write(reinterpret_cast<const char*>(specified.nals[0].data()),n); }
+            stream(specified,color,false,emit,true); if(!emit) stream(specified,color,true,false,true);
+        }
         if(!emit) std::cout<<"PASS: real GDI pixels, owned repaint/resize, epochs/cleanup, hidden HWND backpressure and IPv4/IPv6 TCP/AEAD/H264 rendering; no visible window\n";
         return 0;
     } catch(...) { std::cerr<<"Unexpected exception in GDI test\n"; return 1; }

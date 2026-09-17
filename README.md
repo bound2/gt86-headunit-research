@@ -846,11 +846,14 @@ and teardown/failure propagation, preserving concurrent audio through delegation
 The [owned rendering follow-up](reports/projection-video-render.md) adds explicit
 I420/BGRA colour conversion and a Windows GDI sink with resize, repaint and
 epoch/teardown invalidation. Forty offscreen rendered frames match independent
-FFmpeg/pixel calculations. Source colour/aspect metadata, presentation timing
-and factory ARM/QNX output remain work; this is not real phone/unit acceptance.
+FFmpeg/pixel calculations. The [source-metadata follow-up](reports/projection-video-source.md)
+adds per-picture SPS/VUI snapshots and explicit strict source colour/SAR rendering;
+40 further metadata-selected readbacks match native FFmpeg interpretation and
+independent scaling/colour calculations. Presentation timing and factory ARM/QNX
+output remain work; this is not real phone/unit acceptance.
 
 The optional video build now includes the existing pinned Monocypher and Mbed
-TLS dependencies alongside OpenH264. All 46 CTest suites and six video sanitizer
+TLS dependencies alongside OpenH264. All 48 CTest suites and eight video sanitizer
 suites pass. It does not enable receiver capabilities or touch hardware:
 
 ```powershell

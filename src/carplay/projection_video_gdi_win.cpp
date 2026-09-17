@@ -18,6 +18,7 @@ void pixels_free(Slot &a) {
     if(a.work) { pair_crypto_wipe(a.work,a.work_capacity); delete[] a.work; }
     a.front=a.work=nullptr; a.front_capacity=a.work_capacity=0; a.status.has_frame=0;
     a.status.width=a.status.height=0;
+    a.status.sar_width=a.status.sar_height=0; a.status.color=static_cast<projection_video_color>(0);
 }
 }
 struct projection_video_gdi {
@@ -58,7 +59,7 @@ int target_size(const projection_video_gdi *s,size_t i,uint32_t &w,uint32_t &h,b
     }
     return w>s->config.max_target_width||h>s->config.max_target_height?IAP2_UNSUPPORTED:IAP2_OK;
 }
-int draw_dc(HDC dc,const uint8_t *pixels,uint32_t w,uint32_t h,uint32_t tw,uint32_t th) {
+int draw_dc(HDC dc,const uint8_t *pixels,uint32_t w,uint32_t h,uint32_t tw,uint32_t th,uint32_t sw,uint32_t sh) {
     if(!tw||!th) return IAP2_MORE;
     int saved=SaveDC(dc); if(!saved) return IAP2_PROVIDER_FAILED;
     XFORM identity{1,0,0,1,0,0};
@@ -74,7 +75,7 @@ int draw_dc(HDC dc,const uint8_t *pixels,uint32_t w,uint32_t h,uint32_t tw,uint3
     RECT rect{0,0,static_cast<LONG>(tw),static_cast<LONG>(th)};
     if(ok) ok=FillRect(dc,&rect,static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)))!=0;
     if(ok&&pixels) {
-        projection_video_rect fit{}; ok=projection_video_fit(w,h,tw,th,&fit)==0;
+        projection_video_rect fit{}; ok=projection_video_fit_sar(w,h,sw,sh,tw,th,&fit)==0;
         if(ok) {
             BITMAPINFO info{}; info.bmiHeader.biSize=sizeof(info.bmiHeader); info.bmiHeader.biWidth=static_cast<LONG>(w);
             info.bmiHeader.biHeight=-static_cast<LONG>(h); info.bmiHeader.biPlanes=1; info.bmiHeader.biBitCount=32; info.bmiHeader.biCompression=BI_RGB;
@@ -87,12 +88,12 @@ int draw_dc(HDC dc,const uint8_t *pixels,uint32_t w,uint32_t h,uint32_t tw,uint3
     if(!GdiFlush()) ok=false;
     return ok?IAP2_OK:IAP2_PROVIDER_FAILED;
 }
-int draw_target(projection_video_gdi *s,size_t i,const uint8_t *pixels,uint32_t w,uint32_t h,bool repaint) {
+int draw_target(projection_video_gdi *s,size_t i,const uint8_t *pixels,uint32_t w,uint32_t h,bool repaint,uint32_t sw=1,uint32_t sh=1) {
     uint32_t tw=0,th=0; bool ready=false; int r=target_size(s,i,tw,th,ready); if(r) return r;
     if(!ready) return IAP2_MORE;
     const auto &t=s->config.targets[i]; HWND window=reinterpret_cast<HWND>(t.window);
     HDC dc=window?GetDC(window):reinterpret_cast<HDC>(t.memory_dc); if(!dc) return IAP2_PROVIDER_FAILED;
-    r=draw_dc(dc,pixels,w,h,tw,th);
+    r=draw_dc(dc,pixels,w,h,tw,th,sw,sh);
     if(window&&!(GetClassLongPtrW(window,GCL_STYLE)&(CS_OWNDC|CS_CLASSDC))&&!ReleaseDC(window,dc)) r=IAP2_PROVIDER_FAILED;
     if(r==IAP2_OK) {
         auto &status=s->slots[i].status; status.target_width=tw; status.target_height=th;
@@ -139,6 +140,12 @@ int submit(void *context,uint64_t gen,uint64_t child,const projection_h264_view 
     if(!a.status.started||!a.status.epoch||v->generation!=gen||m->generation!=gen||m->configuration_epoch!=a.status.epoch||
        m->frame_authenticated!=1||m->configuration_authenticated||v->timestamp!=m->counter||
        (a.counted&&m->counter<=a.last_counter)||v->width>s->config.max_width||v->height>s->config.max_height) return fail(s,IAP2_INVALID);
+    auto color=s->config.targets[i].color; uint32_t sw=1,sh=1;
+    if(color==PROJECTION_VIDEO_SOURCE) {
+        sw=v->source.sar_width; sh=v->source.sar_height;
+        if(projection_video_source_color(&v->source,&color)||v->source.aspect_present!=1||
+           !sw||!sh||sw>65535||sh>65535) return fail(s,IAP2_UNSUPPORTED);
+    }
     uint32_t tw,th; bool ready; r=target_size(s,i,tw,th,ready); if(r) return fail(s,r); if(!ready) return IAP2_MORE;
     size_t bytes=static_cast<size_t>(v->width)*v->height*4;
     if(!bytes) return fail(s,IAP2_INVALID);
@@ -148,10 +155,11 @@ int submit(void *context,uint64_t gen,uint64_t child,const projection_h264_view 
         auto *p=new(std::nothrow) uint8_t[bytes]; if(!p) return fail(s,IAP2_NO_SPACE);
         a.work=p; a.work_capacity=bytes;
     }
-    if(projection_video_bgra(v,s->config.targets[i].color,a.work,a.work_capacity,static_cast<size_t>(v->width)*4)) return fail(s,IAP2_INVALID);
-    r=draw_target(s,i,a.work,v->width,v->height,false); if(r!=IAP2_OK) return r==IAP2_MORE?r:fail(s,r);
+    if(projection_video_bgra(v,color,a.work,a.work_capacity,static_cast<size_t>(v->width)*4)) return fail(s,IAP2_INVALID);
+    r=draw_target(s,i,a.work,v->width,v->height,false,sw,sh); if(r!=IAP2_OK) return r==IAP2_MORE?r:fail(s,r);
     std::swap(a.front,a.work); std::swap(a.front_capacity,a.work_capacity);
     a.status.has_frame=1; a.status.width=v->width; a.status.height=v->height; a.status.counter=m->counter;
+    a.status.sar_width=sw; a.status.sar_height=sh; a.status.color=color;
     a.last_counter=m->counter; a.counted=true; return IAP2_OK;
 }
 int poll(void *context,uint64_t gen,uint64_t child,uint64_t) {
@@ -159,7 +167,7 @@ int poll(void *context,uint64_t gen,uint64_t child,uint64_t) {
     size_t i=leased(s,child); if(i==2||!s->slots[i].status.started) return IAP2_INVALID; auto &a=s->slots[i];
     uint32_t w,h; bool ready; r=target_size(s,i,w,h,ready); if(r) return fail(s,r); if(!ready) return IAP2_MORE;
     if(w==a.status.target_width&&h==a.status.target_height) return IAP2_OK;
-    r=draw_target(s,i,a.status.has_frame?a.front:nullptr,a.status.width,a.status.height,true);
+    r=draw_target(s,i,a.status.has_frame?a.front:nullptr,a.status.width,a.status.height,true,a.status.sar_width,a.status.sar_height);
     return r==IAP2_OK||r==IAP2_MORE?r:fail(s,r);
 }
 void close(void *context,uint64_t gen,uint64_t child) {
@@ -174,7 +182,7 @@ extern "C" int projection_video_gdi_create(const projection_video_gdi_config *c,
        !c->max_target_width||!c->max_target_height||c->max_target_width>4096||c->max_target_height>4096) return IAP2_ARGUMENT;
     for(size_t i=0;i<c->count;++i) {
         const auto &t=c->targets[i];
-        if((t.type!=110&&t.type!=111)||t.color<1||t.color>4||bool(t.window)==bool(t.memory_dc)) return IAP2_ARGUMENT;
+        if((t.type!=110&&t.type!=111)||t.color<1||t.color>5||bool(t.window)==bool(t.memory_dc)) return IAP2_ARGUMENT;
         for(size_t j=0;j<i;++j) if(t.type==c->targets[j].type||(t.window&&t.window==c->targets[j].window)||
             (t.memory_dc&&t.memory_dc==c->targets[j].memory_dc)) return IAP2_ARGUMENT;
     }
@@ -191,7 +199,7 @@ extern "C" int projection_video_gdi_paint(projection_video_gdi *s,uint64_t gen,u
     HWND window=reinterpret_cast<HWND>(s->config.targets[i].window); PAINTSTRUCT paint{};
     HDC dc=BeginPaint(window,&paint); if(!dc) return fail(s,IAP2_PROVIDER_FAILED);
     auto &a=s->slots[i]; bool frame=!s->failed&&a.status.active&&a.status.started&&a.status.has_frame;
-    r=draw_dc(dc,frame?a.front:nullptr,a.status.width,a.status.height,w,h);
+    r=draw_dc(dc,frame?a.front:nullptr,a.status.width,a.status.height,w,h,a.status.sar_width,a.status.sar_height);
     if(!EndPaint(window,&paint)) r=IAP2_PROVIDER_FAILED;
     if(r==IAP2_OK) { a.status.target_width=w; a.status.target_height=h; if(frame&&a.status.repaints!=UINT64_MAX) ++a.status.repaints; }
     return r==IAP2_OK||r==IAP2_MORE?r:fail(s,r);

@@ -162,6 +162,11 @@ firmware, owner photographs or phone media are inputs or committed files.
 
 ## 5. Next work and target assessment
 
+Later follow-up: [Step 91](projection-video-source.md) extends the frame view with
+owned SPS/VUI source metadata and internal per-picture token association. The
+dimension-only preflight and absent-metadata limitations above describe Step 87;
+the I/P-only codec and unverified ARM/QNX integration boundaries still apply.
+
 Follow-up: [Step 88](projection-video-stream.md) implements owning memory-input
 screen framing, authenticated frame records, explicit clear AVC configuration,
 complete-AU conversion and bounded frame queues using a pinned public reference.

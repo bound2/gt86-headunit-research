@@ -37,9 +37,9 @@ try {
         '-DCMAKE_C_FLAGS_RELWITHDEBINFO=/O1 /Z7' '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=/O1 /Z7' -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
         "-DCARPLAY_OPENH264_SOURCE=$PWD/build/openh264-2.6.0" "-DCARPLAY_MONOCYPHER_SOURCE=$PWD/build/monocypher-4.0.3" "-DCARPLAY_MBEDTLS_SOURCE=$PWD/build/mbedtls-3.6.7"
     if ($LASTEXITCODE -ne 0) { throw 'Sanitized video configure failed' }
-    cmake --build build/video-service-sanitized --target projection_h264_tests projection_video_tests projection_video_limit_tests projection_video_services_tests projection_video_pixels_tests projection_video_gdi_tests
+    cmake --build build/video-service-sanitized --target projection_h264_tests projection_h264_source_tests projection_h264_source_limit_tests projection_video_tests projection_video_limit_tests projection_video_services_tests projection_video_pixels_tests projection_video_gdi_tests
     if ($LASTEXITCODE -ne 0) { throw 'Sanitized video build failed' }
-    ctest --test-dir build/video-service-sanitized -R '^projection_(h264|video|video_limit|video_services|video_pixels|video_gdi)_tests$' --output-on-failure
+    ctest --test-dir build/video-service-sanitized -R '^projection_(h264|h264_source|h264_source_limit|video|video_limit|video_services|video_pixels|video_gdi)_tests$' --output-on-failure
     if ($LASTEXITCODE -ne 0) { throw 'Sanitized video tests failed' }
 } finally { $env:Path = $videoSanSavedPath; $env:LIB = $videoSanSavedLib; Pop-Location }
 Write-Output 'PASS: video TCP/session/input/decoder/pixel/GDI adapters, tests, Mbed TLS, Monocypher and generic OpenH264 instrumented with ASan/UBSan; Windows DLLs excluded; no vehicle execution.'

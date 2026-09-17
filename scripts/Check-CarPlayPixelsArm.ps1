@@ -13,6 +13,6 @@ if ($LASTEXITCODE -ne 0) { throw 'ARM pixel conversion compilation failed' }
 $pixelsUndefined = @(& $pixelsNm --undefined-only $pixelsObject)
 if ($LASTEXITCODE -ne 0) { throw 'ARM pixel symbol inspection failed' }
 $pixelsSymbols = @($pixelsUndefined | ForEach-Object { ($_ -split '\s+')[-1] } | Sort-Object -Unique)
-if ($pixelsSymbols.Count -ne 1 -or $pixelsSymbols[0] -ne '__aeabi_uidiv') { throw "Unexpected ARM pixel runtime imports: $pixelsSymbols" }
-Write-Output 'PASS: C99 pixel conversion compiles to 32-bit ARM; required runtime helper: __aeabi_uidiv.'
+if (($pixelsSymbols -join ',') -ne '__aeabi_uidiv,__aeabi_uldivmod') { throw "Unexpected ARM pixel runtime imports: $pixelsSymbols" }
+Write-Output 'PASS: C99 pixels/source-aspect fit compile to 32-bit ARM; required runtime helpers: __aeabi_uidiv, __aeabi_uldivmod.'
 Write-Output 'Separate from the import-free core claim. Not a QNX build, rendering backend or target execution.'
