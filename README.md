@@ -897,8 +897,15 @@ these boundaries, not live hardware cancellation or factory service coexistence.
 The earlier NCM timeout stores affect separate private counters; they are not by
 themselves evidence of a failed normal-removal path.
 
+The [network identity follow-up](reports/factory-network-identity.md) traces the
+factory's name/index-based interface cache and separate link/address events.
+Thirteen new tests verify selected native query/index/address-copy behavior.
+The client preserves IPv6 scope bytes, but does not supply the missing IPv6 stack
+or a USB-to-phone association. A cached interface reply is not listener readiness.
+Matching native headers and explicit scoped-address normalization remain necessary.
+
 The optional video build now includes the existing pinned Monocypher and Mbed
-TLS dependencies alongside OpenH264. All 50 CTest suites and 137 Python tests pass;
+TLS dependencies alongside OpenH264. All 50 CTest suites and 150 Python tests pass;
 Step 95 passes 18 protocol and three TLS/carkit sanitizer suites. Step 94's
 expanded video/iAP sanitizer run passed 10 suites. Independent encrypted-input
 checks pass through both the memory owner and real TCP service. The earlier

@@ -233,3 +233,8 @@ The [factory integration gates](factory-integration-gates.md) still require
 installed-version execution/recovery, a real target build, usable MFi hardware,
 factory media/input and acceptance by an actual phone. This is not yet an
 installable software-only CarPlay update.
+
+Follow-up: [Step 99](factory-network-identity.md) now traces the stock name/index
+cache and separate link/address events. It verifies an IPv6-aware client, not a
+missing runtime or USB/phone association. Matching SDK/runtime and scoped-address
+normalization remain prerequisites for a real native network owner.

@@ -3819,6 +3819,34 @@ inputs are unchanged. Next trace stock interface/device association and establis
 the matching IPv6 runtime/build route, then use the verified lifetime constraints
 in a native adapter. CarPlay is not yet implemented on the actual unit.
 
+## Step 99 - Trace factory interface identity and network readiness
+
+Recovered the pinned networking client library from the existing ISO into a
+fresh ignored directory. The factory configuration selects `ncm0` and DHCP by
+name. Static tracing connects initial enumeration, name-keyed cache insertion,
+numeric interface-index event lookup and separate address/link observations.
+The cached `getIfConfig` path is not a fresh hardware query or a USB-to-phone join.
+
+Bounded native replay verifies interface-query failures, accepted type/link/MTU
+fields, first-index matching and complete IPv4/IPv6 sockaddr copying. The latter
+preserves scope bytes but does not validate them; an unsupported family leaves
+the previous value intact. QNX documents an internal embedded-scope address form
+that must not be advertised as wire bytes. The actual event jump table also
+differs from the generic documentation's information-event constant, reinforcing
+the need for matching headers rather than a guessed native ABI.
+
+IPv6-aware client code is now established, not merely strings, but the native
+IPv6 stack remains missing from the established runtime inputs. Two selected
+CarPlay-named base Ethernet methods simply return 4; their names do not provide
+a feature-enable switch or prove the behavior of derived implementations.
+
+All **13 new tests, 150 Python tests and 50 Release CTest suites pass**.
+Pins, extraction/reproduction, exact scope and native implementation consequences
+are in [factory-network-identity.md](factory-network-identity.md). No factory
+process, network configuration, firmware or car was changed. Next finish the
+packaged-runtime audit and check the target SDK/build route. Physical execution,
+MFi, media/input and phone acceptance remain required.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3906,8 +3934,12 @@ in a native adapter. CarPlay is not yet implemented on the actual unit.
    Step 98 verifies selected interface-granular conflict checks and library
    removal deferral, callback-before-retirement ordering and detach error/lifetime
    distinctions. Live cancellation and device-wide configuration coexistence
-   remain unverified. Next establish stock interface/device association and a
-   matching IPv6 runtime/build route. Do not use the optional
+   remain unverified. Step 99 finds name/index-based stock interface caching,
+   separate link/address observations and an IPv6-aware client, but no verified
+   USB/phone association or IPv6 runtime. Next finish the packaged-runtime audit
+   and establish the matching target SDK/build route. A new native collector must
+   preserve session epochs and normalize scoped addresses using its actual API.
+   Do not use the optional
    tunnel as a wired network
    substitute or assume a second NCM implementation would supply the IP stack.
    A later wireless owner needs explicit identity/readiness around RECORD and
