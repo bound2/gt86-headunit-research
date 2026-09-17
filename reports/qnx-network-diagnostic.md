@@ -170,3 +170,7 @@ the diagnostic. Only then can its observations support the phone-associated
 IPv6 owner and native CarPlay network backend. MFi, display/input/audio and real
 phone acceptance remain required in [the integration gates](factory-integration-gates.md).
 Software-only CarPlay on the actual unit is still unachieved.
+
+[Step 102 revalidation](native-build-blocker.md) confirms the SDK prerequisite
+has not changed, including scoped Docker image checks. Native build work is
+blocked pending usable SDK paths or an authorized package/source.

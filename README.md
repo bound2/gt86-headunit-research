@@ -914,6 +914,8 @@ The [QNX network diagnostic source](reports/qnx-network-diagnostic.md) now has
 explicit opt-in queries, bounded reporting and an SDK-only build entry point.
 Five host API-model groups pass, including sanitizer checks. The actual native
 build is blocked on usable QNX SDK paths; host tests do not compile its SDK branch.
+The [latest prerequisite recheck](reports/native-build-blocker.md) confirms this
+blocker; resuming the native build needs SDK paths or an authorized package/source.
 
 The optional video build now includes the existing pinned Monocypher and Mbed
 TLS dependencies alongside OpenH264. All 51 CTest suites and 178 Python tests pass;

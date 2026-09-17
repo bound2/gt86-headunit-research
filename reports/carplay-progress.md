@@ -3900,6 +3900,21 @@ SDK host/target paths to validate the native build, then installed-version
 execution/recovery before running the diagnostic. CarPlay remains unimplemented
 on the actual unit.
 
+## Step 102 - Revalidate the native build blocker
+
+The SDK prerequisite remains unchanged: actual preflight again exits 2 before
+compilation/output creation; no selected compiler is on PATH, the rechecked SDK
+roots are absent, and successful scoped Docker queries find no QNX-named image.
+No SDK path or package has been supplied. This is a prerequisite revalidation,
+not new implementation or a new passing native test.
+
+The same dependency spans Steps 100-102. The current SDK-based native build now
+requires input from the owner: usable `QNX_HOST`/`QNX_TARGET` paths or an authorized
+SDK package/source. [native-build-blocker.md](native-build-blocker.md) records the
+exact checks, their scope, resumption inputs and remaining physical-unit gates.
+The CarPlay goal is blocked, not completed; host results do not replace the
+missing native build or actual installed-unit verification.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
