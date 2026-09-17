@@ -229,3 +229,8 @@ the SDK or IPv6 stack might appear through another filename-only search.
 
 The [factory integration gates](factory-integration-gates.md) remain open.
 Software-only CarPlay on the actual unit is still unachieved.
+
+Follow-up: [Step 101](qnx-network-diagnostic.md) implements the native diagnostic
+source and an SDK-only build entry point. Query/reporting logic passes explicit
+host API-model tests, but real preflight stops on missing QNX host/target paths.
+The QNX SDK branch has not compiled and no native executable has been produced.

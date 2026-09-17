@@ -19,6 +19,13 @@ if(MSVC)
   target_compile_options(qnxinspect PRIVATE /W4 /permissive-)
 endif()
 enable_testing()
+# This host target exercises native diagnostic control flow against an explicit
+# synthetic API model. It is not a QNX executable or a target ABI test.
+add_executable(qnx_network_diagnostic_tests tests/qnx_network_diagnostic_tests.c src/carplay/qnx_network_diagnostic.c)
+target_compile_definitions(qnx_network_diagnostic_tests PRIVATE HEADUNIT_QNX_DIAGNOSTIC_TEST=1)
+target_include_directories(qnx_network_diagnostic_tests PRIVATE tests)
+set_target_properties(qnx_network_diagnostic_tests PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+add_test(NAME qnx_network_diagnostic_tests COMMAND qnx_network_diagnostic_tests)
 add_library(carplay_protocol STATIC src/carplay/iap2_wire.c src/carplay/iap2_auth.c src/carplay/iap2_link.c src/carplay/iap2_control.c src/carplay/iap2_identification.c src/carplay/iap2_transport.c src/carplay/iap2_carplay.c src/carplay/iap2_power.c src/carplay/usbmux_wire.c src/carplay/usbmux_host.c src/carplay/usbmux_connection.c src/carplay/usbmux_dispatcher.c)
 set_target_properties(carplay_protocol PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
 target_sources(carplay_protocol PRIVATE src/carplay/lockdown_wire.c src/carplay/lockdown_channel.c)

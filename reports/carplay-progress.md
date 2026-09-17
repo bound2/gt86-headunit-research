@@ -3875,6 +3875,31 @@ reproduction and next build/runtime decisions. Next inspect the native C build
 route with usable development inputs; do not substitute the old stack or no-op
 its missing callback functions. Actual factory CarPlay remains unimplemented.
 
+## Step 101 - Implement native diagnostic source and SDK-only build entry point
+
+Added `qnx_network_diagnostic.c`: explicit opt-in local socket/interface queries,
+bounded and escaped reporting, raw address/scope observations and exact resource
+cleanup. It does not configure interfaces, advertise addresses, bind listeners
+or access a USB device. The default invocation makes no network queries.
+The factory C/socket libraries export the selected APIs; a separate static CRT
+check reinforces the need for proper QNX process initialization.
+
+Added a builder requiring supplied QNX ARMv7 SDK inputs, with selected output
+ELF/interpreter/import checks and no host fallback or target execution. The real
+`--check-sdk` attempt returned exit 2 for missing QNX host/target paths before
+creating native output or invoking a compiler. The QNX-header branch is still
+uncompiled; no target executable or SDK compatibility is claimed.
+
+Five synthetic host API-model groups cover query/error/reporting/cleanup paths,
+and nine Python tests check the build refusals and evidence boundaries. All
+**51 CTest suites and 178 Python tests pass**; the five host groups also pass
+AddressSanitizer/UndefinedBehaviorSanitizer. Details and the immediate SDK
+dependency are in [qnx-network-diagnostic.md](qnx-network-diagnostic.md).
+No SDK, container, firmware or vehicle change was made. Next requires usable
+SDK host/target paths to validate the native build, then installed-version
+execution/recovery before running the diagnostic. CarPlay remains unimplemented
+on the actual unit.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3966,9 +3991,11 @@ its missing callback functions. Actual factory CarPlay remains unimplemented.
    separate link/address observations and an IPv6-aware client, but no verified
    USB/phone association or IPv6 runtime. Step 100 completes the seven named ZIP
    reads, identifies ARMle-v7/SP1 and checks a public toolchain/runtime candidate.
-   Its older IPv6 stack lacks two factory NCM exports. Next inspect the native
-   diagnostic's C build route with usable development inputs and establish a
-   compatible IPv6 runtime; do not repeat the ZIP search or stub missing driver
+   Its older IPv6 stack lacks two factory NCM exports. Step 101 implements native
+   diagnostic source and an SDK-only builder; preflight stops on missing QNX
+   host/target paths, and host API-model tests do not compile the SDK branch.
+   Next obtain usable development inputs and validate that native build, then
+   establish a compatible IPv6 runtime; do not repeat the ZIP search or stub missing driver
    callbacks. A new native collector must
    preserve session epochs and normalize scoped addresses using its actual API.
    Do not use the optional
