@@ -163,8 +163,10 @@ with explicit clear-configuration provenance, bounded decoded-frame queues and
 740 independently encrypted/decrypted/decoded frame checks. Step 89 connects
 the [session-bound video service](projection-video-services.md) to real IPv4/IPv6
 TCP, reply-drain startup, sink ownership and cleanup, preserving audio delegation.
-All 44 optional-video CTest suites and four video sanitizer suites pass. No actual
-renderer or ARM/QNX decoder build is supplied. These results do not
+Step 90 adds [owned colour conversion and native GDI rendering](projection-video-render.md),
+verified with actual offscreen pixels and 40 independently checked rendered
+frames. All 46 optional-video CTest suites and six video sanitizer suites pass.
+No factory renderer or ARM/QNX decoder build is supplied. These results do not
 establish a working CarPlay receiver or a demonstrated recovery method.
 All work below is on the local PC.
 
@@ -3513,13 +3515,39 @@ Final audio/display providers remain synthetic in these integration tests.
 No actual renderer, phone acceptance, ARM/QNX integration or installable CarPlay
 update is claimed. Factory execution/recovery and hardware routing remain open.
 
+## Step 90 - Render owned video pixels through an explicit native sink
+
+Added a standalone C99 tight-I420/BGRA converter and Windows GDI sink, with four
+explicit matrix/range modes, bounded owned copies, square-pixel letterboxing,
+resize/repaint, counter/epoch checks and cleanup. The application supplies an
+owned window or explicit offscreen DIB; nothing creates/shows a default window
+or advertises a display. HWND mode checks owner thread/process and per-monitor
+DPI awareness. Closed/failed bindings retain black-only repaint handling while
+their owner exists.
+
+All 46 optional-video CTest suites, six sanitizer suites and 83 Python tests pass.
+The converter checks 230,400 colour triples against a separate floating-point
+oracle. Actual IPv4/IPv6 TCP/AEAD/H.264 input reaches real GDI surfaces; 40 rendered
+readbacks match an independent FFmpeg/pixel calculation with zero observed RGB
+difference. Earlier 740 encrypted-frame and 395 independent decoder-frame checks
+pass again. The converter separately compiles to an ARM object requiring
+`__aeabi_uidiv`; it is not added to the import-free core or called a QNX build.
+
+This proves offscreen host rendering, not visible-window scan-out, a physical
+factory display or actual CarPlay phone acceptance. Source colour/aspect metadata,
+presentation timing, on-unit integration and performance remain unresolved. Exact
+contracts, primary references, reproduction and limitations are in
+[projection-video-render.md](projection-video-render.md).
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
    coalesced-tail ownership/backpressure, deadlines, configuration epochs,
    reply-drain startup and TEARDOWN/failure cleanup, verified over real IPv4/IPv6
-   loopback through the decoder. Next implement a real explicitly selected
-   display sink with owned output, epoch invalidation and measurable presentation.
+   loopback through the decoder. Step 90 adds explicit native host rendering with
+   owned output, epoch invalidation and measured offscreen pixels, not presentation
+   timing. Next carry verified source colour/range and sample-aspect-ratio metadata
+   into that path; separately validate visible-device behavior and sender timing.
    Actual phone framing/configuration and presentation timing remain unverified;
    authenticated frame records do not authenticate clear configuration. Add
    rendering/timing only with explicit output ownership. Keep B slices disabled until
@@ -3578,8 +3606,8 @@ update is claimed. Factory execution/recovery and hardware routing remain open.
    peer-bound Windows timing/event/keepalive sockets and receiver polling, tested
    over loopback. Audio packet processing is added in Step 66; Step 88 adds
    memory-input video processing and Step 89 connects its real Windows TCP/session
-   service. Actual video output, iAP stream processing and a QNX socket backend
-   remain missing.
+   service. Step 90 adds Windows GDI output; factory video output, sender video
+   timing, iAP stream processing and a QNX socket backend remain missing.
    Step 62 adds
    typed session/resource ownership and key derivation, with strict capability/
    state gates, lease cleanup and reply-drain/start handling. Media allocation
@@ -3647,7 +3675,9 @@ update is claimed. Factory execution/recovery and hardware routing remain open.
    approach, not a requirement for an added receiver module.
 4. The source-built host decoder is implemented in Step 87, memory-input
    video/configuration ownership in Step 88 and the peer-bound Windows
-   session/socket service in Step 89; timing/rendering remain next. Either AIR path would still need a
+   session/socket service in Step 89. Step 90 implements a host GDI renderer;
+   source colour/aspect metadata, timing and native factory output remain next.
+   Either AIR path would still need a
    verified outside-AIR interface
    before use. Step 85's internal MainConcept-associated byte/frame interface is
    not a verified public API. Step 84 identifies MMF

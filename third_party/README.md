@@ -631,3 +631,20 @@ copied. Socket/lease ownership, budgets and output-sink policy are local design
 choices, not Apple conformance or a usable factory display driver. See
 [projection-video-services.md](../reports/projection-video-services.md) for
 primary API attribution, verification and remaining unit-integration requirements.
+
+## Owned colour conversion and native rendering (Step 90)
+
+The C99 pixel converter, Windows GDI sink and tests select GPL-3.0-only.
+Microsoft's YUV reference supplies matrix/range equations; locally derived Q16
+coefficients, buffer ownership and lifecycle policy are not copied upstream
+implementation bodies. Native `gdi32`/`user32` API contracts supply drawing,
+thread/DPI and DC ownership semantics. No new downloaded library is introduced.
+Primary attribution and exact limits are in
+[projection-video-render.md](../reports/projection-video-render.md).
+
+The independent render check reuses the existing hash-pinned PyAV 18.1.0/native
+FFmpeg environment and SHA256-pinned public `Static.264` fixture. It calculates
+RGB independently and compares real GDI DIB pixels; FFmpeg is not linked into
+the receiver. No owner media, screenshot, phone capture or binary is committed.
+The native backend is Windows-only; the separately ARM-compiled local converter
+still requires its declared division runtime helper and is not a QNX executable.

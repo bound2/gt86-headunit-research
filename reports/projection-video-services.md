@@ -204,6 +204,10 @@ Recorded results on this host:
 
 ## 6. Next implementation and factory requirements
 
+Follow-up: [Step 90](projection-video-render.md) implements owned colour conversion
+and an explicit Windows GDI sink, verified with real offscreen pixels. Physical
+presentation timing, sender metadata and factory display integration remain open.
+
 Implement a real, explicitly selected display sink with owned output,
 configuration-epoch invalidation, resizing/color handling and measurable
 presentation/teardown behavior. Establish sender presentation timing and A/V

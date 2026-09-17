@@ -843,11 +843,14 @@ goldens. Frame authentication does not authenticate the clear configuration.
 The [session-bound video service](reports/projection-video-services.md) now adds
 real peer-bound IPv4/IPv6 TCP reception, reply-drain startup, output-sink ownership
 and teardown/failure propagation, preserving concurrent audio through delegation.
-Presentation timestamps, actual rendering and the factory ARM/QNX path remain
-work; test MFi/display providers are synthetic, not real phone/unit acceptance.
+The [owned rendering follow-up](reports/projection-video-render.md) adds explicit
+I420/BGRA colour conversion and a Windows GDI sink with resize, repaint and
+epoch/teardown invalidation. Forty offscreen rendered frames match independent
+FFmpeg/pixel calculations. Source colour/aspect metadata, presentation timing
+and factory ARM/QNX output remain work; this is not real phone/unit acceptance.
 
 The optional video build now includes the existing pinned Monocypher and Mbed
-TLS dependencies alongside OpenH264. All 44 CTest suites and four video sanitizer
+TLS dependencies alongside OpenH264. All 46 CTest suites and six video sanitizer
 suites pass. It does not enable receiver capabilities or touch hardware:
 
 ```powershell

@@ -1,5 +1,18 @@
-# Optional source-only decoder. No downloads at configure/build time, no encoder,
-# assembly, runtime DLL discovery, display driver or receiver capability changes.
+# Always-available CPU pixels plus optional source-only decoder/input/services.
+# Windows GDI is explicit, never a default display/capability. No configure/build
+# downloads, encoder, assembly or runtime discovery of codec DLLs.
+add_library(carplay_video_pixels STATIC src/carplay/projection_video_pixels.c)
+target_include_directories(carplay_video_pixels PUBLIC src/carplay)
+set_target_properties(carplay_video_pixels PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+if(MSVC)
+  target_compile_options(carplay_video_pixels PRIVATE /W4)
+else()
+  target_compile_options(carplay_video_pixels PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+add_executable(projection_video_pixels_tests tests/projection_video_pixels_tests.cpp tests/projection_video_pixels_c_api.c)
+target_link_libraries(projection_video_pixels_tests PRIVATE carplay_video_pixels)
+add_test(NAME projection_video_pixels_tests COMMAND projection_video_pixels_tests)
+set_tests_properties(projection_video_pixels_tests PROPERTIES TIMEOUT 60)
 set(CARPLAY_OPENH264_SOURCE "" CACHE PATH "Pinned OpenH264 2.6.0 checkout")
 if(CARPLAY_OPENH264_SOURCE)
   find_package(Git REQUIRED)
@@ -101,6 +114,17 @@ if(CARPLAY_OPENH264_SOURCE)
         "${CMAKE_SOURCE_DIR}/tests/fixtures/pair-setup-vectors.txt" "${CMAKE_SOURCE_DIR}/tests/fixtures/projection-audio-vectors.txt"
         "${CMAKE_SOURCE_DIR}/tests/fixtures/projection-session-vectors.txt")
       set_tests_properties(projection_video_services_tests PROPERTIES TIMEOUT 60)
+      add_library(carplay_video_gdi STATIC src/carplay/projection_video_gdi_win.cpp)
+      target_link_libraries(carplay_video_gdi PUBLIC carplay_video_services carplay_video_pixels PRIVATE gdi32 user32)
+      if(MSVC)
+        target_compile_options(carplay_video_gdi PRIVATE /W4 /permissive-)
+      else()
+        target_compile_options(carplay_video_gdi PRIVATE -Wall -Wextra -Wpedantic)
+      endif()
+      add_executable(projection_video_gdi_tests tests/projection_video_gdi_tests.cpp tests/projection_video_gdi_c_api.c)
+      target_link_libraries(projection_video_gdi_tests PRIVATE carplay_video_gdi)
+      add_test(NAME projection_video_gdi_tests COMMAND projection_video_gdi_tests "${CARPLAY_OPENH264_SOURCE}/res")
+      set_tests_properties(projection_video_gdi_tests PROPERTIES TIMEOUT 60)
     endif()
   endif()
 endif()
