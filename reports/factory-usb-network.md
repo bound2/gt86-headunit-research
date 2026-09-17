@@ -168,6 +168,12 @@ results are not reclassified as native NCM or IPv6 verification.
 
 ## 6. Next implementation decision
 
+Follow-up: [Step 97](factory-ncm-lifecycle.md) now traces separate connections,
+replays insertion/removal selection, identifies `pnp` retention and abort timeout
+counter resets, and audits the outer installation-ISO directory. It does not
+establish live claim/cancellation guarantees or a compatible IPv6 runtime.
+The original decision sequence below remains historical context for that work.
+
 1. Trace the NCM insertion/removal and interface-attachment ownership, including
    initialization-failure cleanup and how stock MirrorLink/network management
    identifies the interface. Establish what would have to cooperate with the

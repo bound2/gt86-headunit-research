@@ -881,8 +881,15 @@ The selected factory IPv4 stack has no built-in IPv6 domain; native IPv6 and
 phone-associated interface ownership remain unresolved. Nine offline tests
 verify this evidence, not installed-unit compatibility or a working CarPlay link.
 
+The [NCM lifecycle follow-up](reports/factory-ncm-lifecycle.md) adds bounded native
+insertion/removal callback replay, separate connection and `pnp` retention traces,
+and an outer installation-ISO audit. Removal selects by bus/address; abort timeout
+paths can reset pending counters, so neither establishes durable session identity
+or completed transfer drain. Seventeen new tests cover these selected boundaries
+and evidence limits. Actual USB coexistence and an IPv6 runtime remain unresolved.
+
 The optional video build now includes the existing pinned Monocypher and Mbed
-TLS dependencies alongside OpenH264. All 50 CTest suites and 101 Python tests pass;
+TLS dependencies alongside OpenH264. All 50 CTest suites and 118 Python tests pass;
 Step 95 passes 18 protocol and three TLS/carkit sanitizer suites. Step 94's
 expanded video/iAP sanitizer run passed 10 suites. Independent encrypted-input
 checks pass through both the memory owner and real TCP service. The earlier

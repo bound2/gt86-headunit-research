@@ -3761,6 +3761,34 @@ whether a matching, isolated IPv6 runtime is available outside the IFS corpus.
 Actual execution/recovery, target build, MFi, factory media and phone acceptance
 remain unresolved; this step does not produce an installable CarPlay update.
 
+## Step 97 - Verify native NCM lifecycle boundaries and extend the ISO audit
+
+The native driver uses separate callback/I/O and shared-inspection USB
+connections. A new bounded ARM replay verifies insertion's full-instance copy
+and queued handoff, and removal's first bus/address match, class filtering and
+unlock-before-handoff. Worker/attach/detach/framework execution is not simulated
+as success. Changed generation/interface fields do not change that selector;
+actual stale-event delivery remains unproven.
+
+Static tracing connects real attach/detach callback relocations to interface
+registration, failure cleanup and `pnp` connection retention. The abort helper's
+timeout branches can force pending counters to zero, so zero alone cannot prove
+real callback completion. A second USB owner still needs coordinated ownership.
+
+The pinned installation ISO's 842-entry outer listing contains no named IPv6
+stack. A pinned networking client has IPv6 diagnostic strings, not established
+stack functionality. Nested archives, renamed binaries and installed contents
+remain outside this check. No firmware or native interface is changed.
+
+All **17 new tests, 118 Python tests and 50 Release CTest suites pass**.
+Receiver C/C++ code is unchanged. Reproduction, exact native boundaries and
+input pins are in [factory-ncm-lifecycle.md](factory-ncm-lifecycle.md).
+
+Next trace USB claim/cancellation guarantees and stock interface-to-device
+association, while establishing a matching IPv6 runtime/build route. Native
+execution/recovery, MFi, media integration and phone acceptance remain necessary;
+no installable CarPlay update has been produced.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3842,9 +3870,12 @@ remain unresolved; this step does not produce an installable CarPlay update.
    separate session; active matching wired carkit blocks that tunnel. Its explicit
    version-2/zero-ACK stream profile now works through the carkit bridge in tests.
    Step 96 finds the factory NCM driver and its descriptor/request boundaries,
-   but the selected stack has no built-in IPv6 domain. Next trace insertion/
-   removal and interface ownership, and check outside the IFS corpus for a
-   compatible IPv6 runtime. Do not use the optional tunnel as a wired network
+   but the selected stack has no built-in IPv6 domain. Step 97 replays insertion/
+   removal selection and traces separate USB connections, `pnp` retention and
+   abort timeout counter resets; its outer ISO audit finds no named IPv6 stack.
+   Next establish USB claim/cancellation guarantees, stock interface/device
+   association and a matching IPv6 runtime/build route. Do not use the optional
+   tunnel as a wired network
    substitute or assume a second NCM implementation would supply the IP stack.
    A later wireless owner needs explicit identity/readiness around RECORD and
    the alternate incoming event route, without resetting active wired state.
