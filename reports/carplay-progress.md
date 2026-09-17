@@ -3847,6 +3847,34 @@ process, network configuration, firmware or car was changed. Next finish the
 packaged-runtime audit and check the target SDK/build route. Physical execution,
 MFi, media/input and phone acceptance remain required.
 
+## Step 100 - Audit nested packages and establish the native build family
+
+Read and CRC-checked all 8,713 entries in the installation ISO's seven named
+ZIPs, with exact archive pins and no extraction/execution. No ELF signature,
+selected network/SDK marker or further common archive candidate was found.
+The one PE executable is an x86 shader converter, not an ARM/QNX runtime.
+Opaque navigation formats are not silently counted as decoded evidence.
+
+Pinned ELF metadata establishes the corpus's ARMle-v7/SP1 family. Scoped host
+checks found no configured/local QNX SDK. A newly located public toolchain at
+`luka-dev/qnx65-armv7-toolchain`, commit
+`baa45224f18ae6b13c2e9c77c6663bb8181eb6a1`, provides a concrete build lead.
+However, its pinned IPv6 stack and C/socket libraries identify 2010 QNX 6.5.0,
+not the factory SP1 builds. Its stack lacks `stk_context_callback_2` and
+`stk_context_callback_2_clean`, both imported by the factory NCM driver.
+Matching ARM ELF flags therefore do not make it a drop-in networking solution.
+The candidate route header distinguishes old type 14 from current type 15,
+explaining Step 99's documentation discrepancy without changing native constants.
+
+All **19 new tests, 169 Python tests and 50 Release CTest suites pass**.
+The explicit pinned online candidate comparison also passed its input checks.
+No SDK content was added to Git, and no container build, vendor execution or
+vehicle operation was performed. [factory-native-build-route.md](factory-native-build-route.md) records
+the package totals, host search scope, provenance, licensing-notice boundary,
+reproduction and next build/runtime decisions. Next inspect the native C build
+route with usable development inputs; do not substitute the old stack or no-op
+its missing callback functions. Actual factory CarPlay remains unimplemented.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3936,8 +3964,12 @@ MFi, media/input and phone acceptance remain required.
    distinctions. Live cancellation and device-wide configuration coexistence
    remain unverified. Step 99 finds name/index-based stock interface caching,
    separate link/address observations and an IPv6-aware client, but no verified
-   USB/phone association or IPv6 runtime. Next finish the packaged-runtime audit
-   and establish the matching target SDK/build route. A new native collector must
+   USB/phone association or IPv6 runtime. Step 100 completes the seven named ZIP
+   reads, identifies ARMle-v7/SP1 and checks a public toolchain/runtime candidate.
+   Its older IPv6 stack lacks two factory NCM exports. Next inspect the native
+   diagnostic's C build route with usable development inputs and establish a
+   compatible IPv6 runtime; do not repeat the ZIP search or stub missing driver
+   callbacks. A new native collector must
    preserve session epochs and normalize scoped addresses using its actual API.
    Do not use the optional
    tunnel as a wired network

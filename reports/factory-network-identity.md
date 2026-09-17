@@ -219,3 +219,9 @@ configuration commands as a substitute for that missing capability.
 Installed-version execution/recovery, MFi, factory media/input and actual
 phone/unit verification remain open in [factory integration gates](factory-integration-gates.md).
 The requested software-only CarPlay outcome is still unachieved.
+
+Follow-up: [Step 100](factory-native-build-route.md) finishes the seven named ZIP
+reads and identifies the ARMle-v7/SP1 build family. A public older IPv6 runtime
+candidate lacks two factory NCM imports. Its header distinguishes old route type
+14 from current type 15, explaining the discrepancy above but not proving that
+the whole candidate SDK matches the factory runtime.

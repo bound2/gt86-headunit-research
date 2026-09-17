@@ -212,3 +212,8 @@ above; the stores alone do not demonstrate a failed normal-removal path. Abort
 return still does not establish callback drain, and detach command errors can
 consume local handles. Actual hardware cancellation, configuration coexistence
 and phone-associated interface readiness remain unverified.
+
+Step 100 now [audits all seven named ZIP members](factory-native-build-route.md).
+They reveal no ELF stack or SDK. A separate public 2010 IPv6-stack candidate is
+missing the factory NCM driver's `stk_context_callback_2` and
+`stk_context_callback_2_clean` imports; it is not an established drop-in runtime.
