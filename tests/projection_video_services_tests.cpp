@@ -4,6 +4,7 @@
 #include "projection_video_services.h"
 #include "projection_audio_services.h"
 #include "projection_audio_fixture.h"
+#include "projection_h264_source_fixture.h"
 #include <iphlpapi.h>
 #include <filesystem>
 #include <fstream>
@@ -108,15 +109,21 @@ static void transport(const Media &m,bool v6) {
     Service f(v6); uint8_t key[32]{}; Socket phone(SOCK_STREAM,v6); auto e=f.open(); auto p=f.provider();
     if(!v6) { Socket foreign(SOCK_STREAM,false,2); foreign.connect_to(e.data_port); f.poll(); CHECK(f.sink.configs==0); }
     phone.connect_to(e.data_port);
+    phone.send_bytes(record(1,{})); phone.send_bytes(record(1,Bytes{0,0,0,0,'a','v','c','C'}));
     phone.send_bytes(Bytes(m.config.begin(),m.config.begin()+31)); f.poll(); CHECK(!f.sink.configs);
     auto tail=Bytes(m.config.begin()+31,m.config.end()); auto first=m.frame(key,0); tail.insert(tail.end(),first.begin(),first.end());
     phone.send_bytes(tail); f.until([&]{return f.sink.configs==1;}); for(unsigned i=0;i<5;++i) f.poll();
     CHECK(!f.sink.starts&&!f.sink.submits&&!f.sink.polls); f.start(e.lease); f.until([&]{return f.sink.seen.size()==1;});
     Bytes baseline=f.sink.seen[0].pixels; CHECK(f.sink.seen[0].counter==0);
-    Bytes rest; for(unsigned i=1;i<10;++i) { auto frame=m.frame(key,i,i+2); rest.insert(rest.end(),frame.begin(),frame.end()); }
+    Bytes rest; for(unsigned i=1;i<10;++i) {
+        auto empty=record(1,{}),repeat=i%2?m.config:m.reserved_config(),frame=m.frame(key,i,i+2);
+        for(const auto &part:{empty,repeat,frame}) rest.insert(rest.end(),part.begin(),part.end());
+    }
     phone.send_bytes(rest); f.until([&]{return f.sink.seen.size()==10;});
+    CHECK(f.sink.configs==1); // No callbacks, frame retirement or IDR gate for config keepalives/repeats.
     for(unsigned i=0;i<10;++i) CHECK(f.sink.seen[i].counter==i&&f.sink.seen[i].epoch==1);
-    auto changed=m.config; auto next=m.frame(key,10); changed.insert(changed.end(),next.begin(),next.end()); phone.send_bytes(changed);
+    Media replacement=m; replacement.nals[0]=source_fixture::sps(source_fixture::Spec{}); replacement.configure();
+    auto changed=replacement.config; auto next=m.frame(key,10); changed.insert(changed.end(),next.begin(),next.end()); phone.send_bytes(changed);
     f.until([&]{return f.sink.seen.size()==11;}); CHECK(f.sink.configs==2&&f.sink.seen.back().epoch==2&&f.sink.seen.back().pixels==baseline);
     phone.send_bytes(m.frame(key,0)); f.failure(PROJECTION_VIDEO_AUTH); CHECK(f.sink.closed==std::vector<uint64_t>{1});
     p.close(p.context,91,e.lease); CHECK(f.sink.closed.size()==1);
@@ -142,6 +149,7 @@ static void deadlines_and_failures(const Media &m) {
     for(unsigned mode=0;mode<3;++mode) {
         Service f; auto e=f.open(); f.start(e.lease); f.sink.busy=true; Socket phone(SOCK_STREAM); phone.connect_to(e.data_port);
         phone.send_bytes(m.config); phone.send_bytes(m.frame(key,0)); f.until([&]{return f.sink.submits!=0;});
+        phone.send_bytes(record(1,{})); phone.send_bytes(m.reserved_config()); // Cannot clear or renew held output.
         CHECK(f.sink.seen.empty()); f.now+=1999*ms;
         if(mode==0) { f.sink.busy=false; f.until([&]{return f.sink.seen.size()==1;}); CHECK(f.sink.seen[0].counter==0); }
         if(mode==1) { f.poll(); f.now+=ms; f.failure(PROJECTION_VIDEO_DEADLINE); }

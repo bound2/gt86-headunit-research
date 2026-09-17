@@ -38,7 +38,7 @@ def packet(opcode: int, body: bytes, counter: int | None = None) -> bytes:
     return bytes(header) + body
 
 
-def stream(data: bytes, length_size: int) -> tuple[bytes, int]:
+def stream(data: bytes, length_size: int, config_noops: bool = False) -> tuple[bytes, int]:
     nals = re.split(b"\x00\x00\x00?\x01", data)
     if nals.pop(0):
         raise ValueError("fixture is not Annex B")
@@ -55,7 +55,9 @@ def stream(data: bytes, length_size: int) -> tuple[bytes, int]:
     config += bytes([len(pps)])
     for p in pps:
         config += struct.pack(">H", len(p)) + p
-    records = [packet(1, config)]
+    reserved = b"\0\0\0\0avcC" + config
+    records = ([packet(1, b""), packet(1, b"\0\0\0\0avcC"), packet(1, reserved)]
+               if config_noops else [packet(1, config)])
     units = []
     current = []
     for nal in nals:
@@ -70,6 +72,8 @@ def stream(data: bytes, length_size: int) -> tuple[bytes, int]:
     for counter, unit in enumerate(units):
         plain = b"".join(len(n).to_bytes(length_size, "big") + n for n in unit)
         largest = max(largest, len(plain))
+        if config_noops:
+            records.extend((packet(1, b""), packet(1, config if counter % 2 else reserved)))
         records.append(packet(0, plain, counter))
     return b"".join(records), largest
 
@@ -92,8 +96,8 @@ def check(executable: Path, root: Path) -> None:
         if hashlib.sha256(data).hexdigest() != PINS[name]:
             raise RuntimeError(f"input fixture mismatch: {name}")
         widths = (4,) if name.startswith("Adobe") else (2, 4)
-        for width in widths:
-            wire, largest = stream(data, width)
+        for width, noops in ((w, n) for w in widths for n in (False, True)):
+            wire, largest = stream(data, width, noops)
             run = subprocess.run([str(executable.resolve()), "--wire-stdin"], input=wire,
                                  capture_output=True, timeout=60)
             if run.returncode:
@@ -105,7 +109,7 @@ def check(executable: Path, root: Path) -> None:
             if actual != golden:
                 raise RuntimeError(f"wire/decoder disagreement: {name}: {actual} != {golden}")
             total += golden[0]
-            print(f"PASS PyCA -> fragmented screen records -> H264: {name}, length={width}, "
+            print(f"PASS PyCA -> fragmented screen records -> H264: {name}, length={width}, config_noops={noops}, "
                   f"{golden[0]} frames, largest AU={largest}")
     print(f"PASS: {total} decrypted/decoded frames; wire framing is synthetic, not captured from a phone.")
 

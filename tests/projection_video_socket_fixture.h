@@ -37,5 +37,8 @@ struct Media {
     Bytes frame(const uint8_t *key,uint64_t counter,size_t index=2) const {
         Bytes b{0,0}; be16(b,nals.at(index).size()); b.insert(b.end(),nals[index].begin(),nals[index].end()); return sealed(key,counter,b);
     }
+    Bytes reserved_config() const {
+        Bytes b{0,0,0,0,'a','v','c','C'}; b.insert(b.end(),config.begin()+128,config.end()); return record(1,b);
+    }
 };
 #endif

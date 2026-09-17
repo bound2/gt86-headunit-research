@@ -32,6 +32,8 @@ int main() {
     if (projection_video_create(&cfg, key, 18, 0, &v) != PROJECTION_VIDEO_MORE) return 9;
     owned.reset(v); v->epoch = 64;
     std::array<uint8_t, 129> config{}; config[0] = 1; config[4] = 1;
+    config[128] = 1; // Bare AVC discriminator: test the change limit, not a malformed wrapper.
+    // Full valid 64-change/no-op/65th-change behavior is covered by public API tests.
     if (projection_video_feed(v, 18, config.data(), config.size(), &used, 0) != PROJECTION_VIDEO_LIMIT || !v->dead) return 10;
     std::cout << "white-box nonce exhaustion, close/wipe and configuration-epoch limit passed\n";
     return 0;

@@ -852,6 +852,12 @@ adds per-picture SPS/VUI snapshots and explicit strict source colour/SAR renderi
 independent scaling/colour calculations. Presentation timing and factory ARM/QNX
 output remain work; this is not real phone/unit acceptance.
 
+The [clock/configuration review](reports/projection-video-clock.md) fixes empty
+and repeated configuration handling plus the reference's reserved-zero AVC
+wrapper. The independent wire check now covers 1,480 decoded frames across 18
+variants. Pinned CarPlay source does not establish sender presentation timestamps;
+classic AirPlay's different timestamp/epoch/cipher path is not adopted by analogy.
+
 The optional video build now includes the existing pinned Monocypher and Mbed
 TLS dependencies alongside OpenH264. All 48 CTest suites and eight video sanitizer
 suites pass. It does not enable receiver capabilities or touch hardware:

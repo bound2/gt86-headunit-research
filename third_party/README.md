@@ -664,3 +664,18 @@ Sample-aspect fitting adds the declared ARM compiler-runtime helper
 the earlier import-free core result. See
 [projection-video-source.md](../reports/projection-video-source.md) for sources,
 tests and the unverified physical/factory integration boundary.
+
+## Video clock comparison and configuration interoperability (Step 92)
+
+The existing pinned LIVI addon/NAL/player files supply empty/repeated configuration,
+reserved-zero AVC wrapper and immediate-rendering evidence. The new configuration
+handling, tests and offline reference checker are local GPL-3.0-only code; no
+additional upstream implementation body is copied.
+
+UxPlay at `2c7b63ee9c36edfb121186db928397c582852133` was downloaded as ignored Git
+objects for static comparison only. Its reviewed mirror/byte/NTP/cipher files
+carry LGPL-2.1-or-later notices. None is compiled, linked, copied into the receiver
+or run. It is not a new receiver dependency and its different AirPlay media
+profile is not treated as CarPlay wire authority. The exact source/blob pins,
+reproduction and limitations are in
+[projection-video-clock.md](../reports/projection-video-clock.md).

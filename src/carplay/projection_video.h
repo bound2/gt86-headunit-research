@@ -47,12 +47,17 @@ typedef struct projection_video_configuration {
  * Malformed/authentication/decoder/deadline failures close, release queued
  * frames, and wipe wire/plain/key buffers. Pixel allocations are not securely wiped.
  *
- * Config accepts a bare avcC, exact avcC box or correctly bounded avc1 sample entry
+ * Config accepts a bare avcC, exact avcC box, the reference's exact top-level
+ * four-zero-byte + avcC wrapper, or correctly bounded avc1 sample entry
  * containing one avcC box. No arbitrary fourcc search, HEVC or SPS extensions.
  * Length prefixes are 1/2/4 bytes. Each frame message is one complete access unit;
  * this mapping remains to be verified with a real phone. Initial/reconfigured
  * video requires an IDR. In-band SPS/PPS must match the current configuration;
- * changed sets need a new configuration record. Reconfiguration replaces history and drops queued
+ * changed sets need a new configuration record. Empty configuration and exact
+ * repeats of the normalized codec bytes return IGNORED: no epoch, nonce, IDR,
+ * queue/history or deadline reset, including before RECORD. Empty config is not
+ * readiness; media still requires actual validated SPS/PPS. Malformed nonempty
+ * configuration remains fatal. Changed configuration replaces history and drops queued
  * old frames WITHOUT resetting the nonce; CONFIG announces the new epoch.
  * Frames transferred earlier remain allocated, but caller must invalidate old
  * epochs before presentation. Retain/check epoch alongside every owned frame.

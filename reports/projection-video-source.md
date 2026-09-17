@@ -2,6 +2,10 @@
 
 Date: 2026-09-17. Continues [owned native video rendering](projection-video-render.md).
 
+Follow-up: [Step 92](projection-video-clock.md) checks sender-time references and
+fixes empty/repeated configuration handling. Only changed codec configuration
+now resets the epoch; source metadata and presentation-time limits remain separate.
+
 ## Result and boundary
 
 Decoded pictures now carry their own SPS/VUI colour, range, sample-aspect-ratio

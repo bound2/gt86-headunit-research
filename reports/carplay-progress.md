@@ -167,7 +167,12 @@ Step 90 adds [owned colour conversion and native GDI rendering](projection-video
 verified with actual offscreen pixels and 40 independently checked rendered
 frames. Step 91 adds [per-picture source metadata](projection-video-source.md),
 strict opt-in source colour/SAR rendering and 40 further independently verified
-readbacks. All 48 optional-video CTest suites and eight video sanitizer suites pass.
+readbacks. Step 92 fixes [empty/repeated configuration and the reserved AVC
+wrapper](projection-video-clock.md), preserving decoder history, queued pictures,
+counters and deadlines. The independent wire check now covers 1,480 frames across
+18 variants. All 48 optional-video CTest suites, eight video sanitizer suites and
+88 Python tests pass. The pinned CarPlay reader does not propagate sender time;
+the different UxPlay media profile is not a verified substitute for its clock.
 No factory renderer or ARM/QNX decoder build is supplied. These results do not
 establish a working CarPlay receiver or a demonstrated recovery method.
 All work below is on the local PC.
@@ -3569,6 +3574,44 @@ checks still pass. ARM pixel compilation now declares `__aeabi_uidiv` and
 See [projection-video-source.md](projection-video-source.md) for step-by-step
 contracts, provenance, reproduction and remaining timing/display/unit gates.
 
+## Step 92 - Audit sender time and preserve video across configuration repeats
+
+Traced the pinned LIVI screen readers, native addon and player: frame consumers
+receive payload only, and the selected player disables sink synchronization.
+The pinned UxPlay comparison reads a timestamp at header offset 8, but has
+different epoch handling and an AES-CTR media profile. It does not establish the
+same mapping for the implemented ChaCha20-Poly1305 CarPlay profile. No guessed
+timestamp parser, presentation scheduler or A/V synchronization claim was added.
+
+The source review exposed concrete configuration incompatibilities. Empty
+configuration and byte-identical normalized codec data now return `IGNORED`
+without resetting the decoder, retiring queued frames, requiring another IDR or
+advancing the epoch. The exact top-level four-zero-byte + `avcC` wrapper used by
+the reference's tests is supported. Changed nonempty configuration still needs
+complete validation; malformed input, replay, pre-RECORD delivery, absolute
+deadlines, backpressure and the 64-change limit retain their gates.
+
+All 48 CTest suites, eight full video/codec/crypto sanitizer suites and 88 Python
+tests pass. An obsolete white-box limit fixture initially failed because it
+selected malformed-wrapper validation; the corrected fixture selects the bare
+AVC discriminator, and a separate public-API test exercises 64 fully valid
+changes, interleaved no-ops and rejection of change 65. Production limits were
+not weakened. Real IPv4/IPv6 TCP and GDI tests now carry empty/repeated
+configuration between continuing P pictures and keep the original epoch.
+
+Independent PyCA encryption now covers 18 variants / 1,480 decoded frames,
+including interleaved empty/repeated/reserved-wrapper records. Both independent
+GDI checks still match all 80 rendered frames with zero observed RGB difference.
+The offline source checker verifies ten pinned Git blobs without running
+upstream code or allowing implicit network fetches. These are synthetic-wire
+and public-codec tests on the PC, not phone acceptance or factory execution.
+
+Step-by-step source evidence, exact pins, reproduction and the remaining timing
+and installation boundaries are in [projection-video-clock.md](projection-video-clock.md).
+Actual sender presentation time still needs compatible-profile evidence;
+factory execution/recovery, USB/MFi ownership and physical media/input remain
+unverified. No vehicle, USB update or service-menu state was changed.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3577,8 +3620,13 @@ contracts, provenance, reproduction and remaining timing/display/unit gates.
    loopback through the decoder. Step 90 adds explicit native host rendering with
    owned output, epoch invalidation and measured offscreen pixels, not presentation
    timing. Step 91 carries per-picture source colour/range/SAR into an explicit
-   rendering policy. Next trace sender timestamp fields against pinned evidence
-   before scheduling; separately validate visible-device behavior and A/V mapping.
+   rendering policy. Step 92 fixes empty/repeated configuration and the reserved
+   AVC wrapper, and traces the selected CarPlay reference's payload-only delivery.
+   Its immediate-rendering path does not establish a sender-time mapping; UxPlay's
+   different media profile cannot fill that gap. Obtain compatible-profile
+   timestamp evidence before scheduling; separately validate visible-device
+   behavior and A/V mapping. Continue session-start/transport integration without
+   treating a synthetic sender as actual phone interoperability.
    Actual phone framing/configuration and presentation timing remain unverified;
    authenticated frame records do not authenticate clear configuration. Add
    rendering/timing only with explicit output ownership. Keep B slices disabled until
@@ -3707,8 +3755,9 @@ contracts, provenance, reproduction and remaining timing/display/unit gates.
 4. The source-built host decoder is implemented in Step 87, memory-input
    video/configuration ownership in Step 88 and the peer-bound Windows
    session/socket service in Step 89. Step 90 implements a host GDI renderer;
-   Step 91 adds source colour/aspect metadata. Timing and native factory output
-   remain next.
+   Step 91 adds source colour/aspect metadata; Step 92 adds source-backed
+   configuration interoperability and records the sender-clock evidence boundary.
+   Verified timing and native factory output remain missing.
    Either AIR path would still need a
    verified outside-AIR interface
    before use. Step 85's internal MainConcept-associated byte/frame interface is

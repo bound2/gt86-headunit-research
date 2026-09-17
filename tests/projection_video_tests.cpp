@@ -152,12 +152,12 @@ static void reconfigure(const std::vector<Bytes> &nals) {
     auto old = take(v.get(), 0); auto saved = pixels(old.get());
     REQUIRE(feed(v.get(), encrypted(au(nals[3]), 1)) == PROJECTION_VIDEO_PACKET); // queued, discarded by config
     Bytes entry(78); entry[7] = 1; entry[25] = 152; entry[27] = 100;
-    auto child = box("avcC", config); entry.insert(entry.end(), child.begin(), child.end());
+    auto child = box("avcC", avcc(nals,2)); entry.insert(entry.end(), child.begin(), child.end());
     REQUIRE(feed(v.get(), record(1, box("avc1", entry))) == PROJECTION_VIDEO_CONFIG);
     projection_h264_frame *raw = nullptr; projection_video_metadata meta{};
     REQUIRE(projection_video_take(v.get(), 17, &raw, &meta, 0) == PROJECTION_VIDEO_MORE && !raw);
     REQUIRE(feed(v.get(), record(4, Bytes{1, 2, 3})) == PROJECTION_VIDEO_IGNORED);
-    REQUIRE(feed(v.get(), encrypted(au(nals[2]), 2)) == PROJECTION_VIDEO_PACKET); // nonce did NOT reset
+    REQUIRE(feed(v.get(), encrypted(au(nals[2],2), 2)) == PROJECTION_VIDEO_PACKET); // nonce did NOT reset
     auto current = take(v.get(), 2, 2); REQUIRE(pixels(old.get()) == saved);
     REQUIRE(feed(v.get(), encrypted(au(nals[3]), 0)) == PROJECTION_VIDEO_AUTH);
     v.reset(); REQUIRE(pixels(old.get()) == saved);
@@ -209,7 +209,7 @@ static void hostile(const std::vector<Bytes> &nals) {
 }
 static void bad_configs(const std::vector<Bytes> &nals) {
     auto good = avcc(nals);
-    for (size_t length = 0; length < good.size(); ++length) {
+    for (size_t length = 1; length < good.size(); ++length) {
         auto v = create(); REQUIRE(feed(v.get(), record(1, Bytes(good.begin(), good.begin() + length))) == PROJECTION_VIDEO_FORMAT);
     }
     std::vector<Bytes> bad;
@@ -220,12 +220,16 @@ static void bad_configs(const std::vector<Bytes> &nals) {
     c = box("hvcC", good); bad.push_back(c);
     c = extended_box("avcC", good); c[8] = 1; bad.push_back(c); // overflowing 64-bit size
     c = extended_box("avcC", good); c.resize(15); bad.push_back(c); // truncated extended header
-    c = box("avcC", good); std::fill(c.begin(), c.begin() + 4, 0); bad.push_back(c); // size-to-EOF not admitted
+    c = box("avcC", good); c[3]=7; bad.push_back(c); // invalid short box header
     c = box("avcC", good); Bytes tail(c.begin(), c.begin() + 8); c.insert(c.end(), tail.begin(), tail.end()); bad.push_back(c);
     Bytes fake(14); auto child = box("avcC", good); fake.insert(fake.end(), child.begin(), child.end());
     bad.push_back(box("avc1", fake)); // marker search would wrongly accept
     Bytes duplicate(78); duplicate.insert(duplicate.end(), child.begin(), child.end()); duplicate.insert(duplicate.end(), child.begin(), child.end());
     bad.push_back(box("avc1", duplicate));
+    auto nested_zero=child; std::fill_n(nested_zero.begin(),4,0); Bytes zero_entry(78);
+    zero_entry.insert(zero_entry.end(),nested_zero.begin(),nested_zero.end()); bad.push_back(box("avc1",zero_entry)); // no general nested size-zero rule
+    c=box("hvcC",good); std::fill_n(c.begin(),4,0); bad.push_back(c); // AVC-only reserved wrapper
+    c=box("avcC",good); std::fill_n(c.begin(),4,0); c.push_back(0); bad.push_back(c); // reserved wrapper still validates the complete record
     for (const auto &data : bad) { auto v = create(); REQUIRE(feed(v.get(), record(1, data)) == PROJECTION_VIDEO_FORMAT); }
     projection_video_config cfg{1920, 1088, 1000, 2000, 4, 0}; projection_video *out = nullptr;
     REQUIRE(projection_video_create(&cfg, key().data(), 17, 0, &out) == PROJECTION_VIDEO_ARGUMENT && !out);
@@ -239,7 +243,8 @@ static void config_variants(const std::vector<Bytes> &baseline, const std::vecto
     entry.insert(entry.end(), unknown.begin(), unknown.end());
     entry.insert(entry.end(), child.begin(), child.end());
     entry.insert(entry.end(), 4, 0); // bounded optional sample-description terminator
-    for (const auto &body : {extended_box("avcC", good), extended_box("avc1", entry)}) {
+    auto reserved=box("avcC",good); std::fill_n(reserved.begin(),4,0);
+    for (const auto &body : {extended_box("avcC", good), extended_box("avc1", entry),reserved}) {
         auto v = create(); REQUIRE(feed(v.get(), record(1, body), 0, 1) == PROJECTION_VIDEO_CONFIG);
         REQUIRE(projection_video_start(v.get(), 17, 0) == PROJECTION_VIDEO_MORE);
         REQUIRE(feed(v.get(), encrypted(au(baseline[2]), 0)) == PROJECTION_VIDEO_PACKET);
@@ -253,6 +258,60 @@ static void config_variants(const std::vector<Bytes> &baseline, const std::vecto
         auto rejected = create(); REQUIRE(feed(rejected.get(), record(1, wrong)) == PROJECTION_VIDEO_FORMAT);
     }
     std::cout << "extended box sizes, bounded unknown children/terminator and High extension gates OK\n";
+}
+static void configuration_noops(const std::vector<Bytes> &nals) {
+    auto good=avcc(nals),reserved=box("avcC",good); std::fill_n(reserved.begin(),4,0);
+    Bytes empty_reserved{0,0,0,0,'a','v','c','C'};
+    std::vector<Bytes> empties{{},empty_reserved,box("avcC",{}),extended_box("avcC",{})};
+    auto v=create(); projection_video_configuration c{}; projection_h264_frame *raw=nullptr; projection_video_metadata meta{};
+    for(const auto &empty:empties) {
+        REQUIRE(feed(v.get(),record(1,empty),0,1)==PROJECTION_VIDEO_IGNORED);
+        REQUIRE(projection_video_get_configuration(v.get(),17,&c)==PROJECTION_VIDEO_MORE&&!c.epoch);
+    }
+    // Empty config is not decoder readiness, even after RECORD.
+    auto empty_only=create(); REQUIRE(feed(empty_only.get(),record(1,{}))==PROJECTION_VIDEO_IGNORED);
+    REQUIRE(projection_video_start(empty_only.get(),17,0)==PROJECTION_VIDEO_MORE);
+    REQUIRE(projection_video_take(empty_only.get(),17,&raw,&meta,0)==PROJECTION_VIDEO_MORE&&!raw);
+    REQUIRE(feed(empty_only.get(),encrypted(au(nals[2]),0))==PROJECTION_VIDEO_FORMAT);
+    REQUIRE(feed(v.get(),record(1,reserved))==PROJECTION_VIDEO_CONFIG);
+    REQUIRE(feed(v.get(),encrypted(au(nals[2]),0))==PROJECTION_VIDEO_PACKET); // held before RECORD
+    Bytes entry(78); auto child=box("avcC",good); entry.insert(entry.end(),child.begin(),child.end());
+    std::vector<Bytes> repeats=empties; repeats.insert(repeats.end(),{good,box("avcC",good),extended_box("avcC",good),reserved,box("avc1",entry)});
+    for(const auto &same:repeats) {
+        auto message=record(1,same); message[8]^=0x5a; // opaque config header not a timestamp/epoch authority
+        REQUIRE(feed(v.get(),message,100,1)==PROJECTION_VIDEO_IGNORED);
+        REQUIRE(projection_video_get_configuration(v.get(),17,&c)==PROJECTION_VIDEO_CONFIG&&c.epoch==1);
+        REQUIRE(projection_video_next_delay(v.get())==1900);
+    }
+    REQUIRE(projection_video_take(v.get(),17,&raw,&meta,100)==PROJECTION_VIDEO_BUSY&&!raw);
+    REQUIRE(projection_video_start(v.get(),17,100)==PROJECTION_VIDEO_MORE);
+    auto first=take(v.get(),0,1,100); auto saved=pixels(first.get());
+    REQUIRE(feed(v.get(),encrypted(au(nals[3]),1),100)==PROJECTION_VIDEO_PACKET); auto delta=take(v.get(),1,1,100);
+    REQUIRE(feed(v.get(),record(1,good),100)==PROJECTION_VIDEO_IGNORED);
+    REQUIRE(feed(v.get(),encrypted(au(nals[4]),2),100)==PROJECTION_VIDEO_PACKET); auto another=take(v.get(),2,1,100);
+    REQUIRE(pixels(first.get())==saved); // original still owned, no forced IDR/history reset
+    REQUIRE(feed(v.get(),encrypted(au(nals[3]),0),100)==PROJECTION_VIDEO_AUTH); // no nonce reset
+    auto held=create(); REQUIRE(feed(held.get(),record(1,good))==PROJECTION_VIDEO_CONFIG);
+    REQUIRE(feed(held.get(),encrypted(au(nals[2]),0))==PROJECTION_VIDEO_PACKET);
+    REQUIRE(feed(held.get(),record(1,good),1999)==PROJECTION_VIDEO_IGNORED);
+    REQUIRE(feed(held.get(),record(1,{}),1999)==PROJECTION_VIDEO_IGNORED);
+    REQUIRE(projection_video_next_delay(held.get())==1&&projection_video_check(held.get(),17,2000)==PROJECTION_VIDEO_DEADLINE);
+    auto partial=create(); auto keepalive=record(1,{});
+    REQUIRE(feed(partial.get(),Bytes(keepalive.begin(),keepalive.begin()+1))==PROJECTION_VIDEO_MORE);
+    REQUIRE(feed(partial.get(),Bytes(keepalive.begin()+1,keepalive.end()-1),999)==PROJECTION_VIDEO_MORE);
+    REQUIRE(feed(partial.get(),Bytes{keepalive.back()},1000)==PROJECTION_VIDEO_DEADLINE);
+    auto capped=create();
+    for(unsigned i=0;i<64;++i) {
+        auto body=avcc(nals,i%2?2:4); REQUIRE(feed(capped.get(),record(1,body))==PROJECTION_VIDEO_CONFIG);
+        REQUIRE(feed(capped.get(),record(1,body))==PROJECTION_VIDEO_IGNORED);
+        REQUIRE(projection_video_get_configuration(capped.get(),17,&c)==PROJECTION_VIDEO_CONFIG&&c.epoch==i+1);
+    }
+    REQUIRE(feed(capped.get(),record(1,{}))==PROJECTION_VIDEO_IGNORED);
+    REQUIRE(feed(capped.get(),record(1,good))==PROJECTION_VIDEO_LIMIT);
+    auto busy=create(2); REQUIRE(feed(busy.get(),record(1,good))==PROJECTION_VIDEO_CONFIG);
+    REQUIRE(feed(busy.get(),encrypted(au(nals[2]),0))==PROJECTION_VIDEO_PACKET);
+    size_t used=9; REQUIRE(projection_video_feed(busy.get(),17,keepalive.data(),keepalive.size(),&used,0)==PROJECTION_VIDEO_BUSY&&!used);
+    std::cout<<"empty/repeated/reserved-wrapper configurations preserve readiness gates, epoch, queue, P history, nonce and absolute deadlines\n";
 }
 static int stdin_decode() {
 #ifdef _WIN32
@@ -300,7 +359,7 @@ int main(int argc, char **argv) {
         REQUIRE(projection_video_c_api_test());
         if (std::string(argv[1]) == "--wire-stdin") return stdin_decode();
         auto nals = split(load(std::filesystem::path(argv[1]) / "Static.264"));
-        basic(nals); reconfigure(nals); hostile(nals); bad_configs(nals);
+        basic(nals); reconfigure(nals); hostile(nals); bad_configs(nals); configuration_noops(nals);
         config_variants(nals, split(load(std::filesystem::path(argv[1]) / "test_scalinglist_jm.264")));
         std::cout << "projection_video tests passed\n"; return 0;
     } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }

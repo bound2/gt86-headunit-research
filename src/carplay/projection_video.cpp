@@ -40,8 +40,12 @@ bool box(const uint8_t *p, size_t n, size_t &size, size_t &header) {
 }
 bool tag(const uint8_t *p, const char *name) { return std::memcmp(p + 4, name, 4) == 0; }
 int config_record(const uint8_t *&p, size_t &n) {
-    if (!n) return PROJECTION_VIDEO_FORMAT;
+    if (!n) return PROJECTION_VIDEO_MORE; // Explicit empty configuration/keepalive.
     if (p[0] == 1) return PROJECTION_VIDEO_MORE;
+    // The pinned native receiver tests a four-reserved-zero + avcC wrapper.
+    // Its extent is the enclosing screen record, NOT a general MP4 size-to-EOF
+    // rule. Only this exact top-level AVC prefix is admitted; no marker search.
+    if(n>=8&&be32(p)==0&&tag(p,"avcC")) { p+=8; n-=8; return PROJECTION_VIDEO_MORE; }
     size_t length = 0, header = 0;
     if (!box(p, n, length, header) || length != n) return PROJECTION_VIDEO_FORMAT;
     if (tag(p, "avcC")) { p += header; n -= header; return PROJECTION_VIDEO_MORE; }
@@ -140,8 +144,13 @@ int collect(projection_video *v, projection_h264_frame *frame) {
     projection_h264_frame_destroy(frame); return PROJECTION_VIDEO_FORMAT;
 }
 int configure(projection_video *v, const uint8_t *data, size_t n) {
-    if (!v->config.allow_clear_config || v->epoch >= 64) return PROJECTION_VIDEO_LIMIT;
+    if (!v->config.allow_clear_config) return PROJECTION_VIDEO_LIMIT;
     int result = config_record(data, n); if (result < 0) return result;
+    // Empty/identical clear configuration cannot reset live decoder history,
+    // nonce, queued frames, epoch, IDR requirement or existing deadlines.
+    if(!n || (v->decoder&&n==v->parameters.size()&&!std::memcmp(data,v->parameters.data(),n)))
+        return PROJECTION_VIDEO_IGNORED;
+    if(v->epoch>=64) return PROJECTION_VIDEO_LIMIT;
     Avcc parsed{}; result = parse_avcc(data, n, parsed); if (result < 0) return result;
     projection_h264 *raw = nullptr;
     result = projection_h264_create(v->generation, v->config.max_width, v->config.max_height, &raw);

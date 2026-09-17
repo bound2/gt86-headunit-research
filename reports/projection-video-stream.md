@@ -2,6 +2,11 @@
 
 Date: 2026-09-13. Continues [the H.264 decoder](projection-h264.md).
 
+Follow-up: [Step 92](projection-video-clock.md) admits exact reserved-zero AVC
+wrappers and treats empty/identical codec configuration as no-ops. New changed
+configuration still invalidates history/epochs; this report's reset-on-every-
+configuration behavior and 740-frame count describe the historical Step 88.
+
 ## Result and boundary
 
 An optional owning video-input layer now joins fragmented screen records to the

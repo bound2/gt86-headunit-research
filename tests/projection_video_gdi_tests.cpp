@@ -162,17 +162,20 @@ static void stream(const Media &m,unsigned color,bool v6,bool emit,bool source=f
     CHECK(p.open(p.context,91,&q,0,&keys,&e)==IAP2_OK); Socket phone(SOCK_STREAM,v6); phone.connect_to(e.data_port);
     auto until=[&](auto condition) { auto end=std::chrono::steady_clock::now()+std::chrono::seconds(3);
         while(!condition()) { CHECK(std::chrono::steady_clock::now()<end); CHECK(projection_video_services_poll(video.s,91)==IAP2_OK); if(!condition()) Sleep(1); } };
-    phone.send_bytes(m.config); phone.send_bytes(m.frame(keys.read,0)); until([&]{return render.status().epoch==1;});
+    phone.send_bytes(record(1,{})); phone.send_bytes(record(1,Bytes{0,0,0,0,'a','v','c','C'}));
+    phone.send_bytes(m.reserved_config()); phone.send_bytes(m.frame(keys.read,0)); until([&]{return render.status().epoch==1;});
     for(unsigned i=0;i<5;++i) CHECK(projection_video_services_poll(video.s,91)==IAP2_OK);
     CHECK(!render.status().started&&!render.status().has_frame&&target.black()); CHECK(p.start(p.context,91,&e.lease,1)==IAP2_OK);
     for(unsigned i=0;i<10;++i) {
-        if(i) phone.send_bytes(m.frame(keys.read,i,i+2)); until([&]{return render.status().draws==i+1;});
-        CHECK(render.status().counter==i&&render.status().width==152&&render.status().height==100);
+        if(i) { phone.send_bytes(record(1,{})); phone.send_bytes(i%2?m.config:m.reserved_config()); phone.send_bytes(m.frame(keys.read,i,i+2)); }
+        until([&]{return render.status().draws==i+1;});
+        CHECK(render.status().counter==i&&render.status().width==152&&render.status().height==100&&render.status().epoch==1);
         if(source) CHECK(unsigned(render.status().color)==color&&render.status().sar_width==(color%2?2u:1u)&&render.status().sar_height==(color%2?1u:2u));
         if(emit) { uint32_t header[]={color,target.width,target.height,i}; auto pixels=target.copy();
             std::cout.write(reinterpret_cast<const char*>(header),sizeof(header)); std::cout.write(reinterpret_cast<const char*>(pixels.data()),std::streamsize(pixels.size())); }
     }
     Media replacement=m;
+    if(!source) { replacement.nals[0]=source_fixture::sps(source_fixture::Spec{}); replacement.configure(); }
     if(source) { source_fixture::Spec spec; spec.matrix=color<=2?6:1; spec.full=color%2;
         spec.sw=color%2?1:2; spec.sh=color%2?2:1; replacement.nals[0]=source_fixture::sps(spec); replacement.configure(); }
     phone.send_bytes(replacement.config); until([&]{return render.status().epoch==2;}); CHECK(target.black()&&!render.status().has_frame);
