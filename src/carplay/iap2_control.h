@@ -23,8 +23,8 @@ enum iap2_control_startup_order {
 };
 
 typedef struct iap2_control_config {
-    iap2_link_config link; /* Exactly one control session, kind 0/version 1. */
-    uint32_t message_ms; /* Assembly + hold per CSM; also separate application TX-to-ACK budget. */
+    iap2_link_config link; /* Exactly one control session, kind0, version selected by explicit link profile. */
+    uint32_t message_ms; /* Assembly + hold per CSM; also application TX-to-ACK/output-handoff budget. */
     uint32_t authentication_ms; /* Eligible phase start to accepted, including backpressure. */
     uint32_t identification_ms; /* Eligible phase start to accepted, if enabled. */
     enum iap2_control_startup_order startup_order;
@@ -72,7 +72,8 @@ int iap2_control_init(iap2_control *, const iap2_control_config *,
  * Order is explicit in config; IDENTIFICATION_FIRST requires this enable before
  * start and forbids auth messages/provider work until identification ACCEPTED.
  * AUTHENTICATION_FIRST retains the original auth-before-identification policy.
- * Both wait for reply ACK before results and fail closed on rejected/out-of-order
+ * Both wait for reply completion (ACK_RETRY: peer ACK; STREAM_NO_ACK: full link
+ * output handoff) before results and fail closed on rejected/out-of-order
  * identification. No automatic fallback or phase restart after failure.
  * No transport components or CarPlay flags are advertised. */
 int iap2_control_enable_identification(iap2_control *, const iap2_identification_metadata *);
@@ -107,6 +108,9 @@ int iap2_control_output(iap2_control *, uint8_t *, size_t, size_t *written, uint
  * Replies are fragmented to negotiated MTU and retained through queue pressure.
  * Processing subsequent CSMs waits until the WHOLE reply is cumulatively ACKed;
  * this is local serialization, not evidence of peer authentication/ordering.
+ * In opt-in STREAM_NO_ACK, replies instead wait for whole link-output handoff;
+ * that is NOT a peer ACK. The owning transport must retain/drain partial output
+ * and enforce its deadline. Existing startup/provider gates still apply.
  * Call after start (IDLE returns ARGUMENT without accepting the clock value).
  * OK: work budget exhausted, poll again. MORE: waiting for input/handshake.
  * BUSY: waiting for TX space/ACK; service transport, do not busy-spin.
@@ -129,12 +133,14 @@ int iap2_control_release_message(iap2_control *);
  * identification pending; MORE: no held request.
  * Invalid/oversize/reserved messages leave the request and reply queue intact.
  * On OK caller can release input storage; poll fragments the retained copy.
- * The total application reply-to-ACK budget is message_ms, including stalled
- * transport. Continue output/poll and check next_delay; OK is not peer receipt.
+ * The total application reply budget is message_ms through ACK or complete link
+ * output handoff, according to profile. In STREAM_NO_ACK, the owning transport's
+ * separate deadline covers its retained output. Continue output/poll and check
+ * next_delay; OK is not peer receipt.
  * Timed call rules apply; input must not overlap endpoint/buffer storage. */
 int iap2_control_reply(iap2_control *, const uint8_t *, size_t, uint64_t now_ms);
 /* Explicit unsolicited application CSM. Same gates, validation, owned-copy,
- * queue/backpressure and TX-to-ACK deadline as reply, but no request is needed
+ * queue/backpressure and profile-dependent output deadline as reply, but no request is needed
  * and any held/partially assembled input is preserved. Never resets its hold
  * deadline. Reserved auth/identification messages cannot bypass the sequencers.
  * No automatic send, capability advertisement or provider callback. Caller

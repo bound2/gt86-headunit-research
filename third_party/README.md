@@ -710,3 +710,18 @@ not phone captures or vendor data. Existing dependency notices remain unchanged.
 This is not a native factory application relay or an ARM/QNX build. Sources,
 contracts and verification are in
 [projection-iap-services.md](../reports/projection-iap-services.md).
+
+## Explicit reliable-stream iAP link profile (Step 95)
+
+The existing link/control APIs and link tests retain GPL-3.0-or-later and their
+LIVI attribution. The carkit integration test retains GPL-3.0-only. New offline
+reference/wire checkers and their tests select GPL-3.0-only. Eight files from the
+existing pinned LIVI commit supply route ownership, version-2 control, immediate
+negotiation and zero link-ACK/retry observations. No upstream implementation body
+is newly copied, compiled or executed; no new dependency is downloaded.
+
+The bounded no-drop receive policy, terminal reliable-stream error behavior and
+separate output/transport-drain accounting are local choices, not Apple compliance
+or actual phone acceptance. Python independently generates six wire values using
+only its standard library. Full source/blob pins, comparison limits and remaining
+factory requirements are in [iap-stream-profile.md](../reports/iap-stream-profile.md).

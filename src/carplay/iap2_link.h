@@ -21,7 +21,12 @@ enum iap2_link_state { IAP2_LINK_IDLE, IAP2_LINK_DETECT, IAP2_LINK_SYNCHRONIZE,
                        IAP2_LINK_NORMAL, IAP2_LINK_DEAD };
 enum iap2_link_reason { IAP2_LINK_REASON_NONE, IAP2_LINK_REASON_LOCAL,
     IAP2_LINK_REASON_MARKER, IAP2_LINK_REASON_TIMEOUT, IAP2_LINK_REASON_RESET,
-    IAP2_LINK_REASON_RESTART, IAP2_LINK_REASON_OVERSIZE };
+    IAP2_LINK_REASON_RESTART, IAP2_LINK_REASON_OVERSIZE,
+    IAP2_LINK_REASON_STREAM };
+enum iap2_link_profile {
+    IAP2_LINK_ACK_RETRY = 0,
+    IAP2_LINK_STREAM_NO_ACK = 1 /* Explicit reliable-stream profile, not raw USB/HID. */
+};
 
 typedef struct iap2_link_session { uint8_t id, kind, version; } iap2_link_session;
 typedef struct iap2_lsp {
@@ -36,11 +41,17 @@ typedef struct iap2_lsp {
  */
 int iap2_lsp_decode(const uint8_t *, size_t, iap2_lsp *);
 int iap2_lsp_encode(const iap2_lsp *, uint8_t *, size_t, size_t *written);
+/* Explicit profile variants; STREAM_NO_ACK requires all four timer/retry/ACK
+ * fields zero. The original codec keeps rejecting zero/mixed profiles. LSP's
+ * version byte is still1; the control session triplet selects version2. */
+int iap2_lsp_decode_profile(const uint8_t *, size_t, iap2_lsp *, enum iap2_link_profile);
+int iap2_lsp_encode_profile(const iap2_lsp *, uint8_t *, size_t, size_t *, enum iap2_link_profile);
 
 typedef struct iap2_link_config {
     iap2_lsp offer;
     uint8_t initial_sequence;
     uint32_t handshake_ms; /* Total detection + negotiation budget. */
+    enum iap2_link_profile profile;
 } iap2_link_config;
 
 typedef struct iap2_link_packet {
@@ -76,6 +87,17 @@ typedef struct iap2_link {
  * input/output/config/storage, concurrent calls, or external field mutation.
  */
 void iap2_link_default_config(iap2_link_config *);
+/* Opt-in pinned wired-carkit/tunnel stream profile: version2 control, zero
+ * link ACK/retry fields, marker then SYN without waiting for a peer marker.
+ * Same bounded packet/queue capacities, no EA/file-transfer advertisement.
+ * Requires reliable ordered lossless transport with retained-write deadlines.
+ * Data is retired on output handoff, NOT peer ACK/receipt. Caller must retain
+ * partial writes. No data retries/delayed ACKs; handshake ACKs remain required.
+ * RX queue pressure returns BUSY BEFORE consuming the next frame; retain tails.
+ * In NORMAL, corrupt framing/checksums or nonconsecutive payload sequences close
+ * instead of dropping bytes and hoping for retries. This is stricter local
+ * error policy than the reference. No automatic fallback/restart or USB I/O. */
+void iap2_link_stream_config(iap2_link_config *);
 int iap2_link_init(iap2_link *, const iap2_link_config *);
 int iap2_link_start(iap2_link *, uint64_t now_ms);
 void iap2_link_close(iap2_link *); /* EOF/transport failure: discard all state. */
@@ -83,11 +105,12 @@ void iap2_link_close(iap2_link *); /* EOF/transport failure: discard all state. 
 /* All time-bearing calls require monotonically nondecreasing milliseconds.
  * feed processes bytes until exhausted or a recoverable error. Always honor
  * consumed: a bad checksummed frame or RX-full packet may already be consumed.
- * RX-full returns BUSY and does not advance the ACK for the new payload;
+ * Default ACK_RETRY: RX-full returns BUSY and does not advance the ACK for the new payload;
  * that packet is dropped for peer retransmission after the app drains receive.
  * Garbage/bad headers are scanned by iap2_stream. Bad bodies are rejected;
  * valid headers exceeding offered capacity terminate the link. EAK and other
- * unimplemented controls are rejected before ACK/queue changes.
+ * unimplemented controls are rejected before ACK/queue changes. STREAM_NO_ACK
+ * uses the no-drop backpressure and terminal-error rules documented above.
  */
 int iap2_link_feed(iap2_link *, const uint8_t *, size_t, size_t *consumed, uint64_t now_ms);
 /* Queues one opaque session payload. BUSY means not accepted; no hidden queue.
@@ -105,7 +128,8 @@ int iap2_link_receive(iap2_link *, uint8_t *session, uint8_t *, size_t, size_t *
  * control traffic as well as data. Check state/reason on every error; reset the
  * authentication/session layers whenever this link closes or is reinitialized.
  * Retransmission clocks start here, not at send(). Payloads are retained until
- * valid cumulative ACKs. Returned data may carry a current piggyback ACK.
+ * valid cumulative ACKs in ACK_RETRY; STREAM_NO_ACK retires on output handoff.
+ * Returned data may carry the current receive sequence in its ACK field.
  */
 int iap2_link_output(iap2_link *, uint8_t *, size_t, size_t *written, uint64_t now_ms);
 /* Delay from last supplied time until output/timeout needs polling; 0 means

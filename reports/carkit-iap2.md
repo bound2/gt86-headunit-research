@@ -5,6 +5,11 @@ Date: 2026-09-09. Continues [carkit startup](carkit-startup.md) and
 as `7539981`. This step integrates existing protocol layers; it does not provide
 an installable update or demonstrate CarPlay on the owner's head unit.
 
+Follow-up: [Step 95](iap-stream-profile.md) adds the pinned runtime's explicit
+version-2/zero-link-ACK reliable-stream profile and exercises both profiles
+through this bridge. Its lower transport drain/deadline barriers remain intact.
+The six-group counts below describe the original Step 53 checkpoint.
+
 ## Step 1 - Keep transport completion distinct from protocol success
 
 The existing iAP2 pump retains partial output and starts link retransmission

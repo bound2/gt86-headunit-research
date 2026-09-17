@@ -3,6 +3,12 @@
 Date: 2026-09-17. Continues [Step 93's input owner](projection-iap-stream.md).
 Starting checkpoint: `3fffd36f402c6ab666c9613c66d845ccf8d93829`.
 
+Follow-up: [Step 95](iap-stream-profile.md) traces the helper consumer and
+corrects the route interpretation: wireless tunnel bytes are iAP2 link frames
+for a separately owned session; active matching wired carkit blocks that tunnel.
+The next-step suggestions below are historical, not permission to feed these
+bytes into an existing wired application or a plain CSM parser.
+
 ## Result and boundary
 
 The type-130 session resource now has an actual Windows TCP provider, owning its

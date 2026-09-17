@@ -28,11 +28,13 @@ struct Session {
         auto& s=*static_cast<Session*>(ctx); ++s.signatures; s.signed_challenge.assign(data,data+size);
         check(cap>=s.signature_bytes.size(),"signature capacity"); std::copy(s.signature_bytes.begin(),s.signature_bytes.end(),out); *n=s.signature_bytes.size(); return 0;
     }
-    explicit Session(Identities& ids,bool plain=false,bool enable=true,uint32_t send_limit=128,bool bind=true):wire(ids,plain,nullptr,send_limit) {
+    explicit Session(Identities& ids,bool plain=false,bool enable=true,uint32_t send_limit=128,bool bind=true,bool stream_profile=false):wire(ids,plain,nullptr,send_limit) {
         wire.expect(fixture("start-service.xml"),service_reply(54321,plain?0:1)); wire.open(ids); wire.ready();
         wire.until([&]{return carkit_write_drained(&wire.channel,wire.base.r.now)==0;});
         receive.fill(0xa5); reply.fill(0xa5); scratch.fill(0xa5);
-        iap2_control_default_config(&config); config.startup_order=IAP2_CONTROL_IDENTIFICATION_FIRST; config.link.offer.packet_size=64;
+        iap2_control_default_config(&config); config.startup_order=IAP2_CONTROL_IDENTIFICATION_FIRST;
+        if(stream_profile) iap2_link_stream_config(&config.link);
+        config.link.offer.packet_size=64;
         const iap2_auth_provider provider{this,certificate,sign};
         const iap2_control_buffers buffers{receive.data()+1,reply.data()+1,scratch.data()+1,4096,4096,4086};
         check(iap2_control_init(&endpoint,&config,&provider,&buffers)==0,"receiver endpoint init");
@@ -135,8 +137,8 @@ struct Session {
     }
 };
 static void complete_startup(Identities& ids) {
-    for(bool plain:{false,true}) {
-        auto instance=std::make_unique<Session>(ids,plain); auto& s=*instance; s.full=true; s.start();
+    for(bool stream_profile:{false,true}) for(bool plain:{false,true}) {
+        auto instance=std::make_unique<Session>(ids,plain,true,128,true,stream_profile); auto& s=*instance; s.full=true; s.start();
         for(unsigned i=0;i<15000 && s.stage<5;++i) {
             const int result=s.step();
             if(result<0) throw std::runtime_error("startup closed: "+std::to_string(s.bridge.reason)+" pump "+std::to_string(s.bridge.pump.reason)+" stage "+std::to_string(s.stage));
@@ -159,8 +161,8 @@ static void complete_startup(Identities& ids) {
     }
 }
 static void copied_is_not_completed(Identities& ids) {
-    for(bool plain:{false,true}) {
-        auto instance=std::make_unique<Session>(ids,plain); auto& s=*instance; s.ack_service=false; s.start();
+    for(bool stream_profile:{false,true}) for(bool plain:{false,true}) {
+        auto instance=std::make_unique<Session>(ids,plain,true,128,true,stream_profile); auto& s=*instance; s.ack_service=false; s.start();
         check(s.step()>=0 && s.bridge.pending_size==6 && !s.bridge.submitted && s.bridge.pump.tx_offset==0,"first callback owns marker copy but reports no completion");
         s.until([&]{return s.bridge.submitted==6 && s.wire.base.r.conns[s.wire.channel.handle.slot].flight_count!=0;});
         check(!s.bridge.complete && s.bridge.pump.tx_size==6 && !s.bridge.pump.tx_offset,"ciphertext/plain TCP flight is not a completed pump write");
@@ -254,10 +256,24 @@ static void partial_writes_buffered_input_and_binding(Identities& ids) {
         check(s.wire.base.r.peer.cancelled.empty() && s.wire.base.r.peer.reads==reads && s.wire.base.r.peer.writes==writes,"wrong-generation cancellation and callback perform no device I/O");
     }
 }
+static void stream_data_drain_deadline(Identities& ids) {
+    auto instance=std::make_unique<Session>(ids,false,true,128,true,true);auto& s=*instance;s.start();
+    s.until([&]{return s.endpoint.link.state==IAP2_LINK_NORMAL&&s.peer.state==IAP2_LINK_NORMAL&&!s.bridge.pending_size&&!s.bridge.pump.tx_size;});
+    s.queue(message(0x1d00));
+    // Hold the first identification response below TLS. The link retires an
+    // emitted frame, but the pump must not confuse that with transport drain.
+    s.wire.base.r.peer.block_write=true;
+    s.until([&]{return s.bridge.pending_size>9&&s.bridge.pending[7]==10;});
+    check(s.endpoint.link.tx_sent==0&&s.bridge.pump.tx_size==s.bridge.pending_size&&!s.bridge.pump.tx_offset,"zero ACK still owns pending data transport frame");
+    const auto deadline=s.bridge.pump.tx_at+s.bridge.pump.config.pending_ms;
+    const auto reads=s.wire.base.r.peer.reads,writes=s.wire.base.r.peer.writes;
+    check(s.at(deadline,false)==IAP2_LINK_CLOSED&&s.bridge.pump.reason==IAP2_TRANSPORT_REASON_DEADLINE,"stream data retained-write deadline");
+    check(s.wire.base.r.peer.reads==reads&&s.wire.base.r.peer.writes==writes&&!s.certificates&&s.wire.base.r.peer.cancelled.size()==1,"deadline before physical I/O or authentication");
+}
 int main(int argc,char **argv) {
     try {
         check(argc==2,"fixture directory"); fixtures=argv[1]; Identities ids;
-        complete_startup(ids); copied_is_not_completed(ids); deadlines_before_physical_io(ids); generation_and_clock(ids); failure_and_control(ids); partial_writes_buffered_input_and_binding(ids);
-        std::cout<<"PASS: 6 carkit/iAP2 integration groups; dual real TLS or explicit plain service, synthetic accessory provider; bridge="<<sizeof(carkit_iap2)<<" bytes plus endpoint/carkit/TLS storage\n";
+        complete_startup(ids); copied_is_not_completed(ids); deadlines_before_physical_io(ids); generation_and_clock(ids); failure_and_control(ids); partial_writes_buffered_input_and_binding(ids);stream_data_drain_deadline(ids);
+        std::cout<<"PASS: 7 carkit/iAP2 integration groups; both explicit link profiles over dual real TLS or plain service, synthetic accessory provider; bridge="<<sizeof(carkit_iap2)<<" bytes plus endpoint/carkit/TLS storage\n";
     } catch(const std::exception& e) { std::cerr<<"FAIL: "<<e.what()<<'\n'; return 1; }
 }

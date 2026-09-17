@@ -12,8 +12,11 @@ receiver modules and replacement head units are outside the selected approach.
 No installable CarPlay update exists in this project yet. Portable C99 receiver
 components now implement iAP2 framing, control messages and authentication
 sequencing, validated against 33 upstream vectors. A new experimental reliable-
-link profile adds negotiation, ACKs, retransmission and bounded queues with
-16 link test groups. A bounded control-session adapter now connects link payloads
+link profile adds negotiation, ACKs, retransmission and bounded queues.
+Step 95 adds an [explicit version-2/zero-ACK reliable-stream profile](iap-stream-profile.md)
+matching selected wired-carkit reference parameters; 21 link groups now pass.
+It retains bounded no-drop receive backpressure and transport-write deadlines,
+without claiming link-output handoff is peer receipt. A bounded control-session adapter now connects link payloads
 to authentication, including split/coalesced messages and larger replies. It
 now also supports atomic application replies and opt-in minimal accessory
 identification, with 38 control and 11 dedicated identification test groups.
@@ -47,7 +50,7 @@ with explicit CA/device-pin validation and seven cryptographic test groups.
 An owning protected RPC client and carkit startup layer now add seven groups:
 validated service ports, explicit SSL policy, a separate service connection,
 real dual TLS and raw iAP2 round trips over simulated USBmux. A new owning bridge
-now connects that stream to the existing iAP2 session engine, with six integrated
+now connects that stream to the existing iAP2 session engine, with seven integrated
 groups covering identification, synthetic accessory authentication, explicit
 wired-start replies and completion/lifetime gates. A separate projection-control
 framing/channel layer now adds nine groups, including 6,000 deterministic
@@ -88,7 +91,10 @@ six pure groups and expanded real-socket tests. Step 93 adds a separate
 groups, full adapter/crypto sanitizer coverage and six independently generated
 wire cases. Step 94 adds a [session-owned Windows TCP service](projection-iap-services.md),
 explicit relay callbacks, other-media delegation and real encrypted event-return
-tests. The live application binding remains missing. Incoming control can be
+tests. Step 95 establishes that wireless tunnel bytes carry iAP2 link frames and
+create a separate reference session, while active matching wired carkit blocks
+that tunnel. Its live wireless binding remains missing; it is not a substitute
+for the wired path's separate USB-network interface. Incoming control can be
 delivered before RECORD only to an explicitly prepared relay; that local policy
 is not proof of the reference's or a phone's application readiness.
 Optional typed control feedback
@@ -178,8 +184,9 @@ strict opt-in source colour/SAR rendering and 40 further independently verified
 readbacks. Step 92 fixes [empty/repeated configuration and the reserved AVC
 wrapper](projection-video-clock.md), preserving decoder history, queued pictures,
 counters and deadlines. The independent wire check now covers 1,480 frames across
-18 variants. With Step 94, all 50 optional-video CTest suites and 88 Python tests
-pass; the expanded video/iAP ASan/UBSan run passes 10 suites. The separate Step 93
+18 variants. With Step 95, all 50 optional-video CTest suites and 92 Python tests
+pass; 18 protocol and three TLS/carkit ASan/UBSan suites pass after the link-profile
+change. Step 94's expanded video/iAP sanitizer run passed 10 suites. The separate Step 93
 C99 ARM check does not cover the new Windows service. The pinned CarPlay reader does not propagate sender time;
 the different UxPlay media profile is not a verified substitute for its clock.
 No factory renderer or ARM/QNX decoder build is supplied. These results do not
@@ -3689,6 +3696,39 @@ USB/MFi/display/audio/input integration or installation path is supplied.
 Step-by-step evidence and commands are in
 [projection-iap-services.md](projection-iap-services.md). No vehicle was touched.
 
+## Step 95 - Correct route ownership and add the reliable-stream link profile
+
+The helper consumer resolves an important ambiguity from Step 94: wireless
+DataStream/event bodies feed an iAP2 link engine, not a plain application-message
+parser. The reference starts a separately owned link/accessory session and blocks
+a tunnel for an active matching wired carkit phone (or any active carkit phone
+when no MAC is supplied). Existing wired application state must not be blindly
+reused or reset. Wired AV remains a separate USB-network function.
+
+Both pinned runtime paths select version-2 control, four zero ACK/retry fields
+and immediate negotiation; the local engine previously rejected this profile.
+Added explicit opt-in configuration and profile-aware LSP codecs without changing
+the default ACK/retry profile or legacy codec. No-ACK input retains wire tails
+before RX-queue overflow; unrecoverable normal-state damage/gaps terminate instead
+of dropping data. Output handoff retires queued frames without fabricating peer
+ACKs, while the pump/carkit layer still owns partial writes and their deadlines.
+The local offer remains bounded and control-only, not the reference's complete
+EA/file-transfer/65,535-byte profile or verified phone negotiation.
+
+All 50 CTest suites, 92 Python tests, 18 protocol and three TLS/carkit sanitizer
+suites pass. The link suite now has 21 groups, and the carkit suite seven, with
+complete synthetic accessory startup through both link profiles over real dual
+TLS or explicit plain mode. Blocked no-ACK data writes expire before lower I/O
+or authentication. Link/carkit suites each pass ten repeated runs. Six independently
+encoded wire values match; eight immutable reference blobs pass the offline audit.
+Twenty C99 units still compile/link for ARM without runtime imports, not as QNX
+executables. No actual phone, chip or vehicle was exercised.
+
+The evidence changes the next priority to the wired USB-network/NCM path and
+native QNX interface/IPv6 ownership, rather than treating the optional tunnel
+as a required wired application handoff. Exact source pins, behavior differences,
+tests and reproduction are in [iap-stream-profile.md](iap-stream-profile.md).
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3766,8 +3806,13 @@ Step-by-step evidence and commands are in
    timing and a QNX socket backend remain missing. Step 93 adds memory-input iAP
    DataStream processing; Step 94 connects the peer-pinned Windows type-130 socket
    provider with explicit relay callbacks, teardown and other-media delegation.
-   Next trace the helper's tunnel consumer and implement the owned application
-   handoff, identity/readiness around RECORD and alternate incoming event route.
+   Step 95 traces that consumer: wireless tunnel bytes are link frames for a
+   separate session; active matching wired carkit blocks that tunnel. Its explicit
+   version-2/zero-ACK stream profile now works through the carkit bridge in tests.
+   Next trace the separate wired USB-network/NCM path and native QNX interface/
+   IPv6 ownership. Do not use the optional tunnel as a wired network substitute.
+   A later wireless owner needs explicit identity/readiness around RECORD and
+   the alternate incoming event route, without resetting active wired state.
    Keep the event-channel return path separate; a package must not be mistaken
    for a complete iAP message or a new reliable-link connection.
    Step 62 adds

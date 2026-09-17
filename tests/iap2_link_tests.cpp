@@ -333,8 +333,108 @@ static void exhaustive_ack_ranges_and_output_transactions() {
           "failed first output does not consume sequence or send slot");
     check(b.output()[5]==100,"first accepted output consumes sequence once");
 }
-int main() {
+struct StreamLink : Link {
+    explicit StreamLink(uint8_t seq=99) {
+        iap2_link_stream_config(&config); config.initial_sequence=seq;
+        check(iap2_link_init(&engine,&config)==IAP2_OK,"explicit stream init");
+    }
+    Bytes proposal() const {
+        Bytes out(32);size_t n=0;
+        check(iap2_lsp_encode_profile(&config.offer,out.data(),out.size(),&n,config.profile)==IAP2_OK,"stream LSP");out.resize(n);return out;
+    }
+    void handshake(uint8_t peer_seq=42,bool marker=false) {
+        start();check(engine.state==IAP2_LINK_SYNCHRONIZE,"stream initiates without peer marker");
+        auto p=proposal();check(output()==frame(0x80,config.initial_sequence,0,0,&p),"immediate stream SYN");
+        if(marker) feed(Bytes(iap2_detect_marker,iap2_detect_marker+6));
+        feed(frame(0xc0,peer_seq,config.initial_sequence,0,&p));
+        check(engine.state==IAP2_LINK_SYNCHRONIZE,"handshake still needs local ACK handoff");
+        check(output()==frame(0x40,config.initial_sequence,peer_seq,0)&&engine.state==IAP2_LINK_NORMAL,"stream established");
+        check(output().empty()&&iap2_link_next_delay(&engine)==UINT32_MAX,"zero data timers, no spin");
+    }
+};
+static void stream_profile_codec() {
+    // Source-pinned full reference offer; codec can inspect larger than local engine bounds.
+    const auto golden=hex("0104ffff0000000000000a00020b02010c0102");iap2_lsp p{};
+    check(iap2_lsp_decode(golden.data(),golden.size(),&p)==IAP2_INVALID,"legacy codec rejects zero ACK");
+    check(iap2_lsp_decode_profile(golden.data(),golden.size(),&p,IAP2_LINK_STREAM_NO_ACK)==IAP2_OK,"explicit zero profile decode");
+    Bytes out(32,0xa5);size_t n=0;check(iap2_lsp_encode_profile(&p,out.data(),out.size(),&n,IAP2_LINK_STREAM_NO_ACK)==IAP2_OK&&Bytes(out.begin(),out.begin()+n)==golden,"full reference LSP roundtrip");
+    for(size_t index:{size_t(4),size_t(6),size_t(8),size_t(9)}) {
+        auto mixed=golden;mixed[index]=1;auto before=p;
+        check(iap2_lsp_decode_profile(mixed.data(),mixed.size(),&p,IAP2_LINK_STREAM_NO_ACK)==IAP2_INVALID&&std::memcmp(&p,&before,sizeof p)==0,"mixed profile rejected transactionally");
+    }
+    for(unsigned mode=0;mode<5;++mode) {
+        StreamLink s;auto config=s.config;auto before=s.engine;
+        if(mode==0) config.profile=IAP2_LINK_ACK_RETRY;
+        if(mode==1) config.offer.sessions[0].version=1;
+        if(mode==2) config.offer.ack_ms=1;
+        if(mode==3) config.offer.packet_size=65535;
+        if(mode==4) config.profile=static_cast<iap2_link_profile>(2);
+        check(iap2_link_init(&s.engine,&config)==IAP2_ARGUMENT&&std::memcmp(&s.engine,&before,sizeof before)==0,"stream config rejects invalid without changing owner");
+    }
+    StreamLink s;check(s.proposal()==hex("010404000000000000000a0002"),"bounded control-only offer exact wire");
+    auto config=s.config;config.profile=IAP2_LINK_ACK_RETRY;config.offer=Link{}.config.offer;config.offer.sessions[0].version=2;
+    check(iap2_link_init(&s.engine,&config)==IAP2_ARGUMENT,"no silent version2 legacy profile");
+}
+static void stream_handshake_and_handoff() {
+    for(bool marker:{false,true}) {
+        StreamLink s;s.handshake(42,marker);s.send(Bytes{1,2,3});uint8_t short_out[12];size_t n;
+        check(iap2_link_output(&s.engine,short_out,sizeof short_out,&n,0)==IAP2_NO_SPACE&&!n&&s.engine.tx_count==1&&s.engine.tx_sequence==99,"no partial output retirement");
+        auto p=Bytes{1,2,3};check(s.output()==frame(0x40,100,42,10,&p)&&!s.engine.tx_count&&!s.engine.tx_sent&&s.engine.tx_acked==99,"output handoff not peer ACK");
+        check(s.output(999999).empty()&&iap2_link_next_delay(&s.engine)==UINT32_MAX,"no automatic data retry/timeouts");
+        s.feed(frame(0x40,0,200,0),999999);check(s.output(999999).empty(),"informational pure ACK cannot trigger storm");
+    }
+    StreamLink s;s.start();auto first=s.output();check(s.output(499).empty()&&s.output(500)==first,"handshake retry remains active");
+    uint8_t b[1024];size_t n;check(iap2_link_output(&s.engine,b,sizeof b,&n,10000)==IAP2_LINK_CLOSED&&s.engine.reason==IAP2_LINK_REASON_TIMEOUT,"stream handshake bounded");
+}
+static void stream_backpressure() {
+    StreamLink s;s.handshake();Bytes all;
+    for(unsigned i=0;i<9;++i) { auto p=Bytes{uint8_t(i)};auto f=frame(0x40,uint8_t(43+i),99,10,&p);all.insert(all.end(),f.begin(),f.end()); }
+    size_t used=0;check(iap2_link_feed(&s.engine,all.data(),all.size(),&used,0)==IAP2_LINK_BUSY&&used==8*11,"full RX leaves ninth wire frame with caller");
+    check(s.engine.rx_acked==50&&s.engine.state==IAP2_LINK_NORMAL&&s.output().empty(),"full RX does not invent ACK or drop");
+    check(s.receive()==Bytes{0},"release oldest payload");size_t tail=0;
+    check(iap2_link_feed(&s.engine,all.data()+used,all.size()-used,&tail,0)==IAP2_OK&&tail==11,"retained frame accepted after space");
+    for(unsigned i=1;i<9;++i) check(s.receive()==Bytes{uint8_t(i)},"all bytes delivered once in order");
+    s.empty();check(iap2_link_next_delay(&s.engine)==UINT32_MAX,"no delayed ACK timer");
+    for(unsigned i=0;i<8;++i) s.send(Bytes{uint8_t(i)});s.send(Bytes{9},0,IAP2_LINK_BUSY);
+    for(unsigned i=0;i<8;++i) check(s.output()[5]==100+i,"bounded TX retires emitted prefix without ACK");
+    check(!s.engine.tx_count&&s.output().empty(),"zero profile queue drains without peer ACKs");
+}
+static void stream_faults() {
+    for(unsigned mode=0;mode<6;++mode) {
+        StreamLink s;s.handshake();auto p=Bytes{3};auto f=frame(0x40,43,99,10,&p);
+        if(mode==0) f.back()^=1;
+        if(mode==1) f.insert(f.begin(),0);
+        if(mode==2) f=frame(0x40,44,99,10,&p);
+        if(mode==3) f=frame(0x40,42,99,10,&p);
+        if(mode==4) f=frame(0x40,43,99,11,&p);
+        if(mode==5) f=frame(0x20,43,99,10,&p);
+        size_t used;check(iap2_link_feed(&s.engine,f.data(),f.size(),&used,0)==IAP2_LINK_CLOSED&&s.engine.reason==IAP2_LINK_REASON_STREAM&&used<=f.size(),"unrecoverable reliable-stream fault closes");
+    }
+    StreamLink s;s.start();s.output();auto p=s.config.offer;p.sessions[0].version=1;Bytes b(32);size_t n;
+    check(iap2_lsp_encode_profile(&p,b.data(),b.size(),&n,s.config.profile)==0,"version mismatch fixture");b.resize(n);
+    s.feed(frame(0xc0,42,99,0,&b),0,IAP2_UNSUPPORTED);check(!s.engine.peer_syn,"no version fallback");
+}
+static void stream_wrap_and_fragmentation() {
+    StreamLink s(254);s.handshake(254);
+    for(unsigned i=0;i<600;++i) {
+        auto p=Bytes{uint8_t(i),uint8_t(i>>8)};auto f=frame(0x40,uint8_t(255+i),0,10,&p);
+        for(auto b:f) s.feed(Bytes{b});check(s.receive()==p,"byte-split wrapped RX");
+        s.send(p);auto out=s.output();check(out==frame(0x40,uint8_t(255+i),uint8_t(255+i),10,&p),"wrapped TX without ACK credit");
+        check(s.output().empty(),"no data ACK output");
+    }
+}
+static void stream_vectors() {
+    StreamLink s;
+    auto print=[](const char *name,const Bytes& b) { std::cout<<name<<'=';for(auto v:b) std::cout<<"0123456789abcdef"[v>>4]<<"0123456789abcdef"[v&15];std::cout<<'\n'; };
+    print("lsp",s.proposal());check(iap2_link_start(&s.engine,0)==0,"vector start");print("marker",s.output());print("syn",s.output());
+    auto p=s.proposal();s.feed(frame(0xc0,42,99,0,&p));print("ack",s.output());
+    const auto csm=hex("40400006a100");s.send(csm);print("data",s.output());print("no_retry",s.output(5000));
+    check(!s.engine.tx_count&&s.engine.tx_acked==99,"vector output is not peer ACK");
+}
+int main(int argc,char **argv) {
     try {
+        if(argc==2&&std::string(argv[1])=="--stream-vectors") { stream_vectors();return 0; }
+        check(argc==1,"unexpected test arguments");
         const std::pair<const char*,void(*)()> groups[] = {
             {"lsp_codec",lsp_codec},{"detection",detection},{"handshake_validation",handshake_validation},
             {"window_and_ack",window_and_ack},{"retransmission",retransmission},
@@ -343,11 +443,14 @@ int main() {
             {"damaged_and_unsupported",damaged_and_unsupported},{"capacity_time_disconnect",capacity_time_disconnect},
             {"near_clock_limit_and_empty_payload",near_clock_limit_and_empty_payload},{"partial_error_consumption",partial_error_consumption},
             {"negotiated_subset_and_limits",negotiated_subset_and_limits},{"simulated_loss",simulated_loss},
-            {"exhaustive_ack_ranges_and_output_transactions",exhaustive_ack_ranges_and_output_transactions}};
+            {"exhaustive_ack_ranges_and_output_transactions",exhaustive_ack_ranges_and_output_transactions},
+            {"stream_profile_codec",stream_profile_codec},{"stream_handshake_and_handoff",stream_handshake_and_handoff},
+            {"stream_backpressure",stream_backpressure},{"stream_faults",stream_faults},
+            {"stream_wrap_and_fragmentation",stream_wrap_and_fragmentation}};
         for(const auto& group:groups) {
             try { group.second(); } catch(const std::exception& e) { throw std::runtime_error(std::string(group.first)+": "+e.what()); }
         }
-        std::cout << "PASS: 16 bounded iAP2 link test groups; simulated transport only.\n";
+        std::cout << "PASS: 21 bounded iAP2 link test groups; simulated transport only.\n";
         std::cout << "Host link-state storage: " << sizeof(iap2_link) << " bytes.\n";
         return 0;
     } catch(const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }

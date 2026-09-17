@@ -15,19 +15,23 @@ static uint16_t read16(const uint8_t *p) { return (uint16_t)((uint16_t)p[0] * 25
 static void write16(uint8_t *p, uint16_t n) { p[0] = (uint8_t)(n >> 8); p[1] = (uint8_t)n; }
 static uint8_t distance(uint8_t a, uint8_t b) { return (uint8_t)(a - b); }
 
-static int valid_lsp(const iap2_lsp *p) {
+static int valid_lsp(const iap2_lsp *p, enum iap2_link_profile profile) {
     unsigned i, j;
     if (!p || !p->window || p->window > 127 || p->packet_size < 10 ||
-        !p->retransmit_ms || !p->ack_ms || p->ack_ms >= p->retransmit_ms ||
-        !p->retries || !p->max_ack || p->max_ack > p->window ||
         !p->session_count || p->session_count > IAP2_LINK_SESSIONS) return 0;
+    if (profile == IAP2_LINK_ACK_RETRY) {
+        if (!p->retransmit_ms || !p->ack_ms || p->ack_ms >= p->retransmit_ms ||
+            !p->retries || !p->max_ack || p->max_ack > p->window) return 0;
+    } else if (profile == IAP2_LINK_STREAM_NO_ACK) {
+        if (p->retransmit_ms || p->ack_ms || p->retries || p->max_ack) return 0;
+    } else return 0;
     for (i = 0; i < p->session_count; ++i) {
         if (!p->sessions[i].id || !p->sessions[i].version) return 0;
         for (j = 0; j < i; ++j) if (p->sessions[j].id == p->sessions[i].id) return 0;
     }
     return 1;
 }
-int iap2_lsp_decode(const uint8_t *data, size_t size, iap2_lsp *out) {
+int iap2_lsp_decode_profile(const uint8_t *data, size_t size, iap2_lsp *out, enum iap2_link_profile profile) {
     iap2_lsp p = {0};
     unsigned i;
     if (!out || (!data && size)) return IAP2_ARGUMENT;
@@ -40,14 +44,14 @@ int iap2_lsp_decode(const uint8_t *data, size_t size, iap2_lsp *out) {
         p.sessions[i].id = data[10 + 3*i]; p.sessions[i].kind = data[11 + 3*i];
         p.sessions[i].version = data[12 + 3*i];
     }
-    if (!valid_lsp(&p)) return IAP2_INVALID;
+    if (!valid_lsp(&p, profile)) return IAP2_INVALID;
     copy((uint8_t *)out, (const uint8_t *)&p, sizeof p); return IAP2_OK;
 }
-int iap2_lsp_encode(const iap2_lsp *p, uint8_t *out, size_t capacity, size_t *written) {
+int iap2_lsp_encode_profile(const iap2_lsp *p, uint8_t *out, size_t capacity, size_t *written, enum iap2_link_profile profile) {
     unsigned i; size_t n;
     if (written) *written = 0;
     if (!p || !out || !written) return IAP2_ARGUMENT;
-    if (!valid_lsp(p)) return IAP2_INVALID;
+    if (!valid_lsp(p, profile)) return IAP2_INVALID;
     n = 10u + 3u*p->session_count;
     if (capacity < n) return IAP2_NO_SPACE;
     out[0] = 1; out[1] = p->window; write16(out + 2, p->packet_size);
@@ -58,6 +62,12 @@ int iap2_lsp_encode(const iap2_lsp *p, uint8_t *out, size_t capacity, size_t *wr
         out[12 + 3*i] = p->sessions[i].version;
     }
     *written = n; return IAP2_OK;
+}
+int iap2_lsp_decode(const uint8_t *data, size_t size, iap2_lsp *out) {
+    return iap2_lsp_decode_profile(data, size, out, IAP2_LINK_ACK_RETRY);
+}
+int iap2_lsp_encode(const iap2_lsp *p, uint8_t *out, size_t capacity, size_t *written) {
+    return iap2_lsp_encode_profile(p, out, capacity, written, IAP2_LINK_ACK_RETRY);
 }
 static int session_exists(const iap2_lsp *p, uint8_t id) {
     unsigned i; for (i = 0; i < p->session_count; ++i) if (p->sessions[i].id == id) return 1;
@@ -76,10 +86,11 @@ static int supported_lsp(const iap2_lsp *offer, const iap2_lsp *p) {
     /* This profile requires the offered control session, not only optional data sessions. */
     return session_exists(p, offer->sessions[0].id);
 }
-static int same_lsp(const iap2_lsp *a, const iap2_lsp *b) {
+static int same_lsp(const iap2_lsp *a, const iap2_lsp *b, enum iap2_link_profile profile) {
     uint8_t x[IAP2_LINK_LSP_LIMIT], y[IAP2_LINK_LSP_LIMIT];
     size_t nx, ny, i;
-    if (iap2_lsp_encode(a, x, sizeof x, &nx) || iap2_lsp_encode(b, y, sizeof y, &ny) || nx != ny) return 0;
+    if (iap2_lsp_encode_profile(a, x, sizeof x, &nx, profile) ||
+        iap2_lsp_encode_profile(b, y, sizeof y, &ny, profile) || nx != ny) return 0;
     for (i = 0; i < nx; ++i) if (x[i] != y[i]) return 0;
     return 1;
 }
@@ -93,13 +104,20 @@ void iap2_link_default_config(iap2_link_config *c) {
         c->offer.sessions[i].id = 0; c->offer.sessions[i].kind = 0; c->offer.sessions[i].version = 0;
     }
     c->offer.sessions[0].id = 10; c->offer.sessions[0].version = 1;
-    c->initial_sequence = 99; c->handshake_ms = 10000;
+    c->initial_sequence = 99; c->handshake_ms = 10000; c->profile = IAP2_LINK_ACK_RETRY;
+}
+void iap2_link_stream_config(iap2_link_config *c) {
+    if (!c) return;
+    iap2_link_default_config(c); c->profile = IAP2_LINK_STREAM_NO_ACK;
+    c->offer.retransmit_ms = c->offer.ack_ms = 0;
+    c->offer.retries = c->offer.max_ack = 0; c->offer.sessions[0].version = 2;
 }
 int iap2_link_init(iap2_link *l, const iap2_link_config *c) {
     size_t i;
-    if (!l || !c || !valid_lsp(&c->offer) || c->offer.window > IAP2_LINK_SLOTS ||
+    if (!l || !c || !valid_lsp(&c->offer, c->profile) || c->offer.window > IAP2_LINK_SLOTS ||
         c->offer.packet_size < IAP2_LINK_LSP_LIMIT + 10 || c->offer.packet_size > IAP2_LINK_PACKET_LIMIT ||
-        c->offer.sessions[0].kind != 0 || c->offer.sessions[0].version != 1 ||
+        c->offer.sessions[0].kind != 0 ||
+        c->offer.sessions[0].version != (c->profile == IAP2_LINK_STREAM_NO_ACK ? 2 : 1) ||
         !c->handshake_ms) return IAP2_ARGUMENT;
     /* Explicit byte clear avoids a freestanding libc dependency. */
     for (i = 0; i < sizeof *l; ++i) ((uint8_t *)l)[i] = 0;
@@ -133,7 +151,9 @@ static int check_time(iap2_link *l, uint64_t now) {
 }
 int iap2_link_start(iap2_link *l, uint64_t now) {
     if (!l || l->state != IAP2_LINK_IDLE || clock_update(l, now)) return IAP2_ARGUMENT;
-    l->started_at = now; l->state = IAP2_LINK_DETECT; return IAP2_OK;
+    l->started_at = now;
+    l->state = l->config.profile == IAP2_LINK_STREAM_NO_ACK ? IAP2_LINK_SYNCHRONIZE : IAP2_LINK_DETECT;
+    return IAP2_OK;
 }
 static void established(iap2_link *l) {
     if (l->peer_syn && l->our_syn_acked && l->peer_syn_acked) l->state = IAP2_LINK_NORMAL;
@@ -165,9 +185,10 @@ static int process(iap2_link *l, const iap2_frame *f) {
     if (f->control & RST) { die(l, IAP2_LINK_REASON_RESET); return IAP2_LINK_CLOSED; }
     if (f->control & ~(SYN | ACK)) return IAP2_UNSUPPORTED; /* Including EAK. */
     if (f->control & SYN) {
-        if (f->session || !f->has_payload || iap2_lsp_decode(f->payload, f->payload_size, &p)) return IAP2_INVALID;
+        if (f->session || !f->has_payload ||
+            iap2_lsp_decode_profile(f->payload, f->payload_size, &p, l->config.profile)) return IAP2_INVALID;
         if (!supported_lsp(&l->config.offer, &p)) return IAP2_UNSUPPORTED;
-        if (l->peer_syn && (l->peer_syn_sequence != f->sequence || !same_lsp(&l->negotiated, &p))) {
+        if (l->peer_syn && (l->peer_syn_sequence != f->sequence || !same_lsp(&l->negotiated, &p, l->config.profile))) {
             die(l, IAP2_LINK_REASON_RESTART); return IAP2_LINK_CLOSED;
         }
         if (!l->peer_syn) {
@@ -189,10 +210,15 @@ static int process(iap2_link *l, const iap2_frame *f) {
     if ((!f->has_payload && (f->session || f->control != ACK)) ||
         (f->has_payload && (!f->session || !session_exists(&l->negotiated, f->session)))) return IAP2_UNSUPPORTED;
     if (f->payload_size + (f->has_payload ? 10u : 9u) > l->negotiated.packet_size) return IAP2_INVALID;
-    if ((f->control & ACK) && !ack_valid(l, f->acknowledgement)) return IAP2_INVALID;
-    if (f->control & ACK) acknowledge(l, f->acknowledgement);
+    if (l->config.profile == IAP2_LINK_ACK_RETRY) {
+        if ((f->control & ACK) && !ack_valid(l, f->acknowledgement)) return IAP2_INVALID;
+        if (f->control & ACK) acknowledge(l, f->acknowledgement);
+    }
     if (!f->has_payload) return IAP2_OK; /* Pure ACKs must never trigger ACK storms. */
     d = distance(f->sequence, l->rx_acked);
+    if (l->config.profile == IAP2_LINK_STREAM_NO_ACK && d != 1) {
+        die(l, IAP2_LINK_REASON_STREAM); return IAP2_LINK_CLOSED;
+    }
     if (!d || d > l->negotiated.window || rx_find(l, f->sequence)) {
         l->ack_pending = 1; return IAP2_OK; /* Duplicate or outside the receive window. */
     }
@@ -205,6 +231,7 @@ static int process(iap2_link *l, const iap2_frame *f) {
     while (advanced < IAP2_LINK_SLOTS && rx_find(l, (uint8_t)(l->rx_acked + 1u))) {
         ++l->rx_acked; ++advanced;
     }
+    if (l->config.profile == IAP2_LINK_STREAM_NO_ACK) return IAP2_OK;
     if (!advanced) l->ack_pending = 1; /* Repeat cumulative ACK; recover gaps by timeout. */
     else {
         l->ack_count = (uint8_t)(l->ack_count + advanced);
@@ -227,12 +254,26 @@ int iap2_link_feed(iap2_link *l, const uint8_t *data, size_t size, size_t *consu
             if (l->marker_used == 6) l->state = IAP2_LINK_SYNCHRONIZE;
         } else {
             iap2_frame frame; size_t used;
+            size_t discarded = l->stream.discarded;
+            if (l->config.profile == IAP2_LINK_STREAM_NO_ACK && l->state == IAP2_LINK_NORMAL) {
+                unsigned i;
+                for (i = 0; i < IAP2_LINK_SLOTS && l->rx[i].used; ++i) {}
+                if (i == IAP2_LINK_SLOTS) return IAP2_LINK_BUSY;
+            }
             status = iap2_stream_push(&l->stream, data + *consumed, size - *consumed, &used, &frame);
             *consumed += used;
+            if (l->config.profile == IAP2_LINK_STREAM_NO_ACK && l->state == IAP2_LINK_NORMAL &&
+                (l->stream.discarded != discarded || (status != IAP2_OK && status != IAP2_MORE))) {
+                die(l, IAP2_LINK_REASON_STREAM); return IAP2_LINK_CLOSED;
+            }
             if (status == IAP2_MORE) return IAP2_OK;
             if (status == IAP2_NO_SPACE) { die(l, IAP2_LINK_REASON_OVERSIZE); return IAP2_LINK_CLOSED; }
             if (status) return status;
-            status = process(l, &frame); if (status) return status;
+            status = process(l, &frame);
+            if (status && l->config.profile == IAP2_LINK_STREAM_NO_ACK && l->state == IAP2_LINK_NORMAL) {
+                die(l, IAP2_LINK_REASON_STREAM); return IAP2_LINK_CLOSED;
+            }
+            if (status) return status;
         }
     }
     return IAP2_OK;
@@ -289,7 +330,7 @@ int iap2_link_output(iap2_link *l, uint8_t *out, size_t capacity, size_t *writte
     }
     if (l->state == IAP2_LINK_SYNCHRONIZE && (!l->syn_sent || now - l->syn_at >= 500)) {
         uint8_t payload[IAP2_LINK_LSP_LIMIT]; size_t n;
-        status = iap2_lsp_encode(&l->config.offer, payload, sizeof payload, &n); if (status) return status;
+        status = iap2_lsp_encode_profile(&l->config.offer, payload, sizeof payload, &n, l->config.profile); if (status) return status;
         status = emit(l, SYN, l->config.initial_sequence, 0, payload, n, 1, out, capacity, written);
         if (!status) { l->syn_sent = 1; l->syn_at = now; }
         return status;
@@ -309,7 +350,14 @@ int iap2_link_output(iap2_link *l, uint8_t *out, size_t capacity, size_t *writte
             p = &l->tx[(l->tx_head + l->tx_sent) % IAP2_LINK_SLOTS];
             status = emit(l, ACK, (uint8_t)(l->tx_sequence + 1u), p->session, p->data, p->size,
                           1, out, capacity, written);
-            if (!status) { p->sequence = ++l->tx_sequence; p->sent_at = now; ++l->tx_sent; ack_sent(l); }
+            if (!status) {
+                p->sequence = ++l->tx_sequence; p->sent_at = now; ack_sent(l);
+                if (l->config.profile == IAP2_LINK_STREAM_NO_ACK) {
+                    /* Lower transport owns this complete emitted frame now. No
+                     * peer-ACK claim and no copy retained for retransmission. */
+                    p->used = 0; l->tx_head = (uint8_t)((l->tx_head + 1u) % IAP2_LINK_SLOTS); --l->tx_count;
+                } else ++l->tx_sent;
+            }
             return status;
         }
     }

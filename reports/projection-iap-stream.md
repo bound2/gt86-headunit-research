@@ -7,6 +7,10 @@ Follow-up: [Step 94](projection-iap-services.md) adds the actual Windows session
 socket, explicit relay interface and encrypted event-return integration tests.
 The missing-socket statements below describe the Step 93 checkpoint. A live
 application binding and factory integration remain unimplemented.
+The [Step 95 consumer trace](iap-stream-profile.md) establishes that the selected
+reference's opaque tunnel bodies carry iAP2 link framing. Wireless uses a new
+separate link; active matching wired carkit blocks the tunnel. Neither route
+permits an implicit reset or blind reuse of an existing wired session.
 
 ## Result and scope
 
