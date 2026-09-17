@@ -858,9 +858,16 @@ wrapper. The independent wire check now covers 1,480 decoded frames across 18
 variants. Pinned CarPlay source does not establish sender presentation timestamps;
 classic AirPlay's different timestamp/epoch/cipher path is not adopted by analogy.
 
+The [encrypted iAP DataStream input](reports/projection-iap-stream.md) now
+authenticates and assembles type-130 packages with explicit ownership, deadlines
+and cleanup. Nine new groups and six independent wire cases cover fragmented
+records through the 4 MiB package bound. It is not yet a session socket provider
+or live iAP relay, and does not reset an existing USB/authentication session.
+
 The optional video build now includes the existing pinned Monocypher and Mbed
-TLS dependencies alongside OpenH264. All 48 CTest suites and eight video sanitizer
-suites pass. It does not enable receiver capabilities or touch hardware:
+TLS dependencies alongside OpenH264. All 49 CTest suites pass; the separate iAP
+sanitizer/ARM check and earlier eight video sanitizer suites are documented in
+their respective reports. It does not enable receiver capabilities or touch hardware:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayVideo.ps1

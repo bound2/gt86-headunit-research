@@ -679,3 +679,16 @@ or run. It is not a new receiver dependency and its different AirPlay media
 profile is not treated as CarPlay wire authority. The exact source/blob pins,
 reproduction and limitations are in
 [projection-video-clock.md](../reports/projection-video-clock.md).
+
+## Encrypted iAP DataStream input (Step 93)
+
+The local receive owner, tests and independent wire checker select GPL-3.0-only.
+The existing GPL-3.0 LIVI reference at
+`a76553fc941dcf378dd55c04da56aaf3d6911e08` supplies the type-130 receive framing,
+`comm` discriminator and separate event-channel return path. Exact file/blob
+pins and boundaries are in [projection-iap-stream.md](../reports/projection-iap-stream.md).
+No additional upstream implementation body is copied and no vendor binary or
+owner phone data is included. Existing pinned Monocypher provides receiver crypto;
+the independent check reuses test-only PyCA 50.0.1. No new dependency is downloaded.
+The separate five-unit ARM link requires four explicit compiler-runtime helpers;
+it is not a QNX process or an expansion of the import-free core claim.
