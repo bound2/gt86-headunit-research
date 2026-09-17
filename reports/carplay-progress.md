@@ -97,6 +97,11 @@ that tunnel. Its live wireless binding remains missing; it is not a substitute
 for the wired path's separate USB-network interface. Incoming control can be
 delivered before RECORD only to an explicitly prepared relay; that local policy
 is not proof of the reference's or a phone's application readiness.
+Step 96 finds a [native factory NCM driver and a separate IPv6 gap](factory-usb-network.md):
+the later scripts load `devnp-ncm.so`, but the selected `io-pkt-v4-hc` executable
+has no built-in IPv6 domain. USB descriptor association, parameter requests and
+the actual network-domain table are now pinned and checked offline. They do not
+establish phone compatibility or a native wired interface on installed 6.9.0WL.
 Optional typed control feedback
 now reports owned audio descriptors and fresh observed playback anchors using
 the real timing clock, with seven independently decoded output states. No
@@ -3729,6 +3734,33 @@ native QNX interface/IPv6 ownership, rather than treating the optional tunnel
 as a required wired application handoff. Exact source pins, behavior differences,
 tests and reproduction are in [iap-stream-profile.md](iap-stream-profile.md).
 
+## Step 96 - Find native NCM and verify the factory IPv6 gap
+
+The later factory firmware already contains `devnp-ncm.so`; both the connectivity
+and Bluetooth-recovery scripts include a `pnp` load. Static ARM analysis follows
+the standard class/subclass checks, CDC Union association, separate control/data
+pipe selection and six NCM parameter requests. These are a reuse candidate, not
+proof that the driver handles a real phone's descriptors or initialization errors.
+
+The configured `io-pkt-v4-hc` binary's actual `domaininit` linker set contains six
+domains and no IPv6 domain. The IFS inventory includes symlink targets and no
+v6-stack path/alias, but does not enumerate all MMC contents or the installed unit.
+An NCM codec alone cannot fill the missing native IPv6/listener path. Do not
+replace the factory stack or treat the optional iAP tunnel as a wired AV link.
+
+The new offline inspector verifies six pinned inputs, selected native words and
+call targets, and the real domain objects/table consumer. Nine new regression
+tests pass; full Python discovery now passes **101 tests**, and the existing
+Release CTest build passes **50/50 suites**. Receiver C/C++ code and vendor
+inputs are unchanged. No USB API, firmware update or on-car operation
+is performed. Full details and reproduction are in
+[factory-usb-network.md](factory-usb-network.md).
+
+Next trace native insertion/removal and interface ownership, then investigate
+whether a matching, isolated IPv6 runtime is available outside the IFS corpus.
+Actual execution/recovery, target build, MFi, factory media and phone acceptance
+remain unresolved; this step does not produce an installable CarPlay update.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3809,8 +3841,11 @@ tests and reproduction are in [iap-stream-profile.md](iap-stream-profile.md).
    Step 95 traces that consumer: wireless tunnel bytes are link frames for a
    separate session; active matching wired carkit blocks that tunnel. Its explicit
    version-2/zero-ACK stream profile now works through the carkit bridge in tests.
-   Next trace the separate wired USB-network/NCM path and native QNX interface/
-   IPv6 ownership. Do not use the optional tunnel as a wired network substitute.
+   Step 96 finds the factory NCM driver and its descriptor/request boundaries,
+   but the selected stack has no built-in IPv6 domain. Next trace insertion/
+   removal and interface ownership, and check outside the IFS corpus for a
+   compatible IPv6 runtime. Do not use the optional tunnel as a wired network
+   substitute or assume a second NCM implementation would supply the IP stack.
    A later wireless owner needs explicit identity/readiness around RECORD and
    the alternate incoming event route, without resetting active wired state.
    Keep the event-channel return path separate; a package must not be mistaken

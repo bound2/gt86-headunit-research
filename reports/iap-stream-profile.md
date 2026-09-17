@@ -198,6 +198,12 @@ address must become a real owned interface/listener before it is advertised.
 Do not substitute the optional type-130 socket or a PC network address for that
 missing physical path. Existing factory USB/HID handling is not proof of NCM.
 
+Follow-up: [Step 96](factory-usb-network.md) identifies a separately shipped native
+NCM driver and its descriptor/parameter path. The selected factory stack has no
+built-in IPv6 domain. Next audit driver insertion/removal and interface ownership,
+then determine whether a compatible isolated IPv6 runtime is available; the
+physical interface and listener remain unimplemented.
+
 A future wireless tunnel owner would separately need explicit phone/transport
 ownership, link/control startup at the correct RECORD lifecycle, bounded event
 output completion and actual providers. The new profile enables its link behavior

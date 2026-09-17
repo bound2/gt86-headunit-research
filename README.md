@@ -875,8 +875,14 @@ opt-in now supports that profile through the existing carkit/TLS bridge without
 changing defaults. There are 21 link and seven carkit integration groups. Actual
 wired AV still needs the separate USB-network interface and native factory backend.
 
+The [factory wired-network trace](reports/factory-usb-network.md) finds a shipped
+NCM driver, its startup references and selected USB descriptor/parameter paths.
+The selected factory IPv4 stack has no built-in IPv6 domain; native IPv6 and
+phone-associated interface ownership remain unresolved. Nine offline tests
+verify this evidence, not installed-unit compatibility or a working CarPlay link.
+
 The optional video build now includes the existing pinned Monocypher and Mbed
-TLS dependencies alongside OpenH264. All 50 CTest suites and 92 Python tests pass;
+TLS dependencies alongside OpenH264. All 50 CTest suites and 101 Python tests pass;
 Step 95 passes 18 protocol and three TLS/carkit sanitizer suites. Step 94's
 expanded video/iAP sanitizer run passed 10 suites. Independent encrypted-input
 checks pass through both the memory owner and real TCP service. The earlier
