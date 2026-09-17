@@ -888,8 +888,17 @@ paths can reset pending counters, so neither establishes durable session identit
 or completed transfer drain. Seventeen new tests cover these selected boundaries
 and evidence limits. Actual USB coexistence and an IPv6 runtime remain unresolved.
 
+The [USB ownership follow-up](reports/factory-usb-ownership.md) verifies selected
+interface-granular conflict checks in both the factory server and client library.
+It also traces removal deferral and callback-before-counter-retirement ordering,
+and replays abort/close/detach lifetime boundaries. An abort return is not a drain;
+a detach command error can still consume local handles. Nineteen new tests cover
+these boundaries, not live hardware cancellation or factory service coexistence.
+The earlier NCM timeout stores affect separate private counters; they are not by
+themselves evidence of a failed normal-removal path.
+
 The optional video build now includes the existing pinned Monocypher and Mbed
-TLS dependencies alongside OpenH264. All 50 CTest suites and 118 Python tests pass;
+TLS dependencies alongside OpenH264. All 50 CTest suites and 137 Python tests pass;
 Step 95 passes 18 protocol and three TLS/carkit sanitizer suites. Step 94's
 expanded video/iAP sanitizer run passed 10 suites. Independent encrypted-input
 checks pass through both the memory owner and real TCP service. The earlier

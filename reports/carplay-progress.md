@@ -3789,6 +3789,36 @@ association, while establishing a matching IPv6 runtime/build route. Native
 execution/recovery, MFi, media integration and phone acceptance remain necessary;
 no installable CarPlay update has been produced.
 
+## Step 98 - Verify interface claims and USB callback lifetime
+
+Traced the actual factory USB server's attach dispatcher through instance
+resolution to its conflict checker. Bounded execution of both server and library
+checkers verifies an exclusive key of path/device/generation plus interface,
+including same-client duplicates and non-head matches. Different interfaces can
+pass this check; it does not establish device-wide configuration compatibility
+or coexistence with the factory Apple services. Synthetic resolved nodes are not
+treated as accepted server requests.
+
+The library's pending-I/O helper defers removal and rejects new I/O after removal.
+Static event-thread tracing shows transfer callbacks run before pipe/device
+counter retirement. Native wrapper replay establishes that an abort command
+return does not retire those counts, while early busy close/detach preserves
+handles. After the early check, detach disposes local handles even on a command
+error; injected identical busy statuses demonstrate why the integer alone is
+not a complete lifetime contract. Hardware cancellation and races are not replayed.
+
+This refines Step 97: NCM-private timeout resets are distinct from library counters,
+and normal removal has another deferral layer. No live use-after-free or complete
+cancellation guarantee is claimed. The two shipped USB library copies differ only
+in selected ELF physical-address fields; NCM explicitly depends on `libusbdi.so.2`.
+
+All **19 new tests, 137 Python tests and 50 Release CTest suites pass**. The
+read-only tools, exact native boundaries, pins, reproduction and limitations are
+in [factory-usb-ownership.md](factory-usb-ownership.md). Receiver C/C++ and vendor
+inputs are unchanged. Next trace stock interface/device association and establish
+the matching IPv6 runtime/build route, then use the verified lifetime constraints
+in a native adapter. CarPlay is not yet implemented on the actual unit.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3873,8 +3903,11 @@ no installable CarPlay update has been produced.
    but the selected stack has no built-in IPv6 domain. Step 97 replays insertion/
    removal selection and traces separate USB connections, `pnp` retention and
    abort timeout counter resets; its outer ISO audit finds no named IPv6 stack.
-   Next establish USB claim/cancellation guarantees, stock interface/device
-   association and a matching IPv6 runtime/build route. Do not use the optional
+   Step 98 verifies selected interface-granular conflict checks and library
+   removal deferral, callback-before-retirement ordering and detach error/lifetime
+   distinctions. Live cancellation and device-wide configuration coexistence
+   remain unverified. Next establish stock interface/device association and a
+   matching IPv6 runtime/build route. Do not use the optional
    tunnel as a wired network
    substitute or assume a second NCM implementation would supply the IP stack.
    A later wireless owner needs explicit identity/readiness around RECORD and

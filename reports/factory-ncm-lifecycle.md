@@ -201,3 +201,14 @@ Installed-version execution/recovery, native build, MFi, factory display/input/
 audio integration and actual phone acceptance remain open in the
 [factory integration gates](factory-integration-gates.md). This is not an
 installable software-only CarPlay update yet.
+
+## Step 98 follow-up - Library/server ownership and retirement
+
+[The subsequent USB trace](factory-usb-ownership.md) verifies interface-granular
+conflict checks in both library and server after instance resolution. It also
+finds library-level removal deferral and transfer-callback-before-counter-retirement
+ordering. Those library counts are distinct from the NCM-private timeout stores
+above; the stores alone do not demonstrate a failed normal-removal path. Abort
+return still does not establish callback drain, and detach command errors can
+consume local handles. Actual hardware cancellation, configuration coexistence
+and phone-associated interface readiness remain unverified.
