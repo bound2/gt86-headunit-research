@@ -77,7 +77,13 @@ def check(executable: Path) -> None:
                              capture_output=True, timeout=10)
         if not run.returncode or run.stdout:
             raise RuntimeError("Corrupted input was accepted or exposed plaintext")
-    print(f"PASS: {cases} independent wire cases / {total} delivered body bytes; 3 tamper cases rejected")
+    complete = records(package(b"partial"), (16384,))
+    for truncated in (complete[:1], complete[:-1], records(package(b"partial")[:-1], (16384,))):
+        run = subprocess.run([str(executable.resolve()), "--wire-stdin"], input=truncated,
+                             capture_output=True, timeout=10)
+        if not run.returncode or run.stdout:
+            raise RuntimeError("Truncated record/package was accepted or exposed a body")
+    print(f"PASS: {cases} independent wire cases / {total} delivered body bytes; 3 tamper and 3 truncation cases rejected")
 
 
 if __name__ == "__main__":

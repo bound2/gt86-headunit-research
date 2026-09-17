@@ -3,6 +3,11 @@
 Date: 2026-09-17. Continues the [clock/configuration review](projection-video-clock.md)
 and [session resource owner](projection-session.md).
 
+Follow-up: [Step 94](projection-iap-services.md) adds the actual Windows session
+socket, explicit relay interface and encrypted event-return integration tests.
+The missing-socket statements below describe the Step 93 checkpoint. A live
+application binding and factory integration remain unimplemented.
+
 ## Result and scope
 
 The receiver now has a bounded, receive-only C99 input layer for the iAP

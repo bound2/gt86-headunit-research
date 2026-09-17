@@ -861,13 +861,19 @@ classic AirPlay's different timestamp/epoch/cipher path is not adopted by analog
 The [encrypted iAP DataStream input](reports/projection-iap-stream.md) now
 authenticates and assembles type-130 packages with explicit ownership, deadlines
 and cleanup. Nine new groups and six independent wire cases cover fragmented
-records through the 4 MiB package bound. It is not yet a session socket provider
-or live iAP relay, and does not reset an existing USB/authentication session.
+records through the 4 MiB package bound. The [session-owned iAP TCP service](reports/projection-iap-services.md)
+now connects it to real IPv4/IPv6 sockets, explicit relay callbacks, media
+delegation and teardown. Encrypted event-return tests preserve the RECORD gate.
+The live application binding remains missing; no existing USB/authentication
+session is reset. Pre-RECORD inbound delivery requires an explicitly prepared
+relay and is a local policy, not established phone behavior.
 
 The optional video build now includes the existing pinned Monocypher and Mbed
-TLS dependencies alongside OpenH264. All 49 CTest suites pass; the separate iAP
-sanitizer/ARM check and earlier eight video sanitizer suites are documented in
-their respective reports. It does not enable receiver capabilities or touch hardware:
+TLS dependencies alongside OpenH264. All 50 CTest suites and 88 Python tests pass;
+the expanded video/iAP sanitizer run passes 10 suites. Independent encrypted-input
+checks pass through both the memory owner and real TCP service. The earlier
+separate iAP ARM check does not cover the Windows socket implementation.
+The build does not enable receiver capabilities or touch hardware:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CarPlayVideo.ps1

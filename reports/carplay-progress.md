@@ -86,7 +86,11 @@ explicit request handling and typed HID/Siri/night/iAP/keyframe encoders, with
 six pure groups and expanded real-socket tests. Step 93 adds a separate
 [encrypted iAP DataStream input owner](projection-iap-stream.md), with nine
 groups, full adapter/crypto sanitizer coverage and six independently generated
-wire cases. Its real session socket and application relay remain unconnected.
+wire cases. Step 94 adds a [session-owned Windows TCP service](projection-iap-services.md),
+explicit relay callbacks, other-media delegation and real encrypted event-return
+tests. The live application binding remains missing. Incoming control can be
+delivered before RECORD only to an explicitly prepared relay; that local policy
+is not proof of the reference's or a phone's application readiness.
 Optional typed control feedback
 now reports owned audio descriptors and fresh observed playback anchors using
 the real timing clock, with seven independently decoded output states. No
@@ -174,9 +178,9 @@ strict opt-in source colour/SAR rendering and 40 further independently verified
 readbacks. Step 92 fixes [empty/repeated configuration and the reserved AVC
 wrapper](projection-video-clock.md), preserving decoder history, queued pictures,
 counters and deadlines. The independent wire check now covers 1,480 frames across
-18 variants. With Step 93, all 49 optional-video CTest suites and 88 Python tests
-pass; the new iAP sanitizer/ARM check is separate from Step 92's eight passing
-video sanitizer suites. The pinned CarPlay reader does not propagate sender time;
+18 variants. With Step 94, all 50 optional-video CTest suites and 88 Python tests
+pass; the expanded video/iAP ASan/UBSan run passes 10 suites. The separate Step 93
+C99 ARM check does not cover the new Windows service. The pinned CarPlay reader does not propagate sender time;
 the different UxPlay media profile is not a verified substitute for its clock.
 No factory renderer or ARM/QNX decoder build is supplied. These results do not
 establish a working CarPlay receiver or a demonstrated recovery method.
@@ -3648,6 +3652,43 @@ reverse traffic belongs on the existing event command path, not this receive
 socket. Full pins, contracts, reproduction and limitations are in
 [projection-iap-stream.md](projection-iap-stream.md).
 
+## Step 94 - Bind encrypted iAP input to session-owned TCP
+
+Added a Windows type-130 provider with an exclusive ephemeral listener, one
+matching-peer connection, authenticated input ownership and explicit relay
+callbacks. Other audio/video providers retain translated leases and polling;
+audio playback/FLUSH stays audio-only. Fatal input/callback/delegate errors close
+all child resources, and the integrated receiver retires its root/control state.
+Partial TEARDOWN preserves unrelated resources. No socket output, reconnect or
+old-key counter reset is introduced.
+
+The source review distinguishes an ungated receive callback from application
+readiness: the pinned reference opens its helper relay in RECORD. Our adapter
+permits earlier incoming control only after an explicit prepared-route open.
+This is local lifecycle policy, not verified phone behavior. Reverse traffic
+uses the separate event command owner and remains gated by RECORD reply drain.
+No new USB link or authentication exchange is started by the service.
+
+All 50 CTest suites, 88 Python tests, 10 expanded video/iAP sanitizer suites and
+20 repeated new socket-suite runs pass. Seven new groups include IPv4/IPv6,
+wrong peers, real listener closure, partial/coalesced/empty input, absolute
+budgets, callback backpressure, clean/truncated EOF, media delegation and actual
+audio UDP beside a busy relay. Four receiver scenarios cover pairing, synthetic
+MFi, session lifecycle, encrypted return commands/replies, tag failure, rejected
+seed reuse and a fresh-key replacement. Final applications/devices remain synthetic.
+
+Independent PyCA checks now pass through both the memory owner and real TCP:
+six wire cases / 4,523,217 body bytes per executable, with three tamper and three
+truncation cases rejected without body output. Test-development timing assumptions
+were corrected by waiting for observed listener/receive state before asserting
+or advancing a fake clock. They were not demonstrated production timer defects.
+
+The live application/message handoff and incoming event-command relay are next;
+the callback test does not implement those. No QNX socket backend, physical
+USB/MFi/display/audio/input integration or installation path is supplied.
+Step-by-step evidence and commands are in
+[projection-iap-services.md](projection-iap-services.md). No vehicle was touched.
+
 ## Next checks
 
 1. Step 89 connects the video-input layer to peer-bound single-connection TCP,
@@ -3723,10 +3764,12 @@ socket. Full pins, contracts, reproduction and limitations are in
    memory-input video processing and Step 89 connects its real Windows TCP/session
    service. Step 90 adds Windows GDI output; factory video output, sender video
    timing and a QNX socket backend remain missing. Step 93 adds memory-input iAP
-   DataStream processing; next bind a peer-pinned type-130 socket provider with
-   explicit application relay ownership and teardown, preserving other media
-   delegation. Keep the event-channel return path separate; a package must not
-   be mistaken for a complete iAP message or a new reliable-link connection.
+   DataStream processing; Step 94 connects the peer-pinned Windows type-130 socket
+   provider with explicit relay callbacks, teardown and other-media delegation.
+   Next trace the helper's tunnel consumer and implement the owned application
+   handoff, identity/readiness around RECORD and alternate incoming event route.
+   Keep the event-channel return path separate; a package must not be mistaken
+   for a complete iAP message or a new reliable-link connection.
    Step 62 adds
    typed session/resource ownership and key derivation, with strict capability/
    state gates, lease cleanup and reply-drain/start handling. Media allocation
